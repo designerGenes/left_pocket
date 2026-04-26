@@ -257,6 +257,26 @@ pub enum Commands {
         #[arg(value_name = "SHELL")]
         shell: ShellChoice,
     },
+
+    /// Manage git worktrees that share this safe pocket
+    ///
+    /// Worktrees are additional project directories (typically git worktrees of
+    /// the same repo) that share the same safe pocket — meaning the same copilot
+    /// instructions, FEATURES notes, and observations apply to all of them.
+    ///
+    ///   # Register a worktree to share the pocket for the current directory
+    ///   spocket worktree add ~/dev/my-project-feature-x
+    ///
+    ///   # Remove a previously registered worktree
+    ///   spocket worktree remove ~/dev/my-project-feature-x
+    ///
+    ///   # List all worktrees sharing this pocket
+    ///   spocket worktree list
+    #[command(name = "worktree")]
+    Worktree {
+        #[command(subcommand)]
+        action: WorktreeAction,
+    },
 }
 
 // ── Shell choice enum ─────────────────────────────────────────────────────────
@@ -281,4 +301,35 @@ impl From<ShellChoice> for Shell {
             ShellChoice::Elvish => Shell::Elvish,
         }
     }
+}
+
+// ── Worktree subcommand actions ───────────────────────────────────────────────
+
+#[derive(Subcommand, Debug)]
+pub enum WorktreeAction {
+    /// Register a worktree directory to share this pocket
+    ///
+    /// Run this from inside the main project directory (or any directory that
+    /// already belongs to a pocket). Spocket will also suggest any git worktrees
+    /// it detects in the same repo if PATH is not provided explicitly.
+    ///
+    ///   spocket worktree add ~/dev/my-project-feature-x
+    #[command(name = "add")]
+    Add {
+        #[arg(value_name = "PATH")]
+        path: Option<String>,
+    },
+
+    /// Unregister a worktree directory from this pocket
+    ///
+    ///   spocket worktree remove ~/dev/my-project-feature-x
+    #[command(name = "remove")]
+    Remove {
+        #[arg(value_name = "PATH")]
+        path: String,
+    },
+
+    /// List all worktrees registered to this pocket
+    #[command(name = "list")]
+    List,
 }

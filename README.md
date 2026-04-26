@@ -208,13 +208,14 @@ spocket -i myproject --verbose
     └── abc123def456.code-workspace
 
 ~/.safe_pocket/
-└── registry/
-    └── aliases.json           # Alias registry
+├── aliases                    # Shared alias registry
+├── registry_cache.json        # Safe pocket registry cache
+└── observations/              # Global observations shared across pockets
 ```
 
 ## Configuration
 
-Configuration is stored at `~/.safe_pocket/registry/aliases.json`:
+Aliases are stored at `~/.safe_pocket/aliases`:
 
 ```json
 {

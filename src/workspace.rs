@@ -8,6 +8,7 @@ use std::process::Command;
 
 use crate::hash::hash_paths;
 use crate::manifest::Manifest;
+use crate::registry::{self, RegistryEntry};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct VSCodeWorkspace {
@@ -48,10 +49,7 @@ pub struct Workspace {
 
 impl Workspace {
     pub fn spocket_dir() -> Result<PathBuf> {
-        let home = dirs::home_dir().context("Failed to get home directory")?;
-        let dir = home.join(".safe_pocket");
-        fs::create_dir_all(&dir).context("Failed to create safe pocket storage directory")?;
-        Ok(dir)
+        registry::registry_dir()
     }
 
     fn legacy_spocket_dir() -> Result<PathBuf> {
@@ -182,8 +180,7 @@ impl Workspace {
         let global_obs = crate::template::global_observations_dir().unwrap_or_else(|_| {
             dirs::home_dir()
                 .unwrap_or_else(|| PathBuf::from("/"))
-                .join(".config")
-                .join("safe_pocket")
+                .join(".safe_pocket")
                 .join("observations")
         });
 
@@ -727,6 +724,7 @@ impl Workspace {
         if target_workspace.pocket_dir.exists() {
             fs::remove_dir_all(&target_workspace.pocket_dir)
                 .context("Failed to remove existing target pocket")?;
+            crate::registry::remove_pocket(&target_workspace.pocket_dir)?;
         }
 
         copy_dir_all(&source_workspace.pocket_dir, &target_workspace.pocket_dir)
@@ -759,61 +757,7 @@ impl Workspace {
     }
 
     pub fn find_workspace_containing(path: &Path) -> Result<Option<Self>> {
-        let spocket_dir = Self::spocket_dir()?;
-
-        let entries =
-            fs::read_dir(&spocket_dir).context("Failed to read safe pocket storage directory")?;
-
-        // Collect all matching pockets; prefer ones where all core_paths exist on disk.
-        let mut best: Option<(Self, bool)> = None; // (workspace, all_paths_exist)
-
-        for entry in entries {
-            let entry = entry?;
-            let pocket_dir = entry.path();
-
-            if !pocket_dir.is_dir() {
-                continue;
-            }
-
-            // Use manifest-based lookup
-            let (_, core_paths) = match Self::load_manifest_or_backfill(&pocket_dir)? {
-                Some(result) => result,
-                None => continue,
-            };
-
-            let hash = pocket_dir
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("")
-                .to_string();
-
-            // Check if any folder matches the path
-            let matches = core_paths.iter().any(|cp| cp == path);
-            if matches {
-                let all_exist = core_paths.iter().all(|cp| cp.exists());
-                let candidate = Self {
-                    hash,
-                    core_paths,
-                    sidecar_paths: vec![],
-                    pocket_dir,
-                    create_readmes: false,
-                };
-
-                match &best {
-                    None => {
-                        best = Some((candidate, all_exist));
-                    }
-                    Some((_, prev_all_exist)) => {
-                        // Prefer the pocket where all core paths exist on disk
-                        if all_exist && !prev_all_exist {
-                            best = Some((candidate, all_exist));
-                        }
-                    }
-                }
-            }
-        }
-
-        Ok(best.map(|(ws, _)| ws))
+        find_best_cached_workspace(|entry| entry.all_paths().any(|cp| cp == path))
     }
 
     /// Find the workspace that "owns" the current directory.
@@ -842,58 +786,10 @@ impl Workspace {
             }
         }
 
-        // Check 2: Is CWD inside (or equal to) any workspace's core_paths?
-        // Collect all matches; prefer ones where all core_paths exist on disk.
-        let entries =
-            fs::read_dir(&spocket_dir).context("Failed to read safe pocket storage directory")?;
-
-        let mut best: Option<(Self, bool)> = None; // (workspace, all_paths_exist)
-
-        for entry in entries {
-            let entry = entry?;
-            let pocket_dir = entry.path();
-
-            if !pocket_dir.is_dir() {
-                continue;
-            }
-
-            let (_, core_paths) = match Self::load_manifest_or_backfill(&pocket_dir)? {
-                Some(result) => result,
-                None => continue,
-            };
-
-            let hash = pocket_dir
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("")
-                .to_string();
-
-            let matches = core_paths.iter().any(|cp| cwd == cp || cwd.starts_with(cp));
-            if matches {
-                let all_exist = core_paths.iter().all(|cp| cp.exists());
-                let candidate = Self {
-                    hash,
-                    core_paths,
-                    sidecar_paths: vec![],
-                    pocket_dir,
-                    create_readmes: false,
-                };
-
-                match &best {
-                    None => {
-                        best = Some((candidate, all_exist));
-                    }
-                    Some((_, prev_all_exist)) => {
-                        // Prefer the pocket where all core paths exist on disk
-                        if all_exist && !prev_all_exist {
-                            best = Some((candidate, all_exist));
-                        }
-                    }
-                }
-            }
-        }
-
-        Ok(best.map(|(ws, _)| ws))
+        // Check 2: Is CWD inside (or equal to) any workspace's registered paths?
+        find_best_cached_workspace(|entry| {
+            entry.all_paths().any(|cp| cwd == cp || cwd.starts_with(cp))
+        })
     }
 
     /// Secondary lookup: scan all pocket manifests for one whose current `hash`
@@ -901,38 +797,10 @@ impl Workspace {
     /// in-place (via sync or augment) and the directory name no longer matches.
     pub fn find_workspace_by_manifest_paths(target_paths: &[PathBuf]) -> Result<Option<Self>> {
         let target_hash = hash_paths(target_paths);
-        let spocket_dir = Self::spocket_dir()?;
 
-        let entries =
-            fs::read_dir(&spocket_dir).context("Failed to read safe pocket storage directory")?;
-
-        for entry in entries {
-            let entry = entry?;
-            let pocket_dir = entry.path();
-
-            if !pocket_dir.is_dir() {
-                continue;
-            }
-
-            let manifest = match Manifest::load(&pocket_dir)? {
-                Some(m) => m,
-                None => continue,
-            };
-
-            if manifest.hash == target_hash {
-                let dir_name = pocket_dir
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .unwrap_or("")
-                    .to_string();
-
-                return Ok(Some(Self {
-                    hash: dir_name,
-                    core_paths: manifest.core_paths,
-                    sidecar_paths: vec![],
-                    pocket_dir,
-                    create_readmes: false,
-                }));
+        for entry in registry::load_cache_or_rebuild()?.pockets {
+            if entry.manifest_hash == target_hash || hash_paths(&entry.core_paths) == target_hash {
+                return Ok(Some(workspace_from_registry_entry(entry)));
             }
         }
 
@@ -940,47 +808,11 @@ impl Workspace {
     }
 
     pub fn list_all() -> Result<Vec<Self>> {
-        let spocket_dir = Self::spocket_dir()?;
-
-        let mut workspaces = Vec::new();
-
-        let entries =
-            fs::read_dir(&spocket_dir).context("Failed to read safe pocket storage directory")?;
-
-        for entry in entries {
-            let entry = entry?;
-            let pocket_dir = entry.path();
-
-            if !pocket_dir.is_dir() {
-                continue;
-            }
-
-            // Require a workspace file to exist
-            if Self::find_workspace_file(&pocket_dir).is_none() {
-                continue;
-            }
-
-            let (_, core_paths) = match Self::load_manifest_or_backfill(&pocket_dir)? {
-                Some(result) => result,
-                None => continue,
-            };
-
-            let hash = pocket_dir
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("")
-                .to_string();
-
-            workspaces.push(Self {
-                hash,
-                core_paths,
-                sidecar_paths: vec![],
-                pocket_dir,
-                create_readmes: false,
-            });
-        }
-
-        Ok(workspaces)
+        Ok(registry::load_cache_or_rebuild()?
+            .pockets
+            .into_iter()
+            .map(workspace_from_registry_entry)
+            .collect())
     }
 
     /// Calculate similarity between two sets of paths
@@ -1105,6 +937,43 @@ fn copy_dir_all(src: &Path, dst: &Path) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn find_best_cached_workspace<F>(matches: F) -> Result<Option<Workspace>>
+where
+    F: Fn(&RegistryEntry) -> bool,
+{
+    let mut best: Option<(Workspace, bool)> = None;
+
+    for entry in registry::load_cache_or_rebuild()?.pockets {
+        if !matches(&entry) {
+            continue;
+        }
+
+        let all_exist = entry.core_paths.iter().all(|cp| cp.exists());
+        let candidate = workspace_from_registry_entry(entry);
+
+        match &best {
+            None => best = Some((candidate, all_exist)),
+            Some((_, prev_all_exist)) => {
+                if all_exist && !prev_all_exist {
+                    best = Some((candidate, all_exist));
+                }
+            }
+        }
+    }
+
+    Ok(best.map(|(workspace, _)| workspace))
+}
+
+fn workspace_from_registry_entry(entry: RegistryEntry) -> Workspace {
+    Workspace {
+        hash: entry.hash,
+        core_paths: entry.core_paths,
+        sidecar_paths: vec![],
+        pocket_dir: entry.path,
+        create_readmes: false,
+    }
 }
 
 #[cfg(test)]

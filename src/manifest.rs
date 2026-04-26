@@ -23,6 +23,10 @@ pub struct Manifest {
     /// The original directory name hash. None means same as `hash`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub birth_hash: Option<String>,
+    /// Additional worktree directories that share this safe pocket.
+    /// Registered via `spocket worktree add <path>`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub worktrees: Vec<PathBuf>,
 }
 
 fn default_version() -> u32 {
@@ -71,10 +75,10 @@ impl Manifest {
             augmented_from: None,
             version: 1,
             birth_hash: None,
+            worktrees: Vec::new(),
         }
     }
 
-    /// Create a manifest for a cloned pocket (tracks parent lineage).
     pub fn new_cloned(hash: String, core_paths: Vec<PathBuf>, parent_hash: String) -> Self {
         Manifest {
             hash,
@@ -85,11 +89,20 @@ impl Manifest {
             augmented_from: None,
             version: 1,
             birth_hash: None,
+            worktrees: Vec::new(),
         }
     }
 
     /// Load manifest from a pocket directory. Returns None if no manifest exists (backwards compat).
     pub fn load(pocket_dir: &Path) -> Result<Option<Self>> {
+        Self::load_with_registry_update(pocket_dir, true)
+    }
+
+    pub(crate) fn load_without_registry_update(pocket_dir: &Path) -> Result<Option<Self>> {
+        Self::load_with_registry_update(pocket_dir, false)
+    }
+
+    fn load_with_registry_update(pocket_dir: &Path, update_registry: bool) -> Result<Option<Self>> {
         let manifest_path = pocket_dir.join(MANIFEST_FILE);
 
         if !manifest_path.exists() {
@@ -104,14 +117,23 @@ impl Manifest {
         let sanitized_paths = Self::sanitize_core_paths(manifest.core_paths.clone(), pocket_dir)?;
         if sanitized_paths != manifest.core_paths {
             manifest.core_paths = sanitized_paths;
-            manifest.save(pocket_dir)?;
+            if update_registry {
+                manifest.save(pocket_dir)?;
+            } else {
+                manifest.save_manifest_file(pocket_dir)?;
+            }
         }
 
         Ok(Some(manifest))
     }
 
-    /// Atomic write: write to tmp file then rename.
+    /// Atomic write: write to tmp file then update the registry cache.
     pub fn save(&self, pocket_dir: &Path) -> Result<()> {
+        self.save_manifest_file(pocket_dir)?;
+        crate::registry::upsert_pocket(pocket_dir, self)
+    }
+
+    fn save_manifest_file(&self, pocket_dir: &Path) -> Result<()> {
         let manifest_path = pocket_dir.join(MANIFEST_FILE);
         let tmp_path = pocket_dir.join(MANIFEST_TMP);
 
@@ -129,6 +151,22 @@ impl Manifest {
         if !self.children.contains(&child_hash) {
             self.children.push(child_hash);
         }
+    }
+
+    /// Register a worktree path (idempotent). Returns true if newly added.
+    pub fn add_worktree(&mut self, path: PathBuf) -> bool {
+        if self.worktrees.contains(&path) {
+            return false;
+        }
+        self.worktrees.push(path);
+        true
+    }
+
+    /// Unregister a worktree path. Returns true if it was present.
+    pub fn remove_worktree(&mut self, path: &Path) -> bool {
+        let before = self.worktrees.len();
+        self.worktrees.retain(|wt| wt != path);
+        self.worktrees.len() < before
     }
 
     /// Update paths in-place. Sets birth_hash on first change, updates hash and augmented_from.
@@ -154,6 +192,18 @@ impl Manifest {
     /// Backfill a manifest for an existing pocket that has no manifest.
     /// Recovers metadata from the workspace file (for paths) and dir mtime (for timestamp).
     pub fn backfill(pocket_dir: &Path, hash: &str) -> Result<Self> {
+        Self::backfill_with_registry_update(pocket_dir, hash, true)
+    }
+
+    pub(crate) fn backfill_without_registry_update(pocket_dir: &Path, hash: &str) -> Result<Self> {
+        Self::backfill_with_registry_update(pocket_dir, hash, false)
+    }
+
+    fn backfill_with_registry_update(
+        pocket_dir: &Path,
+        hash: &str,
+        update_registry: bool,
+    ) -> Result<Self> {
         // Try to read core_paths from the workspace file
         let workspace_file = pocket_dir.join(format!("{}.code-workspace", hash));
         let core_paths = if workspace_file.exists() {
@@ -198,9 +248,14 @@ impl Manifest {
             augmented_from: None,
             version: 1,
             birth_hash: None,
+            worktrees: Vec::new(),
         };
 
-        manifest.save(pocket_dir)?;
+        if update_registry {
+            manifest.save(pocket_dir)?;
+        } else {
+            manifest.save_manifest_file(pocket_dir)?;
+        }
 
         Ok(manifest)
     }

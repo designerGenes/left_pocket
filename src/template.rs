@@ -28,7 +28,7 @@ pub struct TemplateContext {
     pub project_root: PathBuf,
     /// Short name of the safe pocket (the directory basename / hash).
     pub spocket_name: String,
-    /// Absolute path to the global observations directory (`~/.config/safe_pocket/observations`).
+    /// Absolute path to the global observations directory (`~/.safe_pocket/observations`).
     pub global_observations_path: PathBuf,
 }
 
@@ -55,7 +55,8 @@ pub struct Template {
     pub content: String,
     /// If true, merge with existing file rather than overwriting.
     pub quiet_merge: bool,
-    /// If true, content is injected into the destination file at runtime (VS Code open/close)
+    /// If true, an empty destination file is placed at creation and content is
+    /// injected at runtime (VS Code open/close)
     /// wrapped in `#SPOCKET_RUNTIME_CONTENT_START` / `#SPOCKET_RUNTIME_CONTENT_END` markers.
     pub merge_at_runtime: bool,
     /// Original source file path (for diagnostics).
@@ -243,11 +244,9 @@ pub fn templates_dir() -> Result<PathBuf> {
 }
 
 /// Returns the path to the global observations directory
-/// (`$HOME/.config/safe_pocket/observations`), creating it if necessary.
+/// (`$HOME/.safe_pocket/observations`), creating it if necessary.
 pub fn global_observations_dir() -> Result<PathBuf> {
-    let dir = safe_pocket_config_dir()?.join("observations");
-    fs::create_dir_all(&dir).context("Failed to create global observations directory")?;
-    Ok(dir)
+    crate::registry::global_observations_dir()
 }
 
 /// Ensure the default assets exist in the user's config directory.
@@ -260,12 +259,8 @@ pub fn ensure_default_assets() -> Result<()> {
     let prompts_dir = tmpl_dir.join("prompts");
     fs::create_dir_all(&prompts_dir).context("Failed to create templates/prompts directory")?;
 
-    // Ensure global observations directory exists
-    let observations_dir = config_dir.join("observations");
-    if !observations_dir.exists() {
-        fs::create_dir_all(&observations_dir)
-            .context("Failed to create global observations directory")?;
-    }
+    // Ensure global observations directory exists in the registry, not config.
+    let _ = crate::registry::global_observations_dir()?;
 
     // Default template files
     let defaults: &[(&str, &str)] = &[
@@ -426,12 +421,19 @@ pub fn load_directory_structure(project_dir: Option<&Path>) -> Result<Vec<PathBu
 pub const RUNTIME_START_MARKER: &str = "#SPOCKET_RUNTIME_CONTENT_START";
 pub const RUNTIME_END_MARKER: &str = "#SPOCKET_RUNTIME_CONTENT_END";
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum TemplateApplyMode {
+    Create,
+    Upgrade,
+}
+
 fn strip_markers(content: &str) -> String {
-    let mut result = String::new();
+    let mut result = String::with_capacity(content.len());
     let mut in_block = false;
 
-    for line in content.lines() {
-        let trimmed = line.trim();
+    for line in content.split_inclusive('\n') {
+        let line_content = line.strip_suffix('\n').unwrap_or(line);
+        let trimmed = line_content.trim();
         if trimmed == RUNTIME_START_MARKER {
             in_block = true;
             continue;
@@ -442,16 +444,50 @@ fn strip_markers(content: &str) -> String {
         }
         if !in_block {
             result.push_str(line);
-            result.push('\n');
         }
     }
 
-    let trimmed_end = result.trim_end().to_string();
-    if trimmed_end.is_empty() {
-        trimmed_end
-    } else {
-        format!("{}\n", trimmed_end)
+    result
+}
+
+fn expand_runtime_variables_in_content(content: &str, ctx: &TemplateContext) -> String {
+    let mut result = String::with_capacity(content.len());
+
+    for line in content.split_inclusive('\n') {
+        let (line_content, newline) = match line.strip_suffix('\n') {
+            Some(stripped) => (stripped, "\n"),
+            None => (line, ""),
+        };
+
+        if line_content.starts_with("#SPOCKET") {
+            result.push_str(line_content);
+        } else {
+            result.push_str(&expand_variables(line_content, ctx));
+        }
+
+        result.push_str(newline);
     }
+
+    result
+}
+
+fn expand_runtime_variables_in_file(dest_path: &Path, ctx: &TemplateContext) -> Result<bool> {
+    if !dest_path.exists() {
+        return Ok(false);
+    }
+
+    let existing = fs::read_to_string(dest_path)
+        .with_context(|| format!("Failed to read: {}", dest_path.display()))?;
+    let expanded = expand_runtime_variables_in_content(&existing, ctx);
+
+    if expanded == existing {
+        return Ok(false);
+    }
+
+    fs::write(dest_path, &expanded)
+        .with_context(|| format!("Failed to write: {}", dest_path.display()))?;
+
+    Ok(true)
 }
 
 pub fn inject_runtime_content(dest_path: &Path, runtime_content: &str) -> Result<bool> {
@@ -464,8 +500,8 @@ pub fn inject_runtime_content(dest_path: &Path, runtime_content: &str) -> Result
 
     let base = strip_markers(&existing);
 
-    let mut injected = base.trim_end().to_string();
-    if !injected.is_empty() {
+    let mut injected = base;
+    if !injected.is_empty() && !injected.ends_with('\n') {
         injected.push('\n');
     }
     injected.push_str(RUNTIME_START_MARKER);
@@ -517,6 +553,32 @@ pub fn strip_runtime_content(dest_path: &Path) -> Result<bool> {
 pub fn apply_merge_at_runtime(pocket_dir: &Path, ctx: &TemplateContext) -> Result<usize> {
     let templates = load_templates()?;
     let mut count = 0;
+
+    for tmpl in &templates {
+        let dest_rel = expand_variables(&tmpl.destination, ctx);
+        let dest_path = resolve_template_destination(&dest_rel, pocket_dir, ctx);
+
+        match expand_runtime_variables_in_file(&dest_path, ctx) {
+            Ok(true) => {
+                if crate::verbose() {
+                    println!(
+                        "  {} {}",
+                        "Runtime variables expanded:".bright_green(),
+                        dest_path.display().to_string().bright_blue()
+                    );
+                }
+            }
+            Ok(false) => {}
+            Err(e) => {
+                eprintln!(
+                    "{} runtime variable expansion failed for {}: {}",
+                    "Warning:".bright_yellow(),
+                    dest_path.display(),
+                    e
+                );
+            }
+        }
+    }
 
     for tmpl in templates.iter().filter(|t| t.merge_at_runtime) {
         let dest_rel = expand_variables(&tmpl.destination, ctx);
@@ -635,7 +697,8 @@ pub fn merge_content(existing: &str, new_content: &str) -> String {
 ///
 /// - Creates directories from the directory structure.
 /// - Expands template variables and writes files.
-/// - If `interactive` is true, warns before overwriting existing files.
+/// - Merge-at-runtime templates place only an empty destination file.
+/// - If `interactive` is true, warns before overwriting existing non-runtime files.
 ///
 /// Returns the number of files written.
 pub fn apply_templates(
@@ -644,10 +707,27 @@ pub fn apply_templates(
     project_dir: Option<&Path>,
     interactive: bool,
 ) -> Result<usize> {
-    // 1. Ensure defaults exist
-    ensure_default_assets()?;
+    apply_templates_with_mode(
+        pocket_dir,
+        ctx,
+        project_dir,
+        interactive,
+        TemplateApplyMode::Create,
+    )
+}
 
-    // 2. Load directory structure and create directories
+fn apply_templates_with_mode(
+    pocket_dir: &Path,
+    ctx: &TemplateContext,
+    project_dir: Option<&Path>,
+    interactive: bool,
+    mode: TemplateApplyMode,
+) -> Result<usize> {
+    if mode == TemplateApplyMode::Create {
+        ensure_default_assets()?;
+    }
+
+    // 1. Load directory structure and create directories
     let dirs = load_directory_structure(project_dir)?;
     for dir in &dirs {
         let full_path = pocket_dir.join(dir);
@@ -655,19 +735,31 @@ pub fn apply_templates(
             .with_context(|| format!("Failed to create directory: {}", full_path.display()))?;
     }
 
-    // 3. Load and apply templates
+    // 2. Load and apply templates
     let templates = load_templates()?;
+
+    apply_template_set(&templates, pocket_dir, ctx, interactive, mode)
+}
+
+fn apply_template_set(
+    templates: &[Template],
+    pocket_dir: &Path,
+    ctx: &TemplateContext,
+    interactive: bool,
+    mode: TemplateApplyMode,
+) -> Result<usize> {
     let mut files_written = 0;
 
-    for tmpl in &templates {
-        if tmpl.merge_at_runtime {
-            continue;
-        }
-
+    for tmpl in templates {
         // Expand variables in the destination path
         let dest_rel = expand_variables(&tmpl.destination, ctx);
-        // Expand variables in the content
-        let content = expand_variables(&tmpl.content, ctx);
+        // Runtime-merge templates place an empty file; normal templates keep
+        // content variables for replacement when the pocket is opened.
+        let content = if tmpl.merge_at_runtime {
+            String::new()
+        } else {
+            tmpl.content.clone()
+        };
 
         // Resolve the destination: if it starts with the spocket_root, make it
         // relative to the pocket dir. Otherwise treat it as relative to pocket dir.
@@ -680,11 +772,19 @@ pub fn apply_templates(
             })?;
         }
 
+        if tmpl.merge_at_runtime && mode == TemplateApplyMode::Upgrade {
+            continue;
+        }
+
         // Check for existing file
         if dest_path.exists() {
+            if tmpl.merge_at_runtime {
+                continue;
+            }
+
             let existing = fs::read_to_string(&dest_path).unwrap_or_default();
 
-            if tmpl.quiet_merge {
+            if tmpl.quiet_merge && mode == TemplateApplyMode::Create {
                 // Quiet merge: add new keys/lines to existing file without overwriting
                 let merged = merge_content(&existing, &content);
                 if merged == existing {
@@ -719,8 +819,10 @@ pub fn apply_templates(
                     continue;
                 }
             } else {
-                // Non-interactive: skip existing files with different content
-                continue;
+                if mode == TemplateApplyMode::Create {
+                    // Non-interactive creation preserves user-provided files.
+                    continue;
+                }
             }
         }
 
@@ -838,8 +940,8 @@ pub fn display_diff(old: &str, new: &str) {
 /// Upgrade an existing pocket to match the current templates.
 ///
 /// This is called by `spocket -u <path>`. It does NOT open the workspace;
-/// it only ensures the pocket's files match the templates (with variable
-/// expansion), prompting before overwriting anything.
+/// it resets non-runtime template destinations to match the templates while
+/// preserving merge-at-runtime destinations for runtime injection.
 pub fn upgrade_pocket(pocket_dir: &Path) -> Result<()> {
     // Validate the pocket directory exists and has a manifest
     if !pocket_dir.exists() {
@@ -876,8 +978,7 @@ pub fn upgrade_pocket(pocket_dir: &Path) -> Result<()> {
     let global_obs = global_observations_dir().unwrap_or_else(|_| {
         dirs::home_dir()
             .unwrap_or_else(|| PathBuf::from("/"))
-            .join(".config")
-            .join("safe_pocket")
+            .join(".safe_pocket")
             .join("observations")
     });
 
@@ -894,12 +995,14 @@ pub fn upgrade_pocket(pocket_dir: &Path) -> Result<()> {
         pocket_dir.display().to_string().bright_yellow()
     );
 
-    // Apply templates interactively (prompt before overwriting)
-    let files_written = apply_templates(
+    // Upgrade force-resets non-runtime templates while preserving user-authored
+    // content in merge-at-runtime destinations.
+    let files_written = apply_templates_with_mode(
         pocket_dir,
         &ctx,
         Some(&project_root),
-        true, // interactive
+        false,
+        TemplateApplyMode::Upgrade,
     )?;
 
     if files_written == 0 {
@@ -1304,6 +1407,213 @@ mod tests {
 
         let tmpl = parse_template(&file).unwrap();
         assert!(!tmpl.quiet_merge, "quiet_merge should be false");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_parse_template_merge_at_runtime_flag() {
+        let dir = std::env::temp_dir().join("spocket_test_merge_at_runtime_flag");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        let file = dir.join("agents.md");
+        fs::write(
+            &file,
+            "#SPOCKET_TEMPLATE_DESTINATION: AGENTS.md\n\
+             #SPOCKET_MERGE_AT_RUNTIME\n\nRuntime content\n",
+        )
+        .unwrap();
+
+        let tmpl = parse_template(&file).unwrap();
+        assert!(tmpl.merge_at_runtime, "merge_at_runtime should be true");
+        assert_eq!(tmpl.content, "Runtime content\n");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    // ── runtime merge ───────────────────────────────────────────────────
+
+    #[test]
+    fn test_runtime_injection_and_strip_preserves_user_content() {
+        let dir = std::env::temp_dir().join("spocket_test_runtime_preserves_user_content");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        let file = dir.join("AGENTS.md");
+        fs::write(&file, "Meow like a cat\n").unwrap();
+
+        assert!(inject_runtime_content(&file, "Bark like a dog\n").unwrap());
+        assert_eq!(
+            fs::read_to_string(&file).unwrap(),
+            "Meow like a cat\n#SPOCKET_RUNTIME_CONTENT_START\nBark like a dog\n#SPOCKET_RUNTIME_CONTENT_END\n"
+        );
+
+        assert!(strip_runtime_content(&file).unwrap());
+        assert_eq!(fs::read_to_string(&file).unwrap(), "Meow like a cat\n");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_runtime_variable_expansion_skips_spocket_directives() {
+        let ctx = make_ctx("/pocket", "/project", "hash");
+        let input = "Path: {{SPOCKET_ROOT}}\n#SPOCKET_NOTE: {{SPOCKET_ROOT}}\n";
+
+        assert_eq!(
+            expand_runtime_variables_in_content(input, &ctx),
+            "Path: /pocket\n#SPOCKET_NOTE: {{SPOCKET_ROOT}}\n"
+        );
+    }
+
+    #[test]
+    fn test_create_mode_places_empty_merge_at_runtime_destination() {
+        let dir = std::env::temp_dir().join("spocket_test_create_places_empty_runtime");
+        let _ = fs::remove_dir_all(&dir);
+        let pocket_dir = dir.join("pocket");
+        fs::create_dir_all(&pocket_dir).unwrap();
+
+        let templates = vec![Template {
+            destination: "AGENTS.md".to_string(),
+            content: "Runtime content\n".to_string(),
+            quiet_merge: false,
+            merge_at_runtime: true,
+            source_path: dir.join("template.md"),
+        }];
+        let ctx = make_ctx(&pocket_dir.to_string_lossy(), "/project", "hash");
+
+        let written = apply_template_set(
+            &templates,
+            &pocket_dir,
+            &ctx,
+            false,
+            TemplateApplyMode::Create,
+        )
+        .unwrap();
+
+        assert_eq!(written, 1);
+        assert_eq!(
+            fs::read_to_string(pocket_dir.join("AGENTS.md")).unwrap(),
+            ""
+        );
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_create_mode_does_not_overwrite_existing_runtime_destination() {
+        let dir = std::env::temp_dir().join("spocket_test_create_keeps_runtime_destination");
+        let _ = fs::remove_dir_all(&dir);
+        let pocket_dir = dir.join("pocket");
+        fs::create_dir_all(&pocket_dir).unwrap();
+        fs::write(pocket_dir.join("AGENTS.md"), "User content\n").unwrap();
+
+        let templates = vec![Template {
+            destination: "AGENTS.md".to_string(),
+            content: "Runtime content\n".to_string(),
+            quiet_merge: false,
+            merge_at_runtime: true,
+            source_path: dir.join("template.md"),
+        }];
+        let ctx = make_ctx(&pocket_dir.to_string_lossy(), "/project", "hash");
+
+        let written = apply_template_set(
+            &templates,
+            &pocket_dir,
+            &ctx,
+            false,
+            TemplateApplyMode::Create,
+        )
+        .unwrap();
+
+        assert_eq!(written, 0);
+        assert_eq!(
+            fs::read_to_string(pocket_dir.join("AGENTS.md")).unwrap(),
+            "User content\n"
+        );
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_upgrade_mode_overwrites_non_runtime_and_preserves_runtime() {
+        let dir = std::env::temp_dir().join("spocket_test_upgrade_template_rules");
+        let _ = fs::remove_dir_all(&dir);
+        let pocket_dir = dir.join("pocket");
+        fs::create_dir_all(&pocket_dir).unwrap();
+        fs::write(pocket_dir.join("normal.md"), "User edit\n").unwrap();
+        fs::write(pocket_dir.join("AGENTS.md"), "User instructions\n").unwrap();
+
+        let templates = vec![
+            Template {
+                destination: "normal.md".to_string(),
+                content: "Template reset\n".to_string(),
+                quiet_merge: false,
+                merge_at_runtime: false,
+                source_path: dir.join("normal-template.md"),
+            },
+            Template {
+                destination: "AGENTS.md".to_string(),
+                content: "Runtime content\n".to_string(),
+                quiet_merge: false,
+                merge_at_runtime: true,
+                source_path: dir.join("agents-template.md"),
+            },
+        ];
+        let ctx = make_ctx(&pocket_dir.to_string_lossy(), "/project", "hash");
+
+        let written = apply_template_set(
+            &templates,
+            &pocket_dir,
+            &ctx,
+            false,
+            TemplateApplyMode::Upgrade,
+        )
+        .unwrap();
+
+        assert_eq!(written, 1);
+        assert_eq!(
+            fs::read_to_string(pocket_dir.join("normal.md")).unwrap(),
+            "Template reset\n"
+        );
+        assert_eq!(
+            fs::read_to_string(pocket_dir.join("AGENTS.md")).unwrap(),
+            "User instructions\n"
+        );
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_upgrade_mode_resets_quiet_merge_template() {
+        let dir = std::env::temp_dir().join("spocket_test_upgrade_resets_quiet_merge");
+        let _ = fs::remove_dir_all(&dir);
+        let pocket_dir = dir.join("pocket");
+        fs::create_dir_all(&pocket_dir).unwrap();
+        fs::write(pocket_dir.join(".env"), "USER_KEY=custom\n").unwrap();
+
+        let templates = vec![Template {
+            destination: ".env".to_string(),
+            content: "TEMPLATE_KEY=value\n".to_string(),
+            quiet_merge: true,
+            merge_at_runtime: false,
+            source_path: dir.join("env-template.md"),
+        }];
+        let ctx = make_ctx(&pocket_dir.to_string_lossy(), "/project", "hash");
+
+        apply_template_set(
+            &templates,
+            &pocket_dir,
+            &ctx,
+            false,
+            TemplateApplyMode::Upgrade,
+        )
+        .unwrap();
+
+        assert_eq!(
+            fs::read_to_string(pocket_dir.join(".env")).unwrap(),
+            "TEMPLATE_KEY=value\n"
+        );
 
         let _ = fs::remove_dir_all(&dir);
     }

@@ -2,6 +2,7 @@ mod cli;
 mod config;
 mod hash;
 mod manifest;
+mod registry;
 mod template;
 mod workspace;
 
@@ -14,7 +15,7 @@ use std::io;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
-use cli::{Cli, Commands};
+use cli::{Cli, Commands, WorktreeAction};
 use config::Config;
 use manifest::Manifest;
 use workspace::{DriftResult, Workspace};
@@ -42,19 +43,19 @@ fn run() -> Result<()> {
         return Ok(());
     }
 
-    // Ensure default template assets exist in the user's config directory.
-    // This is a no-op after the first run (only writes files that don't exist).
-    // Silently ignore errors here so a broken config dir doesn't block normal use.
+    // Handle upgrade (-u) before default setup so it only moves template
+    // content downstream and never writes raw template files.
+    if let Some(upgrade_path) = cli.upgrade {
+        return handle_upgrade(upgrade_path);
+    }
+
+    // Ensure default template assets exist for normal commands. This is a no-op
+    // after first run and is intentionally skipped for upgrade.
     let _ = template::ensure_default_assets();
 
     // Handle subcommands first
     if let Some(command) = cli.command {
         return handle_command(command);
-    }
-
-    // Handle upgrade (-u)
-    if let Some(upgrade_path) = cli.upgrade {
-        return handle_upgrade(upgrade_path);
     }
 
     // If no subcommand, we're creating/opening a workspace
@@ -175,7 +176,203 @@ fn handle_command(command: Commands) -> Result<()> {
             generate(shell, &mut cmd, "spocket", &mut io::stdout());
             Ok(())
         }
+
+        Commands::Worktree { action } => handle_worktree(action),
     }
+}
+
+fn handle_worktree(action: WorktreeAction) -> Result<()> {
+    let cwd = std::env::current_dir().context("Failed to get current working directory")?;
+
+    let workspace = Workspace::find_workspace_for_cwd(&cwd)?.ok_or_else(|| {
+        anyhow!(
+            "No workspace found for current directory: {}\nRun this from inside a project directory that belongs to a safe pocket.",
+            cwd.display()
+        )
+    })?;
+
+    match action {
+        WorktreeAction::Add { path } => {
+            let config = Config::load()?;
+
+            let target_path = match path {
+                Some(p) => config.resolve_path(&p)?,
+                None => prompt_worktree_from_git(&workspace.core_paths)?.ok_or_else(|| {
+                    anyhow!("No path provided and no git worktrees detected. Use: spocket worktree add <path>")
+                })?,
+            };
+
+            if !target_path.exists() {
+                return Err(anyhow!("Path does not exist: {}", target_path.display()));
+            }
+
+            let mut manifest = Manifest::load(&workspace.pocket_dir)?.unwrap_or_else(|| {
+                Manifest::new(workspace.hash.clone(), workspace.core_paths.clone())
+            });
+
+            if manifest.add_worktree(target_path.clone()) {
+                manifest.save(&workspace.pocket_dir)?;
+                println!(
+                    "{} {} -> {}",
+                    "Worktree registered:".bright_green(),
+                    target_path.display().to_string().bright_blue(),
+                    workspace.hash.bright_yellow()
+                );
+            } else {
+                println!(
+                    "{} {}",
+                    "Already registered:".dimmed(),
+                    target_path.display().to_string().bright_blue()
+                );
+            }
+
+            Ok(())
+        }
+
+        WorktreeAction::Remove { path } => {
+            let config = Config::load()?;
+            let target_path = config.resolve_path(&path)?;
+
+            let mut manifest = match Manifest::load(&workspace.pocket_dir)? {
+                Some(m) => m,
+                None => {
+                    return Err(anyhow!(
+                        "No manifest found for workspace {}",
+                        workspace.hash
+                    ))
+                }
+            };
+
+            if manifest.remove_worktree(&target_path) {
+                manifest.save(&workspace.pocket_dir)?;
+                println!(
+                    "{} {}",
+                    "Worktree removed:".bright_green(),
+                    target_path.display().to_string().bright_blue()
+                );
+            } else {
+                println!(
+                    "{} {} (not registered)",
+                    "Not found:".dimmed(),
+                    target_path.display().to_string().bright_blue()
+                );
+            }
+
+            Ok(())
+        }
+
+        WorktreeAction::List => {
+            let manifest = match Manifest::load(&workspace.pocket_dir)? {
+                Some(m) => m,
+                None => {
+                    return Err(anyhow!(
+                        "No manifest found for workspace {}",
+                        workspace.hash
+                    ))
+                }
+            };
+
+            println!(
+                "{} {}",
+                "Pocket:".bright_white().bold(),
+                workspace.hash.bright_yellow()
+            );
+            println!(
+                "  {} {}",
+                "Location:".dimmed(),
+                workspace.pocket_dir.display().to_string().bright_blue()
+            );
+            println!();
+
+            println!("{}", "Core directories:".bright_white());
+            for path in &manifest.core_paths {
+                println!("  {}", path.display().to_string().bright_blue());
+            }
+
+            if manifest.worktrees.is_empty() {
+                println!();
+                println!("{}", "No worktrees registered.".dimmed());
+            } else {
+                println!();
+                println!("{}", "Registered worktrees:".bright_white());
+                for path in &manifest.worktrees {
+                    let exists_marker = if path.exists() { "" } else { " (missing)" };
+                    println!(
+                        "  {}{}",
+                        path.display().to_string().bright_blue(),
+                        exists_marker.bright_red()
+                    );
+                }
+            }
+
+            Ok(())
+        }
+    }
+}
+
+fn prompt_worktree_from_git(core_paths: &[PathBuf]) -> Result<Option<PathBuf>> {
+    let project_root = match core_paths.first() {
+        Some(p) => p,
+        None => return Ok(None),
+    };
+
+    let output = std::process::Command::new("git")
+        .args(["worktree", "list", "--porcelain"])
+        .current_dir(project_root)
+        .output();
+
+    let output = match output {
+        Ok(o) if o.status.success() => o,
+        _ => return Ok(None),
+    };
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let git_worktrees: Vec<PathBuf> = stdout
+        .lines()
+        .filter_map(|line| line.strip_prefix("worktree "))
+        .map(PathBuf::from)
+        .filter(|p| !core_paths.contains(p))
+        .collect();
+
+    if git_worktrees.is_empty() {
+        return Ok(None);
+    }
+
+    println!("\n{}", "Git worktrees detected:".bright_white());
+    for (i, wt) in git_worktrees.iter().enumerate() {
+        println!(
+            "  {}. {}",
+            (i + 1).to_string().bright_yellow(),
+            wt.display().to_string().bright_blue()
+        );
+    }
+    println!(
+        "  {}. {}",
+        "0".bright_yellow(),
+        "Enter a path manually".dimmed()
+    );
+    println!();
+
+    print!("{} ", "Select a worktree to register (0-N):".bright_white());
+    use std::io::{self, Write as IoWrite};
+    io::stdout().flush()?;
+
+    let mut input = String::new();
+    io::stdin().read_line(&mut input)?;
+    let input = input.trim();
+
+    if input == "0" || input.is_empty() {
+        return Ok(None);
+    }
+
+    if let Ok(n) = input.parse::<usize>() {
+        if n > 0 && n <= git_worktrees.len() {
+            return Ok(Some(git_worktrees[n - 1].clone()));
+        }
+    }
+
+    println!("{}", "Invalid selection.".bright_yellow());
+    Ok(None)
 }
 
 fn find_existing_workspace_for_paths(paths: &[PathBuf]) -> Result<Option<Workspace>> {
@@ -266,7 +463,7 @@ fn handle_workspace(cli: Cli) -> Result<()> {
     }
 
     if !cli.force_new {
-        if let Some(existing) = find_existing_workspace_for_paths(&core_paths)? {
+        if let Some(mut existing) = find_existing_workspace_for_paths(&core_paths)? {
             println!(
                 "{} {}",
                 "Opening existing workspace:".bright_green(),
@@ -277,6 +474,21 @@ fn handle_workspace(cli: Cli) -> Result<()> {
 
             if use_beads {
                 existing.setup_beads()?;
+            }
+
+            // If the CLI paths differ from this pocket's core_paths, the user is
+            // opening via a registered worktree path. Inject those paths as sidecars
+            // so VS Code shows the worktree branch's files alongside the pocket.
+            let existing_path_set: std::collections::HashSet<_> =
+                existing.core_paths.iter().collect();
+            let extra_paths: Vec<PathBuf> = core_paths
+                .iter()
+                .filter(|p| !existing_path_set.contains(p))
+                .cloned()
+                .collect();
+
+            if !extra_paths.is_empty() {
+                existing.sidecar_paths.extend(extra_paths);
             }
 
             open_with_merge(&existing)?;
@@ -318,6 +530,7 @@ fn handle_workspace(cli: Cli) -> Result<()> {
                 if workspace.pocket_dir.exists() {
                     fs::remove_dir_all(&workspace.pocket_dir)
                         .context("Failed to remove existing target pocket")?;
+                    registry::remove_pocket(&workspace.pocket_dir)?;
                 }
 
                 copy_dir_all(&selected.pocket_dir, &workspace.pocket_dir)
@@ -644,8 +857,7 @@ fn build_template_context(pocket_dir: &std::path::Path) -> Result<template::Temp
     let global_obs = template::global_observations_dir().unwrap_or_else(|_| {
         dirs::home_dir()
             .unwrap_or_else(|| PathBuf::from("/"))
-            .join(".config")
-            .join("safe_pocket")
+            .join(".safe_pocket")
             .join("observations")
     });
 
