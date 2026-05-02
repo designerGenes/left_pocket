@@ -1,6 +1,23 @@
 # Changelog
 
-All notable changes to Safe Pocket (spocket) will be documented in this file.
+All notable changes to Safe Pocket will be documented in this file.
+
+## [0.4.0] - 2026-05-02
+
+### Added
+- `--temporary` pockets stored under `~/.safe_pocket/temporary/`
+- `safe_pocket mark temporary <pocket>` to move an existing pocket into temporary storage
+- `safe_pocket clean temporary`, `safe_pocket clean --older-than <age>`, and `safe_pocket clean --all`
+- `--hard` cleanup mode for deleting pocket directories and `-y` to skip confirmation
+
+### Changed
+- Beads is now initialised by default unless `--without-beads` is passed
+- Pocket manifests and registry entries now track whether a pocket is temporary
+- `.env` templates now export `BEADS_DIR={{SPOCKET_ROOT}}/.beads`
+- `safe_pocket` is now the primary installed binary name, with `spocket` kept as an alias
+
+### Safety
+- Clean operations only remove safe pocket registry entries and safe pocket directories; project folders are never deleted
 
 ## [0.3.0] - 2026-04-11
 

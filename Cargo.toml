@@ -1,6 +1,6 @@
 [package]
 name = "spocket"
-version = "0.3.2"
+version = "0.4.1"
 edition = "2021"
 description = "Safe Pocket — ad hoc VS Code workspace manager with AI copilot support"
 license = "MIT"
@@ -11,7 +11,7 @@ categories = ["command-line-utilities", "development-tools"]
 readme = "README.md"
 
 [[bin]]
-name = "spocket"
+name = "safe_pocket"
 path = "src/main.rs"
 
 [dependencies]

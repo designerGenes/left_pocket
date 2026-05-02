@@ -4,7 +4,7 @@ use clap_complete::Shell;
 // ── Top-level CLI ─────────────────────────────────────────────────────────────
 
 #[derive(Parser, Debug)]
-#[command(name = "spocket")]
+#[command(name = "safe_pocket", visible_alias = "spocket")]
 #[command(version)]
 #[command(
     about = "Safe Pocket — ad hoc VS Code workspace manager with AI copilot support",
@@ -17,16 +17,20 @@ as a single multi-root workspace.
 QUICK START
 
   # Create or open a workspace for the current directory
-  spocket -i .
+  safe_pocket -i .
 
   # Create a workspace spanning two projects
-  spocket -i ~/dev/frontend -i ~/dev/backend
+  safe_pocket -i ~/dev/frontend -i ~/dev/backend
 
   # Upgrade the pocket's template files to match your latest templates
-  spocket -u ~/dev/myproject
+  safe_pocket -u ~/dev/myproject
 
   # Generate and install shell completions (zsh example)
-  spocket completions zsh > ~/.zsh/completions/_spocket
+  safe_pocket completions zsh > ~/.zsh/completions/_safe_pocket
+
+ALIAS
+
+  `spocket` is the short alias for the `safe_pocket` binary.
 
 POCKET DIRECTORY
 
@@ -49,10 +53,10 @@ pub struct Cli {
 
     /// Add a directory to the workspace (repeatable)
     ///
-    /// Resolves aliases registered with `spocket register`. Can be specified
+    /// Resolves aliases registered with `safe_pocket register`. Can be specified
     /// multiple times to create a multi-root workspace:
     ///
-    ///   spocket -i ~/dev/api -i ~/dev/frontend
+    ///   safe_pocket -i ~/dev/api -i ~/dev/frontend
     #[arg(short = 'i', long = "include", value_name = "PATH")]
     pub include: Vec<String>,
 
@@ -72,9 +76,16 @@ pub struct Cli {
     /// manifests. Useful when starting a new project that should inherit the
     /// AI configuration of a related one.
     ///
-    ///   spocket -i ~/dev/new-project --clone-from ~/dev/existing-project
+    ///   safe_pocket -i ~/dev/new-project --clone-from ~/dev/existing-project
     #[arg(long = "clone-from", value_name = "PATH")]
     pub clone_from: Option<String>,
+
+    /// Create or reuse the pocket under ~/.safe_pocket/temporary/
+    ///
+    /// Temporary pockets are tracked separately so test suites and other
+    /// short-lived workflows can be cleaned up without touching normal pockets.
+    #[arg(long = "temporary")]
+    pub temporary: bool,
 
     /// Enable an optional feature
     ///
@@ -82,13 +93,17 @@ pub struct Cli {
     ///   beads   Initialise a Beads (bd) issue-tracking database in the pocket
     ///           and plant a .beads/redirect stub in each project directory.
     ///
-    ///   spocket -i . --use beads
+    ///   safe_pocket -i . --use beads
     #[arg(long = "use", value_name = "FEATURE")]
     pub use_features: Vec<String>,
 
+    /// Skip automatic Beads setup for this command
+    #[arg(long = "without-beads")]
+    pub without_beads: bool,
+
     /// Skip creating README files in empty directories
     ///
-    /// By default spocket writes helpful README.md files into new empty
+    /// By default safe_pocket writes helpful README.md files into new empty
     /// directories (observations/, .github/prompts/, etc.).  Pass this flag
     /// to suppress them, e.g. when cloning a pocket for a minimal setup.
     #[arg(long = "no-readme")]
@@ -105,19 +120,19 @@ pub struct Cli {
     ///   • The pocket directory itself  (~/.safe_pocket/abc123)
     ///   • Any project directory whose pocket you want to upgrade
     ///
-    ///   spocket -u ~/dev/myproject
-    ///   spocket -u ~/.safe_pocket/abc123
+    ///   safe_pocket -u ~/dev/myproject
+    ///   safe_pocket -u ~/.safe_pocket/abc123
     #[arg(short = 'u', long = "upgrade", value_name = "PATH")]
     pub upgrade: Option<String>,
 
     /// Force creation of a new workspace even if one already exists
     ///
-    /// By default, if `spocket -i .` detects that the current directory (or any
+    /// By default, if `safe_pocket -i .` detects that the current directory (or any
     /// included path) already belongs to an existing safe pocket, it opens that
     /// pocket instead of creating a duplicate.  Pass `--new` to override this
     /// behaviour and always create a fresh workspace.
     ///
-    ///   spocket -i . --new
+    ///   safe_pocket -i . --new
     #[arg(long = "new")]
     pub force_new: bool,
 
@@ -127,7 +142,7 @@ pub struct Cli {
     /// merge notifications, template installation notices, and other
     /// non-error/non-warning details.
     ///
-    ///   spocket -i . --verbose
+    ///   safe_pocket -i . --verbose
     #[arg(long = "verbose")]
     pub verbose: bool,
 
@@ -142,10 +157,10 @@ pub enum Commands {
     /// Register a short alias for a directory path
     ///
     /// Aliases let you refer to long directory paths by a short name in any
-    /// spocket command that accepts a PATH argument.
+    /// safe_pocket command that accepts a PATH argument.
     ///
-    ///   spocket register api="~/dev/my-api-project"
-    ///   spocket -i api          # same as -i ~/dev/my-api-project
+    ///   safe_pocket register api="~/dev/my-api-project"
+    ///   safe_pocket -i api      # same as -i ~/dev/my-api-project
     #[command(name = "register")]
     Register {
         /// Alias definition in format: name="path"
@@ -155,7 +170,7 @@ pub enum Commands {
 
     /// Remove a previously registered directory alias
     ///
-    ///   spocket unregister api
+    ///   safe_pocket unregister api
     #[command(name = "unregister")]
     Unregister {
         /// Name of the alias to remove
@@ -192,9 +207,9 @@ pub enum Commands {
     /// directory. Run this from inside a pocket or project directory that
     /// belongs to an existing workspace.
     ///
-    ///   spocket augment --add ~/dev/new-service
-    ///   spocket augment --remove ~/dev/old-service
-    ///   spocket augment --add ~/dev/new-service --no-open
+    ///   safe_pocket augment --add ~/dev/new-service
+    ///   safe_pocket augment --remove ~/dev/old-service
+    ///   safe_pocket augment --add ~/dev/new-service --no-open
     #[command(name = "augment")]
     Augment {
         /// Project directory to add to the workspace
@@ -208,6 +223,35 @@ pub enum Commands {
         /// Update the workspace without opening VS Code afterwards
         #[arg(long = "no-open")]
         no_open: bool,
+    },
+
+    /// Mark an existing safe pocket with additional metadata
+    #[command(name = "mark")]
+    Mark {
+        #[arg(value_enum, value_name = "MARK")]
+        mark: MarkChoice,
+
+        #[arg(value_name = "POCKET")]
+        pocket: String,
+    },
+
+    /// Remove registry entries or pocket directories in bulk
+    #[command(name = "clean")]
+    Clean {
+        #[arg(value_enum, value_name = "SCOPE")]
+        scope: Option<CleanScope>,
+
+        #[arg(long = "older-than", value_name = "AGE", conflicts_with_all = ["scope", "all"])]
+        older_than: Option<String>,
+
+        #[arg(long = "all", conflicts_with_all = ["scope", "older_than"])]
+        all: bool,
+
+        #[arg(long = "hard")]
+        hard: bool,
+
+        #[arg(short = 'y', long = "yes")]
+        yes: bool,
     },
 
     /// Inject runtime content into destination files (called by the VS Code extension on open)
@@ -238,19 +282,19 @@ pub enum Commands {
     /// the appropriate location for your shell, then source it.
     ///
     /// BASH
-    ///   spocket completions bash > ~/.local/share/bash-completion/completions/spocket
+    ///   safe_pocket completions bash > ~/.local/share/bash-completion/completions/safe_pocket
     ///
     /// ZSH  (add ~/.zsh/completions to fpath first)
-    ///   spocket completions zsh > ~/.zsh/completions/_spocket
+    ///   safe_pocket completions zsh > ~/.zsh/completions/_safe_pocket
     ///
     /// FISH
-    ///   spocket completions fish > ~/.config/fish/completions/spocket.fish
+    ///   safe_pocket completions fish > ~/.config/fish/completions/safe_pocket.fish
     ///
     /// POWERSHELL
-    ///   spocket completions powershell >> $PROFILE
+    ///   safe_pocket completions powershell >> $PROFILE
     ///
     /// ELVISH
-    ///   spocket completions elvish >> ~/.config/elvish/rc.elv
+    ///   safe_pocket completions elvish >> ~/.config/elvish/rc.elv
     #[command(name = "completions")]
     Completions {
         /// Shell to generate completions for
@@ -265,13 +309,13 @@ pub enum Commands {
     /// instructions, FEATURES notes, and observations apply to all of them.
     ///
     ///   # Register a worktree to share the pocket for the current directory
-    ///   spocket worktree add ~/dev/my-project-feature-x
+    ///   safe_pocket worktree add ~/dev/my-project-feature-x
     ///
     ///   # Remove a previously registered worktree
-    ///   spocket worktree remove ~/dev/my-project-feature-x
+    ///   safe_pocket worktree remove ~/dev/my-project-feature-x
     ///
     ///   # List all worktrees sharing this pocket
-    ///   spocket worktree list
+    ///   safe_pocket worktree list
     #[command(name = "worktree")]
     Worktree {
         #[command(subcommand)]
@@ -289,6 +333,16 @@ pub enum ShellChoice {
     Fish,
     PowerShell,
     Elvish,
+}
+
+#[derive(Debug, Clone, ValueEnum)]
+pub enum MarkChoice {
+    Temporary,
+}
+
+#[derive(Debug, Clone, ValueEnum)]
+pub enum CleanScope {
+    Temporary,
 }
 
 impl From<ShellChoice> for Shell {
@@ -310,10 +364,10 @@ pub enum WorktreeAction {
     /// Register a worktree directory to share this pocket
     ///
     /// Run this from inside the main project directory (or any directory that
-    /// already belongs to a pocket). Spocket will also suggest any git worktrees
+    /// already belongs to a pocket). Safe Pocket will also suggest any git worktrees
     /// it detects in the same repo if PATH is not provided explicitly.
     ///
-    ///   spocket worktree add ~/dev/my-project-feature-x
+    ///   safe_pocket worktree add ~/dev/my-project-feature-x
     #[command(name = "add")]
     Add {
         #[arg(value_name = "PATH")]
@@ -322,7 +376,7 @@ pub enum WorktreeAction {
 
     /// Unregister a worktree directory from this pocket
     ///
-    ///   spocket worktree remove ~/dev/my-project-feature-x
+    ///   safe_pocket worktree remove ~/dev/my-project-feature-x
     #[command(name = "remove")]
     Remove {
         #[arg(value_name = "PATH")]

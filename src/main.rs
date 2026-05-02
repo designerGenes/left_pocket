@@ -6,18 +6,21 @@ mod registry;
 mod template;
 mod workspace;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use clap::{CommandFactory, Parser};
 use clap_complete::generate;
 use colored::Colorize;
+use chrono::{Duration, Utc};
 use std::fs;
 use std::io;
+use std::path::Path;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
-use cli::{Cli, Commands, WorktreeAction};
+use cli::{CleanScope, Cli, Commands, MarkChoice, WorktreeAction};
 use config::Config;
 use manifest::Manifest;
+use registry::RegistryEntry;
 use workspace::{DriftResult, Workspace};
 
 static VERBOSE: OnceLock<bool> = OnceLock::new();
@@ -170,10 +173,20 @@ fn handle_command(command: Commands) -> Result<()> {
             no_open,
         } => handle_augment(add, remove, no_open),
 
+        Commands::Mark { mark, pocket } => handle_mark(mark, pocket),
+
+        Commands::Clean {
+            scope,
+            older_than,
+            all,
+            hard,
+            yes,
+        } => handle_clean(scope, older_than, all, hard, yes),
+
         Commands::Completions { shell } => {
             let mut cmd = Cli::command();
             let shell: clap_complete::Shell = shell.into();
-            generate(shell, &mut cmd, "spocket", &mut io::stdout());
+            generate(shell, &mut cmd, "safe_pocket", &mut io::stdout());
             Ok(())
         }
 
@@ -198,7 +211,7 @@ fn handle_worktree(action: WorktreeAction) -> Result<()> {
             let target_path = match path {
                 Some(p) => config.resolve_path(&p)?,
                 None => prompt_worktree_from_git(&workspace.core_paths)?.ok_or_else(|| {
-                    anyhow!("No path provided and no git worktrees detected. Use: spocket worktree add <path>")
+                    anyhow!("No path provided and no git worktrees detected. Use: safe_pocket worktree add <path>")
                 })?,
             };
 
@@ -207,7 +220,11 @@ fn handle_worktree(action: WorktreeAction) -> Result<()> {
             }
 
             let mut manifest = Manifest::load(&workspace.pocket_dir)?.unwrap_or_else(|| {
-                Manifest::new(workspace.hash.clone(), workspace.core_paths.clone())
+                Manifest::new_with_options(
+                    workspace.hash.clone(),
+                    workspace.core_paths.clone(),
+                    workspace.temporary,
+                )
             });
 
             if manifest.add_worktree(target_path.clone()) {
@@ -377,6 +394,7 @@ fn prompt_worktree_from_git(core_paths: &[PathBuf]) -> Result<Option<PathBuf>> {
 
 fn find_existing_workspace_for_paths(paths: &[PathBuf]) -> Result<Option<Workspace>> {
     let spocket_dir = Workspace::spocket_dir()?;
+    let temporary_spocket_dir = Workspace::temporary_spocket_dir()?;
 
     for path in paths {
         if path.starts_with(&spocket_dir) {
@@ -391,6 +409,25 @@ fn find_existing_workspace_for_paths(paths: &[PathBuf]) -> Result<Option<Workspa
                         sidecar_paths: vec![],
                         pocket_dir,
                         create_readmes: false,
+                        temporary: false,
+                    }));
+                }
+            }
+        }
+
+        if path.starts_with(&temporary_spocket_dir) {
+            let relative = path.strip_prefix(&temporary_spocket_dir).unwrap();
+            if let Some(hash_component) = relative.components().next() {
+                let hash = hash_component.as_os_str().to_string_lossy().to_string();
+                let pocket_dir = temporary_spocket_dir.join(&hash);
+                if let Some((_, core_paths)) = Workspace::load_manifest_or_backfill(&pocket_dir)? {
+                    return Ok(Some(Workspace {
+                        hash,
+                        core_paths,
+                        sidecar_paths: vec![],
+                        pocket_dir,
+                        create_readmes: false,
+                        temporary: true,
                     }));
                 }
             }
@@ -407,8 +444,7 @@ fn find_existing_workspace_for_paths(paths: &[PathBuf]) -> Result<Option<Workspa
 fn handle_workspace(cli: Cli) -> Result<()> {
     let config = Config::load()?;
 
-    // Parse --use features (normalised to lowercase)
-    let use_beads = cli.use_features.iter().any(|f| f.to_lowercase() == "beads");
+    let use_beads = !cli.without_beads;
 
     // Validate unknown --use values
     for feature in &cli.use_features {
@@ -451,7 +487,7 @@ fn handle_workspace(cli: Cli) -> Result<()> {
     if let Some(clone_from) = cli.clone_from {
         let source_path = config.resolve_path(&clone_from)?;
 
-        let workspace = Workspace::clone_from(&source_path, &core_paths)?;
+        let workspace = Workspace::clone_from(&source_path, &core_paths, cli.temporary)?;
 
         if use_beads {
             workspace.setup_beads()?;
@@ -462,8 +498,25 @@ fn handle_workspace(cli: Cli) -> Result<()> {
         return Ok(());
     }
 
+    if cli.temporary && !cli.force_new {
+        if let Some(existing) = find_existing_workspace_for_paths(&core_paths)? {
+            if !existing.temporary {
+                return Err(anyhow!(
+                    "A permanent safe pocket already exists for these paths: {}\nUse `safe_pocket -i ...` to open it, or pass `--new` if you really want a separate temporary pocket.",
+                    existing.hash
+                ));
+            }
+        }
+    }
+
     if !cli.force_new {
         if let Some(mut existing) = find_existing_workspace_for_paths(&core_paths)? {
+            if cli.temporary && !existing.temporary {
+                return Err(anyhow!(
+                    "Found a permanent safe pocket for these paths: {}\nTemporary mode only reuses temporary pockets.",
+                    existing.hash
+                ));
+            }
             println!(
                 "{} {}",
                 "Opening existing workspace:".bright_green(),
@@ -498,24 +551,31 @@ fn handle_workspace(cli: Cli) -> Result<()> {
 
     // Create or open workspace
     let create_readmes = !cli.no_readme;
-    let workspace = Workspace::new(core_paths.clone(), sidecar_paths, create_readmes)?;
+    let workspace = Workspace::new_with_options(
+        core_paths.clone(),
+        sidecar_paths,
+        create_readmes,
+        cli.temporary,
+    )?;
 
     if !workspace.exists() {
         // Secondary lookup: check if any existing pocket's manifest matches these paths
         // (handles pockets that evolved in-place via sync/augment)
         if let Some(existing) = Workspace::find_workspace_by_manifest_paths(&core_paths)? {
+            if existing.temporary == cli.temporary {
             println!(
                 "{} {} (matched by manifest)",
                 "Found existing pocket:".bright_green(),
                 existing.hash.bright_yellow()
             );
 
-            if use_beads {
-                existing.setup_beads()?;
-            }
+                if use_beads {
+                    existing.setup_beads()?;
+                }
 
-            open_with_merge(&existing)?;
-            return Ok(());
+                open_with_merge(&existing)?;
+                return Ok(());
+            }
         }
 
         // Check for similar workspaces (smart cloning)
@@ -540,10 +600,11 @@ fn handle_workspace(cli: Cli) -> Result<()> {
                 workspace.create_workspace_file()?;
 
                 // Write manifest with lineage
-                let manifest = Manifest::new_cloned(
+                let manifest = Manifest::new_cloned_with_options(
                     workspace.hash.clone(),
                     workspace.core_paths.clone(),
                     selected.hash.clone(),
+                    workspace.temporary,
                 );
                 manifest.save(&workspace.pocket_dir)?;
 
@@ -589,7 +650,11 @@ fn handle_workspace(cli: Cli) -> Result<()> {
             DriftResult::AcceptFile { new_core_paths } => {
                 let mut manifest = match Manifest::load(&workspace.pocket_dir)? {
                     Some(m) => m,
-                    None => Manifest::new(workspace.hash.clone(), workspace.core_paths.clone()),
+                    None => Manifest::new_with_options(
+                        workspace.hash.clone(),
+                        workspace.core_paths.clone(),
+                        workspace.temporary,
+                    ),
                 };
                 manifest.update_paths(new_core_paths, &workspace.pocket_dir)?;
                 println!(
@@ -606,6 +671,228 @@ fn handle_workspace(cli: Cli) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn handle_mark(mark: MarkChoice, pocket: String) -> Result<()> {
+    match mark {
+        MarkChoice::Temporary => mark_temporary(pocket),
+    }
+}
+
+fn mark_temporary(pocket: String) -> Result<()> {
+    let workspace = resolve_workspace_reference(&pocket)?;
+    let manifest_path = workspace.pocket_dir.join("manifest.json");
+
+    let mut manifest = Manifest::load(&workspace.pocket_dir)?.ok_or_else(|| {
+        anyhow!(
+            "No manifest found in safe pocket: {}",
+            manifest_path.display()
+        )
+    })?;
+
+    if manifest.temporary {
+        println!(
+            "{} {}",
+            "Already marked temporary:".dimmed(),
+            workspace.hash.bright_yellow()
+        );
+        return Ok(());
+    }
+
+    let target_dir = registry::temporary_registry_dir()?.join(&workspace.hash);
+    if target_dir.exists() {
+        bail!(
+            "Cannot mark pocket temporary because target already exists: {}",
+            target_dir.display()
+        );
+    }
+
+    fs::create_dir_all(target_dir.parent().unwrap_or_else(|| Path::new("/")))
+        .context("Failed to create temporary registry directory")?;
+    fs::rename(&workspace.pocket_dir, &target_dir).with_context(|| {
+        format!(
+            "Failed to move safe pocket into temporary registry: {} -> {}",
+            workspace.pocket_dir.display(),
+            target_dir.display()
+        )
+    })?;
+
+    manifest.temporary = true;
+    manifest.save(&target_dir)?;
+    registry::remove_pocket(&workspace.pocket_dir)?;
+
+    println!(
+        "{} {}",
+        "Marked temporary:".bright_green(),
+        target_dir.display().to_string().bright_blue()
+    );
+
+    Ok(())
+}
+
+fn handle_clean(
+    scope: Option<CleanScope>,
+    older_than: Option<String>,
+    all: bool,
+    hard: bool,
+    yes: bool,
+) -> Result<()> {
+    let cache = registry::load_cache_or_rebuild()?;
+    let entries: Vec<RegistryEntry> = if let Some(scope) = scope {
+        match scope {
+            CleanScope::Temporary => cache.pockets.into_iter().filter(|entry| entry.temporary).collect(),
+        }
+    } else if let Some(age) = older_than {
+        let cutoff = parse_age_cutoff(&age)?;
+        cache
+            .pockets
+            .into_iter()
+            .filter(|entry| entry.created_at < cutoff)
+            .collect()
+    } else if all {
+        cache.pockets
+    } else {
+        bail!("Specify `temporary`, `--older-than`, or `--all`.");
+    };
+
+    if entries.is_empty() {
+        println!("{}", "Nothing to clean.".dimmed());
+        return Ok(());
+    }
+
+    if hard {
+        confirm_hard_clean(&entries, yes)?;
+    }
+
+    let count = entries.len();
+    for entry in entries {
+        if hard {
+            delete_pocket_dir(&entry.path)?;
+        }
+        registry::remove_pocket(&entry.path)?;
+    }
+
+    if hard {
+        println!(
+            "{} {} pocket(s)",
+            "Deleted safe pockets:".bright_green(),
+            count.to_string().bright_yellow()
+        );
+    } else {
+        println!(
+            "{} {} registry entr{suffix}",
+            "Removed:".bright_green(),
+            count.to_string().bright_yellow(),
+            suffix = if count == 1 { "y" } else { "ies" }
+        );
+    }
+
+    Ok(())
+}
+
+fn parse_age_cutoff(age: &str) -> Result<chrono::DateTime<Utc>> {
+    if age.len() < 2 {
+        bail!("Invalid age '{age}'. Use values like 7d or 3m.");
+    }
+
+    let (value, unit) = age.split_at(age.len() - 1);
+    let amount: i64 = value
+        .parse()
+        .with_context(|| format!("Invalid age value '{value}'"))?;
+
+    let duration = match unit {
+        "d" => Duration::days(amount),
+        "m" => Duration::days(amount * 30),
+        _ => bail!("Invalid age unit '{unit}'. Use d or m."),
+    };
+
+    Ok(Utc::now() - duration)
+}
+
+fn confirm_hard_clean(entries: &[RegistryEntry], yes: bool) -> Result<()> {
+    if yes {
+        return Ok(());
+    }
+
+    println!(
+        "{}",
+        "Hard clean will delete safe pocket directories from ~/.safe_pocket. Project folders are preserved.".bright_yellow()
+    );
+    for entry in entries {
+        println!("  {}", entry.path.display().to_string().bright_blue());
+    }
+    println!();
+    print!("{} ", "Continue? [y/N]:".bright_white());
+    use std::io::Write as IoWrite;
+    io::stdout().flush()?;
+
+    let mut input = String::new();
+    io::stdin().read_line(&mut input)?;
+    let input = input.trim().to_lowercase();
+    if input == "y" || input == "yes" {
+        Ok(())
+    } else {
+        bail!("Aborted.");
+    }
+}
+
+fn delete_pocket_dir(path: &Path) -> Result<()> {
+    let registry_root = registry::registry_root()?;
+    if !path.starts_with(&registry_root) {
+        bail!("Refusing to delete path outside ~/.safe_pocket: {}", path.display());
+    }
+
+    if path.exists() {
+        fs::remove_dir_all(path)
+            .with_context(|| format!("Failed to delete safe pocket: {}", path.display()))?;
+    }
+
+    Ok(())
+}
+
+fn resolve_workspace_reference(reference: &str) -> Result<Workspace> {
+    let config = Config::load()?;
+    let resolved = config.resolve_path(reference)?;
+
+    if resolved.is_dir() && registry::is_registry_pocket_dir(&resolved)? {
+        let manifest = Manifest::load(&resolved)?.ok_or_else(|| {
+            anyhow!("No manifest found in pocket directory: {}", resolved.display())
+        })?;
+
+        return Ok(Workspace {
+            hash: resolved
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or(&manifest.hash)
+                .to_string(),
+            core_paths: manifest.core_paths.clone(),
+            sidecar_paths: vec![],
+            pocket_dir: resolved,
+            create_readmes: false,
+            temporary: manifest.temporary,
+        });
+    }
+
+    if let Some(workspace) = Workspace::find_workspace_containing(&resolved)?
+        .or_else(|| Workspace::find_workspace_for_cwd(&resolved).ok().flatten())
+    {
+        return Ok(workspace);
+    }
+
+    for entry in registry::load_cache_or_rebuild()?.pockets {
+        if entry.hash == reference {
+            return Ok(Workspace {
+                hash: entry.hash,
+                core_paths: entry.core_paths,
+                sidecar_paths: vec![],
+                pocket_dir: entry.path,
+                create_readmes: false,
+                temporary: entry.temporary,
+            });
+        }
+    }
+
+    Err(anyhow!("No safe pocket found for reference: {}", reference))
 }
 
 fn handle_sync(pocket: String) -> Result<()> {
@@ -644,6 +931,8 @@ fn handle_sync(pocket: String) -> Result<()> {
         sidecar_paths: vec![],
         pocket_dir: pocket_dir.clone(),
         create_readmes: false,
+        temporary: pocket_dir
+            .starts_with(Workspace::temporary_spocket_dir()?),
     };
     migration_workspace.migrate_storage_references()?;
 
@@ -796,13 +1085,18 @@ fn handle_augment(add: Vec<String>, remove: Vec<String>, no_open: bool) -> Resul
         sidecar_paths: workspace.sidecar_paths.clone(),
         pocket_dir: workspace.pocket_dir.clone(),
         create_readmes: false,
+        temporary: workspace.temporary,
     };
     updated_workspace.write_workspace_file_preserving(existing_ws.as_ref())?;
 
     // Update manifest in place
     let mut manifest = match Manifest::load(&workspace.pocket_dir)? {
         Some(m) => m,
-        None => Manifest::new(workspace.hash.clone(), workspace.core_paths.clone()),
+        None => Manifest::new_with_options(
+            workspace.hash.clone(),
+            workspace.core_paths.clone(),
+            workspace.temporary,
+        ),
     };
     manifest.update_paths(new_paths, &workspace.pocket_dir)?;
 
@@ -923,8 +1217,12 @@ fn handle_upgrade(path: String) -> Result<()> {
     // 1. A pocket directory directly (e.g. ~/.safe_pocket/abc123)
     // 2. A project directory that has an associated pocket
     let spocket_dir = Workspace::spocket_dir()?;
+    let temporary_spocket_dir = Workspace::temporary_spocket_dir()?;
 
-    let pocket_dir = if resolved.starts_with(&spocket_dir) && resolved.is_dir() {
+    let pocket_dir = if (resolved.starts_with(&spocket_dir)
+        || resolved.starts_with(&temporary_spocket_dir))
+        && resolved.is_dir()
+    {
         // Direct pocket path
         resolved
     } else {

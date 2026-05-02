@@ -40,8 +40,8 @@ function isSpocketWorkspace(
 }
 
 function getBinaryPath(): string {
-  const config = vscode.workspace.getConfiguration("spocket");
-  return config.get<string>("binaryPath") || "spocket";
+   const config = vscode.workspace.getConfiguration("spocket");
+   return config.get<string>("binaryPath") || "safe_pocket";
 }
 
 function runSync(pocketDir: string): Promise<SyncResult> {

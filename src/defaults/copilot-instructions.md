@@ -1,4 +1,4 @@
-#SPOCKET_TEMPLATE_DESTINATION: .github/copilot-instructions.md
+#SPOCKET_TEMPLATE_DESTINATION: {{SPOCKET_ROOT}}/.github/copilot-instructions.md
 #SPOCKET_MERGE_AT_RUNTIME
 
 # Project folder versus safe pocket folder
@@ -90,3 +90,15 @@ Each observation file should be a short Markdown file with the following structu
 
 Keep observations focused. One observation per file. Split large findings into multiple files if needed.
 
+# the "<--- Make it so" directive
+
+Whenever you are given a link or path to a markdown file, followed by "<--- make it so", you must interpret this to mean:
+
+```markdown
+consume the contents of the given file, and
+- fix all of the bugs it mentions
+- incorporate/create all of the features it describes
+- add unit tests for any new functionality that is added in this process
+- do NOT return until all of the above has been completed, tested, and committed locally in Git
+
+```

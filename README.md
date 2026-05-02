@@ -1,4 +1,4 @@
-# Safe Pocket (spocket)
+# Safe Pocket
 
 Safe Pocket is a CLI tool for managing ad hoc VS Code workspaces based on directory combinations, enabling persistent AI copilot customization across different project contexts.
 
@@ -35,16 +35,16 @@ cd safe_pocket
 cargo build --release
 ```
 
-The binary will be at `target/release/spocket`.
+The primary binary will be at `target/release/safe_pocket`.
 
 ### Add to PATH
 
 ```bash
 # Copy to a location in your PATH
-cp target/release/spocket /usr/local/bin/
+cp target/release/safe_pocket /usr/local/bin/
 
-# Or create an alias in your shell config
-echo 'alias spocket="/path/to/safe_pocket/target/release/spocket"' >> ~/.zshrc
+# Optional alias if you prefer the short command name
+echo 'alias spocket="/path/to/safe_pocket/target/release/safe_pocket"' >> ~/.zshrc
 ```
 
 ## Usage
@@ -54,14 +54,14 @@ echo 'alias spocket="/path/to/safe_pocket/target/release/spocket"' >> ~/.zshrc
 Register frequently-used directories with memorable names:
 
 ```bash
-spocket register myproject="$HOME/dev/myproject"
-spocket register backend="$HOME/dev/api"
+safe_pocket register myproject="$HOME/dev/myproject"
+safe_pocket register backend="$HOME/dev/api"
 ```
 
 ### List Aliases
 
 ```bash
-spocket list
+safe_pocket list
 ```
 
 ### Create/Open Workspaces
@@ -70,17 +70,17 @@ Create a workspace from one or more directories:
 
 ```bash
 # Using an alias
-spocket -i myproject
+safe_pocket -i myproject
 
 # Using multiple directories
-spocket -i myproject -i backend
+safe_pocket -i myproject -i backend
 
 # Using full paths
-spocket -i ~/dev/project1 -i ~/dev/project2
+safe_pocket -i ~/dev/project1 -i ~/dev/project2
 
 # Using shell variables (expand before passing)
 devBin="$HOME/dev/bin"
-spocket -i $devBin -i ~/dev/personal
+safe_pocket -i $devBin -i ~/dev/personal
 ```
 
 ### Sidecar Directories
@@ -89,7 +89,7 @@ Add temporary directories that won't be saved to the workspace:
 
 ```bash
 # Add ~/dev/tools as a sidecar (temporary)
-spocket -i myproject -i backend --sidecar ~/dev/tools
+safe_pocket -i myproject -i backend --sidecar ~/dev/tools
 ```
 
 Sidecars are useful for directories you need occasionally but don't want permanently in the workspace. They're added when opening but not saved to the `.code-workspace` file.
@@ -100,19 +100,19 @@ Copy safe pocket contents (copilot instructions, features, etc.) from one worksp
 
 ```bash
 # Clone from workspace containing myproject to a new workspace
-spocket -i newproject --clone-from myproject
+safe_pocket -i newproject --clone-from myproject
 ```
 
 ### Smart Cloning (Automatic)
 
-When creating a new workspace, spocket automatically detects similar existing workspaces based on directory overlap. If a similar workspace is found (with at least 30% similarity), you'll be prompted to clone from it:
+When creating a new workspace, Safe Pocket automatically detects similar existing workspaces based on directory overlap. If a similar workspace is found (with at least 30% similarity), you'll be prompted to clone from it:
 
 ```bash
 # Create workspace with dir1 and dir2
-spocket -i dir1 -i dir2 -i dir3
+safe_pocket -i dir1 -i dir2 -i dir3
 
 # Later, create a similar workspace (dir1 and dir2 only)
-spocket -i dir1 -i dir2
+safe_pocket -i dir1 -i dir2
 
 # Output:
 # 🔍 Similar workspaces found!
@@ -133,38 +133,38 @@ This allows you to:
 - Avoid manually tracking which workspaces have useful copilot instructions
 - Quickly bootstrap new workspaces with proven configurations
 
-**Similarity Calculation:** Spocket uses Jaccard similarity (intersection over union) to measure how similar workspace directories are. A workspace with 2 out of 3 directories matching has 66% similarity.
+**Similarity Calculation:** Safe Pocket uses Jaccard similarity (intersection over union) to measure how similar workspace directories are. A workspace with 2 out of 3 directories matching has 66% similarity.
 
 ### List All Workspaces
 
 ```bash
-spocket list-workspaces
+safe_pocket list-workspaces
 ```
 
 ### Unregister Aliases
 
 ```bash
-spocket unregister myproject
+safe_pocket unregister myproject
 ```
 
 ### Skip README Generation
 
-By default, spocket creates helpful README files in empty directories explaining their purpose. To skip these:
+By default, Safe Pocket creates helpful README files in empty directories explaining their purpose. To skip these:
 
 ```bash
 # Create workspace without READMEs
-spocket -i myproject --no-readme
+safe_pocket -i myproject --no-readme
 ```
 
 **Note:** READMEs are never created when cloning from an existing workspace (they're preserved from the source).
 
 ### Version
 
-Check which version of spocket you have:
+Check which version of Safe Pocket you have:
 
 ```bash
-spocket -v
-spocket --version
+safe_pocket -v
+safe_pocket --version
 ```
 
 ### Verbose Output
@@ -172,12 +172,12 @@ spocket --version
 By default, informational messages (such as runtime merge notifications) are suppressed for a clean experience. Enable them when you want to see what's happening under the hood:
 
 ```bash
-spocket -i myproject --verbose
+safe_pocket -i myproject --verbose
 ```
 
 ## How It Works
 
-1. **Hashing**: When you specify directories with `-i`, spocket sorts and hashes their full paths to create a unique 12-character identifier.
+1. **Hashing**: When you specify directories with `-i`, Safe Pocket sorts and hashes their full paths to create a unique 12-character identifier.
 
 2. **Safe Pocket Creation**: A directory is created at `~/.safe_pocket/<hash>/` containing:
    - `.github/prompts/` - Custom prompt templates
@@ -191,7 +191,7 @@ spocket -i myproject --verbose
    - All your specified directories
    - The safe pocket directory itself
 
-4. **Mismatch Detection**: If the workspace file contains different directories than the hash suggests, spocket warns you.
+4. **Mismatch Detection**: If the workspace file contains different directories than the hash suggests, Safe Pocket warns you.
 
 ## Directory Structure
 
@@ -232,17 +232,17 @@ Aliases are stored at `~/.safe_pocket/aliases`:
 
 ```bash
 # Work on a specific feature with custom copilot instructions
-spocket -i ~/monorepo/features/auth
+safe_pocket -i ~/monorepo/features/auth
 
 # Add observability tools as a sidecar
-spocket -i ~/monorepo/features/auth --sidecar ~/dev/tools
+safe_pocket -i ~/monorepo/features/auth --sidecar ~/dev/tools
 ```
 
 ### Multi-Project Workspace
 
 ```bash
 # Combine iOS project with backend API
-spocket -i ~/projects/ios-app -i ~/projects/backend-api
+safe_pocket -i ~/projects/ios-app -i ~/projects/backend-api
 
 # Your custom copilot instructions work across both projects
 ```
@@ -251,17 +251,18 @@ spocket -i ~/projects/ios-app -i ~/projects/backend-api
 
 ```bash
 # Created great copilot instructions for feature-a
-spocket -i ~/monorepo/feature-a
+safe_pocket -i ~/monorepo/feature-a
 
 # Clone them to feature-b
-spocket -i ~/monorepo/feature-b --clone-from ~/monorepo/feature-a
+safe_pocket -i ~/monorepo/feature-b --clone-from ~/monorepo/feature-a
 ```
 
-## Recent Features (v0.3.0)
+## Recent Features (v0.4.0)
 
-- ✅ **`-v`/`--version`**: Check the installed version with `spocket -v` or `spocket --version`
-- ✅ **`--verbose` flag**: Opt-in to detailed output (runtime merge notices, template installs, etc.)
-- ✅ **Cleaner default output**: Non-error, non-warning messages are now hidden by default
+- `safe_pocket` is now the primary binary name, with `spocket` kept as an alias
+- Temporary pockets can live under `~/.safe_pocket/temporary/`
+- `clean` and `mark temporary` commands were added for safe pocket lifecycle management
+- Beads now defaults on unless `--without-beads` is passed
 
 ### Previous: v0.2.1
 

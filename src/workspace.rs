@@ -45,11 +45,16 @@ pub struct Workspace {
     pub sidecar_paths: Vec<PathBuf>,
     pub pocket_dir: PathBuf,
     pub create_readmes: bool,
+    pub temporary: bool,
 }
 
 impl Workspace {
     pub fn spocket_dir() -> Result<PathBuf> {
         registry::registry_dir()
+    }
+
+    pub fn temporary_spocket_dir() -> Result<PathBuf> {
+        registry::temporary_registry_dir()
     }
 
     fn legacy_spocket_dir() -> Result<PathBuf> {
@@ -111,8 +116,21 @@ impl Workspace {
         sidecar_paths: Vec<PathBuf>,
         create_readmes: bool,
     ) -> Result<Self> {
+        Self::new_with_options(core_paths, sidecar_paths, create_readmes, false)
+    }
+
+    pub fn new_with_options(
+        core_paths: Vec<PathBuf>,
+        sidecar_paths: Vec<PathBuf>,
+        create_readmes: bool,
+        temporary: bool,
+    ) -> Result<Self> {
         let hash = hash_paths(&core_paths);
-        let pocket_dir = Self::spocket_dir()?.join(&hash);
+        let pocket_dir = if temporary {
+            Self::temporary_spocket_dir()?.join(&hash)
+        } else {
+            Self::spocket_dir()?.join(&hash)
+        };
 
         Ok(Workspace {
             hash,
@@ -120,6 +138,7 @@ impl Workspace {
             sidecar_paths,
             pocket_dir,
             create_readmes,
+            temporary,
         })
     }
 
@@ -151,7 +170,11 @@ impl Workspace {
         self.init_git()?;
 
         // Write manifest
-        let manifest = Manifest::new(self.hash.clone(), self.core_paths.clone());
+        let manifest = Manifest::new_with_options(
+            self.hash.clone(),
+            self.core_paths.clone(),
+            self.temporary,
+        );
         manifest.save(&self.pocket_dir)?;
 
         println!(
@@ -699,7 +722,11 @@ impl Workspace {
         Ok(())
     }
 
-    pub fn clone_from(source_path: &Path, target_paths: &[PathBuf]) -> Result<Self> {
+    pub fn clone_from(
+        source_path: &Path,
+        target_paths: &[PathBuf],
+        temporary: bool,
+    ) -> Result<Self> {
         // Find workspace containing source_path
         let source_workspace = Self::find_workspace_containing(source_path)?;
 
@@ -718,7 +745,7 @@ impl Workspace {
         );
 
         // Create new workspace (never create READMEs when cloning)
-        let target_workspace = Self::new(target_paths.to_vec(), vec![], false)?;
+        let target_workspace = Self::new_with_options(target_paths.to_vec(), vec![], false, temporary)?;
 
         // Copy safe pocket contents
         if target_workspace.pocket_dir.exists() {
@@ -734,10 +761,11 @@ impl Workspace {
         target_workspace.create_workspace_file()?;
 
         // Write manifest with lineage
-        let manifest = Manifest::new_cloned(
+        let manifest = Manifest::new_cloned_with_options(
             target_workspace.hash.clone(),
             target_workspace.core_paths.clone(),
             source_workspace.hash.clone(),
+            temporary,
         );
         manifest.save(&target_workspace.pocket_dir)?;
 
@@ -765,6 +793,7 @@ impl Workspace {
     /// When multiple pockets match, prefers the one where all core_paths exist on disk.
     pub fn find_workspace_for_cwd(cwd: &Path) -> Result<Option<Self>> {
         let spocket_dir = Self::spocket_dir()?;
+        let temporary_spocket_dir = Self::temporary_spocket_dir()?;
 
         // Check 1: Is CWD inside a ~/.safe_pocket/<hash>/ directory?
         if cwd.starts_with(&spocket_dir) {
@@ -774,12 +803,37 @@ impl Workspace {
                     let pocket_dir = spocket_dir.join(&dir_name);
 
                     if let Some((_, core_paths)) = Self::load_manifest_or_backfill(&pocket_dir)? {
+                        let temporary = Manifest::load(&pocket_dir)?
+                            .map(|manifest| manifest.temporary)
+                            .unwrap_or(false);
                         return Ok(Some(Self {
                             hash: dir_name,
                             core_paths,
                             sidecar_paths: vec![],
                             pocket_dir,
                             create_readmes: false,
+                            temporary,
+                        }));
+                    }
+                }
+            }
+        }
+
+        // Check 1b: Is CWD inside a ~/.safe_pocket/temporary/<hash>/ directory?
+        if cwd.starts_with(&temporary_spocket_dir) {
+            if let Ok(relative) = cwd.strip_prefix(&temporary_spocket_dir) {
+                if let Some(hash_component) = relative.components().next() {
+                    let dir_name = hash_component.as_os_str().to_string_lossy().to_string();
+                    let pocket_dir = temporary_spocket_dir.join(&dir_name);
+
+                    if let Some((_, core_paths)) = Self::load_manifest_or_backfill(&pocket_dir)? {
+                        return Ok(Some(Self {
+                            hash: dir_name,
+                            core_paths,
+                            sidecar_paths: vec![],
+                            pocket_dir,
+                            create_readmes: false,
+                            temporary: true,
                         }));
                     }
                 }
@@ -973,6 +1027,7 @@ fn workspace_from_registry_entry(entry: RegistryEntry) -> Workspace {
         sidecar_paths: vec![],
         pocket_dir: entry.path,
         create_readmes: false,
+        temporary: entry.temporary,
     }
 }
 
@@ -1053,5 +1108,16 @@ mod tests {
         let serialized = serde_json::to_string_pretty(&ws).unwrap();
         assert!(serialized.contains("customField"));
         assert!(serialized.contains("editor.fontSize"));
+    }
+
+    #[test]
+    fn test_new_with_options_temporary_uses_temporary_registry_dir() {
+        let workspace = Workspace::new_with_options(vec![PathBuf::from("/tmp/project")], vec![], false, true)
+            .unwrap();
+
+        assert!(workspace.temporary);
+        assert!(workspace
+            .pocket_dir
+            .starts_with(Workspace::temporary_spocket_dir().unwrap()));
     }
 }

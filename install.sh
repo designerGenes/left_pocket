@@ -1,42 +1,38 @@
 #!/bin/bash
 
-# Safe Pocket Installation Script
-
 set -e
 
-echo "🔧 Building Safe Pocket..."
+printf 'Building Safe Pocket...\n'
 cargo build --release
 
-BINARY="./target/release/spocket"
+BINARY="./target/release/safe_pocket"
 INSTALL_DIR="${INSTALL_DIR:-$HOME/.local/bin}"
+PRIMARY="$INSTALL_DIR/safe_pocket"
+ALIAS="$INSTALL_DIR/spocket"
 
 if [ ! -f "$BINARY" ]; then
-    echo "❌ Build failed - binary not found"
+    printf 'Build failed: binary not found\n' >&2
     exit 1
 fi
 
-# Create install directory if it doesn't exist
 mkdir -p "$INSTALL_DIR"
 
-# Copy binary
-echo "📦 Installing to $INSTALL_DIR/spocket..."
-cp "$BINARY" "$INSTALL_DIR/spocket"
-chmod +x "$INSTALL_DIR/spocket"
+printf 'Installing %s\n' "$PRIMARY"
+cp -f "$BINARY" "$PRIMARY"
+chmod +x "$PRIMARY"
 
-# Check if directory is in PATH
+printf 'Installing alias %s\n' "$ALIAS"
+cp -f "$BINARY" "$ALIAS"
+chmod +x "$ALIAS"
+
 if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]]; then
-    echo ""
-    echo "⚠️  $INSTALL_DIR is not in your PATH"
-    echo ""
-    echo "Add this line to your shell config (~/.bashrc, ~/.zshrc, etc.):"
-    echo ""
-    echo "    export PATH=\"\$PATH:$INSTALL_DIR\""
-    echo ""
+    printf '\n%s is not in your PATH\n\n' "$INSTALL_DIR"
+    printf 'Add this line to your shell config (~/.bashrc, ~/.zshrc, etc.):\n\n'
+    printf '    export PATH="\\$PATH:%s"\n\n' "$INSTALL_DIR"
 fi
 
-echo "✅ Installation complete!"
-echo ""
-echo "Try it out:"
-echo "  spocket --help"
-echo "  spocket register myproject=\"\$(pwd)\""
-echo "  spocket -i myproject"
+printf 'Installation complete.\n\n'
+printf 'Try it out:\n'
+printf '  safe_pocket --help\n'
+printf '  spocket --help\n'
+printf '  safe_pocket register myproject="%s"\n' "$(pwd)"

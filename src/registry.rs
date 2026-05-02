@@ -11,6 +11,7 @@ const CACHE_FILE: &str = "registry_cache.json";
 const CACHE_TMP: &str = "registry_cache.json.tmp";
 const CACHE_VERSION: u32 = 1;
 const LEGACY_CONFIG_OBSERVATIONS: &str = ".config/safe_pocket/observations";
+const TEMPORARY_DIR: &str = "temporary";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RegistryCache {
@@ -30,6 +31,8 @@ pub struct RegistryEntry {
     pub manifest_hash: String,
     pub path: PathBuf,
     pub created_at: DateTime<Utc>,
+    #[serde(default)]
+    pub temporary: bool,
     #[serde(default)]
     pub core_paths: Vec<PathBuf>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -85,6 +88,12 @@ pub fn registry_dir() -> Result<PathBuf> {
     Ok(dir)
 }
 
+pub fn temporary_registry_dir() -> Result<PathBuf> {
+    let dir = registry_dir()?.join(TEMPORARY_DIR);
+    fs::create_dir_all(&dir).context("Failed to create temporary safe pocket directory")?;
+    Ok(dir)
+}
+
 pub fn aliases_path() -> Result<PathBuf> {
     Ok(registry_dir()?.join(ALIASES_FILE))
 }
@@ -122,7 +131,12 @@ fn cache_tmp_path_for(root: &Path) -> PathBuf {
 }
 
 pub fn is_registry_pocket_dir(pocket_dir: &Path) -> Result<bool> {
-    Ok(pocket_dir.parent() == Some(registry_root()?.as_path()))
+    let parent = match pocket_dir.parent() {
+        Some(parent) => parent,
+        None => return Ok(false),
+    };
+
+    Ok(parent == registry_root()?.as_path() || parent == temporary_registry_dir()?.as_path())
 }
 
 pub fn load_cache_or_rebuild() -> Result<RegistryCache> {
@@ -158,30 +172,11 @@ fn rebuild_cache_from(root: &Path) -> Result<RegistryCache> {
     fs::create_dir_all(root).context("Failed to create safe pocket registry directory")?;
 
     let mut cache = RegistryCache::default();
-    for entry in fs::read_dir(root).context("Failed to read safe pocket registry directory")? {
-        let entry = entry?;
-        let pocket_dir = entry.path();
+    collect_pockets_from_dir(root, &mut cache)?;
 
-        if !pocket_dir.is_dir() || is_reserved_registry_dir(&pocket_dir) {
-            continue;
-        }
-
-        let dir_name = match pocket_dir.file_name().and_then(|n| n.to_str()) {
-            Some(name) => name.to_string(),
-            None => continue,
-        };
-
-        let manifest = match Manifest::load_without_registry_update(&pocket_dir)? {
-            Some(manifest) => manifest,
-            None if has_workspace_file(&pocket_dir, &dir_name) => {
-                Manifest::backfill_without_registry_update(&pocket_dir, &dir_name)?
-            }
-            None => continue,
-        };
-
-        cache
-            .pockets
-            .push(entry_from_manifest(&pocket_dir, &manifest));
+    let temporary_root = root.join(TEMPORARY_DIR);
+    if temporary_root.exists() {
+        collect_pockets_from_dir(&temporary_root, &mut cache)?;
     }
 
     sort_entries(&mut cache.pockets);
@@ -254,6 +249,7 @@ fn entry_from_manifest(pocket_dir: &Path, manifest: &Manifest) -> RegistryEntry 
         manifest_hash: manifest.hash.clone(),
         path: pocket_dir.to_path_buf(),
         created_at: manifest.created_at,
+        temporary: manifest.temporary,
         core_paths: manifest.core_paths.clone(),
         worktrees: manifest.worktrees.clone(),
         parent_hash: manifest.parent_hash.clone(),
@@ -268,10 +264,40 @@ fn sort_entries(entries: &mut [RegistryEntry]) {
     entries.sort_by(|a, b| a.hash.cmp(&b.hash));
 }
 
+fn collect_pockets_from_dir(root: &Path, cache: &mut RegistryCache) -> Result<()> {
+    for entry in fs::read_dir(root).context("Failed to read safe pocket registry directory")? {
+        let entry = entry?;
+        let pocket_dir = entry.path();
+
+        if !pocket_dir.is_dir() || is_reserved_registry_dir(&pocket_dir) {
+            continue;
+        }
+
+        let dir_name = match pocket_dir.file_name().and_then(|n| n.to_str()) {
+            Some(name) => name.to_string(),
+            None => continue,
+        };
+
+        let manifest = match Manifest::load_without_registry_update(&pocket_dir)? {
+            Some(manifest) => manifest,
+            None if has_workspace_file(&pocket_dir, &dir_name) => {
+                Manifest::backfill_without_registry_update(&pocket_dir, &dir_name)?
+            }
+            None => continue,
+        };
+
+        cache
+            .pockets
+            .push(entry_from_manifest(&pocket_dir, &manifest));
+    }
+
+    Ok(())
+}
+
 fn is_reserved_registry_dir(path: &Path) -> bool {
     matches!(
         path.file_name().and_then(|name| name.to_str()),
-        Some("observations" | "registry")
+        Some("observations" | "registry" | TEMPORARY_DIR)
     )
 }
 
@@ -351,6 +377,7 @@ mod tests {
                 manifest_hash: "missing".to_string(),
                 path: root.join("missing"),
                 created_at: Utc::now(),
+                temporary: false,
                 core_paths: Vec::new(),
                 worktrees: Vec::new(),
                 parent_hash: None,
@@ -365,6 +392,29 @@ mod tests {
 
         let loaded = load_cache_or_rebuild_from(&root).unwrap();
         assert!(loaded.pockets.is_empty());
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn test_rebuild_cache_includes_temporary_pockets() {
+        let root = std::env::temp_dir().join("spocket_registry_temporary_test");
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(root.join("temporary")).unwrap();
+
+        let pocket_dir = root.join("temporary").join("temp123");
+        fs::create_dir_all(&pocket_dir).unwrap();
+        let manifest = Manifest::new_with_options(
+            "manifest_hash".to_string(),
+            vec![PathBuf::from("/tmp/project")],
+            true,
+        );
+        manifest.save(&pocket_dir).unwrap();
+
+        let cache = rebuild_cache_from(&root).unwrap();
+        assert_eq!(cache.pockets.len(), 1);
+        assert!(cache.pockets[0].temporary);
+        assert_eq!(cache.pockets[0].path, pocket_dir);
 
         let _ = fs::remove_dir_all(&root);
     }

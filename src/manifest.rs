@@ -12,6 +12,8 @@ pub struct Manifest {
     pub hash: String,
     pub core_paths: Vec<PathBuf>,
     pub created_at: DateTime<Utc>,
+    #[serde(default)]
+    pub temporary: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parent_hash: Option<String>,
     #[serde(default)]
@@ -66,10 +68,15 @@ impl Manifest {
 
     /// Create a fresh manifest for a new pocket.
     pub fn new(hash: String, core_paths: Vec<PathBuf>) -> Self {
+        Self::new_with_options(hash, core_paths, false)
+    }
+
+    pub fn new_with_options(hash: String, core_paths: Vec<PathBuf>, temporary: bool) -> Self {
         Manifest {
             hash,
             core_paths,
             created_at: Utc::now(),
+            temporary,
             parent_hash: None,
             children: Vec::new(),
             augmented_from: None,
@@ -80,10 +87,20 @@ impl Manifest {
     }
 
     pub fn new_cloned(hash: String, core_paths: Vec<PathBuf>, parent_hash: String) -> Self {
+        Self::new_cloned_with_options(hash, core_paths, parent_hash, false)
+    }
+
+    pub fn new_cloned_with_options(
+        hash: String,
+        core_paths: Vec<PathBuf>,
+        parent_hash: String,
+        temporary: bool,
+    ) -> Self {
         Manifest {
             hash,
             core_paths,
             created_at: Utc::now(),
+            temporary,
             parent_hash: Some(parent_hash),
             children: Vec::new(),
             augmented_from: None,
@@ -243,6 +260,7 @@ impl Manifest {
             hash: hash.to_string(),
             core_paths,
             created_at,
+            temporary: false,
             parent_hash: None,
             children: Vec::new(),
             augmented_from: None,
@@ -273,6 +291,7 @@ mod tests {
 
         assert_eq!(m.hash, "abc123");
         assert_eq!(m.core_paths, paths);
+        assert!(!m.temporary);
         assert!(m.parent_hash.is_none());
         assert!(m.children.is_empty());
         assert!(m.augmented_from.is_none());
@@ -286,7 +305,27 @@ mod tests {
         let paths = vec![PathBuf::from("/test/a")];
         let m = Manifest::new_cloned("child123".to_string(), paths, "parent456".to_string());
 
+        assert!(!m.temporary);
         assert_eq!(m.parent_hash, Some("parent456".to_string()));
+    }
+
+    #[test]
+    fn test_manifest_temporary_roundtrip() {
+        let tmp = std::env::temp_dir().join("spocket_manifest_temporary_test");
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(&tmp).unwrap();
+
+        let manifest = Manifest::new_with_options(
+            "temp_hash".to_string(),
+            vec![PathBuf::from("/test/a")],
+            true,
+        );
+        manifest.save(&tmp).unwrap();
+
+        let loaded = Manifest::load(&tmp).unwrap().unwrap();
+        assert!(loaded.temporary);
+
+        let _ = fs::remove_dir_all(&tmp);
     }
 
     #[test]
