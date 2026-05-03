@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { execFile } from "child_process";
+import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
 
@@ -40,8 +41,20 @@ function isSpocketWorkspace(
 }
 
 function getBinaryPath(): string {
-   const config = vscode.workspace.getConfiguration("spocket");
-   return config.get<string>("binaryPath") || "safe_pocket";
+  const config = vscode.workspace.getConfiguration("spocket");
+  const configured = config.get<string>("binaryPath")?.trim();
+
+  if (configured && configured !== "spocket") {
+    return configured;
+  }
+
+  const installedBinary = path.join(os.homedir(), ".local", "bin", "safe_pocket");
+
+  if (fs.existsSync(installedBinary)) {
+    return installedBinary;
+  }
+
+  return "safe_pocket";
 }
 
 function runSync(pocketDir: string): Promise<SyncResult> {

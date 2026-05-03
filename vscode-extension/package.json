@@ -20,7 +20,7 @@
       "properties": {
         "spocket.binaryPath": {
           "type": "string",
-          "default": "spocket",
+          "default": "safe_pocket",
           "description": "Path to the spocket binary"
         }
       }

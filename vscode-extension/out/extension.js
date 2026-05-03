@@ -37,6 +37,7 @@ exports.activate = activate;
 exports.deactivate = deactivate;
 const vscode = __importStar(require("vscode"));
 const child_process_1 = require("child_process");
+const fs = __importStar(require("fs"));
 const path = __importStar(require("path"));
 const os = __importStar(require("os"));
 let statusBarItem;
@@ -59,7 +60,15 @@ function isSpocketWorkspace(workspaceFile) {
 }
 function getBinaryPath() {
     const config = vscode.workspace.getConfiguration("spocket");
-    return config.get("binaryPath") || "spocket";
+    const configured = config.get("binaryPath")?.trim();
+    if (configured && configured !== "spocket") {
+        return configured;
+    }
+    const installedBinary = path.join(os.homedir(), ".local", "bin", "safe_pocket");
+    if (fs.existsSync(installedBinary)) {
+        return installedBinary;
+    }
+    return "safe_pocket";
 }
 function runSync(pocketDir) {
     return new Promise((resolve) => {
