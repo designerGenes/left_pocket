@@ -111,6 +111,7 @@ impl Workspace {
         Ok(Some((manifest, core_paths)))
     }
 
+    #[allow(dead_code)]
     pub fn new(
         core_paths: Vec<PathBuf>,
         sidecar_paths: Vec<PathBuf>,
@@ -212,6 +213,7 @@ impl Workspace {
             project_root: primary_project_path.clone(),
             spocket_name: self.hash.clone(),
             global_observations_path: global_obs,
+            uses_beads: false,
         };
 
         // Apply templates (non-interactive for new pockets — no overwrite prompts)
@@ -498,6 +500,9 @@ impl Workspace {
     /// Idempotent: skips `bd init` if `.beads/` already exists in the pocket.
     pub fn setup_beads(&self) -> Result<()> {
         let beads_dir = self.pocket_dir.join(".beads");
+        let config_dir = crate::template::safe_pocket_config_dir()?;
+        let storage_dir = Self::spocket_dir()?;
+        let legacy_storage_dir = Self::legacy_spocket_dir()?;
 
         // ── 1. Run `bd init` inside the pocket directory (only if not already done) ──
         if beads_dir.exists() {
@@ -510,7 +515,7 @@ impl Workspace {
             println!("{}", "Initialising Beads in safe pocket...".bright_white());
 
             let output = Command::new("bd")
-                .args(["init", "--backend", "dolt"])
+                .args(["init", "--backend", "dolt", "--prefix", &self.hash])
                 .current_dir(&self.pocket_dir)
                 .output()
                 .context("Failed to execute `bd init` — is `bd` installed and on PATH?")?;
@@ -533,6 +538,13 @@ impl Workspace {
         let beads_dir_str = beads_dir.to_string_lossy().into_owned();
 
         for project_path in &self.core_paths {
+            if project_path.starts_with(&config_dir)
+                || project_path.starts_with(&storage_dir)
+                || project_path.starts_with(&legacy_storage_dir)
+            {
+                continue;
+            }
+
             let project_beads_dir = project_path.join(".beads");
             let redirect_file = project_beads_dir.join("redirect");
 
@@ -570,6 +582,13 @@ impl Workspace {
                 project_path.display().to_string().bright_blue(),
                 beads_dir_str.bright_yellow()
             );
+        }
+
+        if let Some(mut manifest) = Manifest::load(&self.pocket_dir)? {
+            if !manifest.uses_beads {
+                manifest.set_uses_beads(true);
+                manifest.save(&self.pocket_dir)?;
+            }
         }
 
         Ok(())

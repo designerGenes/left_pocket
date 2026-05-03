@@ -443,8 +443,11 @@ fn find_existing_workspace_for_paths(paths: &[PathBuf]) -> Result<Option<Workspa
 
 fn handle_workspace(cli: Cli) -> Result<()> {
     let config = Config::load()?;
-
-    let use_beads = !cli.without_beads;
+    let beads_requested = cli
+        .use_features
+        .iter()
+        .any(|feature| feature.eq_ignore_ascii_case("beads"));
+    let beads_allowed = !cli.without_beads;
 
     // Validate unknown --use values
     for feature in &cli.use_features {
@@ -489,7 +492,7 @@ fn handle_workspace(cli: Cli) -> Result<()> {
 
         let workspace = Workspace::clone_from(&source_path, &core_paths, cli.temporary)?;
 
-        if use_beads {
+        if beads_allowed {
             workspace.setup_beads()?;
         }
 
@@ -525,7 +528,13 @@ fn handle_workspace(cli: Cli) -> Result<()> {
 
             existing.migrate_storage_references()?;
 
-            if use_beads {
+            let should_setup_beads = beads_allowed
+                && (beads_requested
+                || Manifest::load(&existing.pocket_dir)?
+                    .map(|manifest| manifest.uses_beads)
+                    .unwrap_or(false));
+
+            if should_setup_beads {
                 existing.setup_beads()?;
             }
 
@@ -569,7 +578,13 @@ fn handle_workspace(cli: Cli) -> Result<()> {
                 existing.hash.bright_yellow()
             );
 
-                if use_beads {
+                let should_setup_beads = beads_allowed
+                    && (beads_requested
+                    || Manifest::load(&existing.pocket_dir)?
+                        .map(|manifest| manifest.uses_beads)
+                        .unwrap_or(false));
+
+                if should_setup_beads {
                     existing.setup_beads()?;
                 }
 
@@ -628,7 +643,7 @@ fn handle_workspace(cli: Cli) -> Result<()> {
             workspace.create()?;
         }
 
-        if use_beads {
+        if beads_allowed {
             workspace.setup_beads()?;
         }
 
@@ -639,7 +654,13 @@ fn handle_workspace(cli: Cli) -> Result<()> {
         workspace.migrate_storage_references()?;
 
         // Run beads setup regardless of whether the pocket is new — idempotent
-        if use_beads {
+        let should_setup_beads = beads_allowed
+            && (beads_requested
+            || Manifest::load(&workspace.pocket_dir)?
+                .map(|manifest| manifest.uses_beads)
+                .unwrap_or(false));
+
+        if should_setup_beads {
             workspace.setup_beads()?;
         }
 
@@ -1160,6 +1181,7 @@ fn build_template_context(pocket_dir: &std::path::Path) -> Result<template::Temp
         project_root,
         spocket_name,
         global_observations_path: global_obs,
+        uses_beads: manifest.uses_beads,
     })
 }
 

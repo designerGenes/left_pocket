@@ -30,7 +30,123 @@ pub struct TemplateContext {
     pub spocket_name: String,
     /// Absolute path to the global observations directory (`~/.safe_pocket/observations`).
     pub global_observations_path: PathBuf,
+    /// Whether this pocket has Beads integration enabled.
+    pub uses_beads: bool,
 }
+
+const BEADS_RUNTIME_BLOCK: &str = r#"<!-- BEGIN BEADS INTEGRATION -->
+## Issue Tracking with bd (beads)
+
+**IMPORTANT**: This project uses **bd (beads)** for ALL issue tracking. Do NOT use markdown TODOs, task lists, or other tracking methods.
+
+### Why bd?
+
+- Dependency-aware: Track blockers and relationships between issues
+- Git-friendly: Dolt-powered version control with native sync
+- Agent-optimized: JSON output, ready work detection, discovered-from links
+- Prevents duplicate tracking systems and confusion
+
+### Quick Start
+
+**Check ready work:**
+
+```bash
+bd ready --json
+```
+
+**Create new issues:**
+
+```bash
+bd create "Issue title" --description="Detailed context" -t bug|feature|task -p 0-4 --json
+bd create "Issue title" --description="What this issue is about" -p 1 --deps discovered-from:bd-123 --json
+```
+
+**Claim and update:**
+
+```bash
+bd update <id> --claim --json
+bd update bd-42 --priority 1 --json
+```
+
+**Complete work:**
+
+```bash
+bd close bd-42 --reason "Completed" --json
+```
+
+### Issue Types
+
+- `bug` - Something broken
+- `feature` - New functionality
+- `task` - Work item (tests, docs, refactoring)
+- `epic` - Large feature with subtasks
+- `chore` - Maintenance (dependencies, tooling)
+
+### Priorities
+
+- `0` - Critical (security, data loss, broken builds)
+- `1` - High (major features, important bugs)
+- `2` - Medium (default, nice-to-have)
+- `3` - Low (polish, optimization)
+- `4` - Backlog (future ideas)
+
+### Workflow for AI Agents
+
+1. **Check ready work**: `bd ready` shows unblocked issues
+2. **Claim your task atomically**: `bd update <id> --claim`
+3. **Work on it**: Implement, test, document
+4. **Discover new work?** Create linked issue:
+   - `bd create "Found bug" --description="Details about what was found" -p 1 --deps discovered-from:<parent-id>`
+5. **Complete**: `bd close bd-42 --reason "Done"`
+
+### Auto-Sync
+
+bd automatically syncs via Dolt:
+
+- Each write auto-commits to Dolt history
+- Use `bd dolt push`/`bd dolt pull` for remote sync
+- No manual export/import needed!
+
+### Important Rules
+
+- ✅ Use bd for ALL task tracking
+- ✅ Always use `--json` flag for programmatic use
+- ✅ Link discovered work with `discovered-from` dependencies
+- ✅ Check `bd ready` before asking "what should I work on?"
+- ❌ Do NOT create markdown TODO lists
+- ❌ Do NOT use external issue trackers
+- ❌ Do NOT duplicate tracking systems
+
+For more details, see README.md and docs/QUICKSTART.md.
+
+## Landing the Plane (Session Completion)
+
+**When ending a work session**, you MUST complete ALL steps below. Work is NOT complete until `git push` succeeds.
+
+**MANDATORY WORKFLOW:**
+
+1. **File issues for remaining work** - Create issues for anything that needs follow-up
+2. **Run quality gates** (if code changed) - Tests, linters, builds
+3. **Update issue status** - Close finished work, update in-progress items
+4. **PUSH TO REMOTE** - This is MANDATORY:
+   ```bash
+   git pull --rebase
+   bd sync
+   git push
+   git status  # MUST show "up to date with origin"
+   ```
+5. **Clean up** - Clear stashes, prune remote branches
+6. **Verify** - All changes committed AND pushed
+7. **Hand off** - Provide context for next session
+
+**CRITICAL RULES:**
+- Work is NOT complete until `git push` succeeds
+- NEVER stop before pushing - that leaves work stranded locally
+- NEVER say "ready to push when you are" - YOU must push
+- If push fails, resolve and retry until it succeeds
+
+<!-- END BEADS INTEGRATION -->
+"#;
 
 /// Replace `{{SPOCKET_ROOT}}`, `{{PROJECT_ROOT}}`, `{{SPOCKET_NAME}}`,
 /// and `{{GLOBAL_OBSERVATIONS_PATH}}` in `text`.
@@ -42,6 +158,44 @@ pub fn expand_variables(text: &str, ctx: &TemplateContext) -> String {
             "{{GLOBAL_OBSERVATIONS_PATH}}",
             &ctx.global_observations_path.to_string_lossy(),
         )
+}
+
+fn filter_template_content(content: &str, ctx: &TemplateContext) -> String {
+    if ctx.uses_beads {
+        return content.to_string();
+    }
+
+    let mut kept = Vec::new();
+    for line in content.lines() {
+        if line.trim_start().starts_with("BEADS_DIR=") {
+            continue;
+        }
+        kept.push(line);
+    }
+
+    if content.ends_with('\n') && !kept.is_empty() {
+        format!("{}\n", kept.join("\n"))
+    } else {
+        kept.join("\n")
+    }
+}
+
+fn runtime_content_for_template(tmpl: &Template, ctx: &TemplateContext) -> String {
+    let mut sections = Vec::new();
+    let base = expand_variables(&tmpl.content, ctx).trim().to_string();
+    if !base.is_empty() {
+        sections.push(base);
+    }
+
+    if ctx.uses_beads && tmpl.destination == "{{SPOCKET_ROOT}}/AGENTS.md" {
+        sections.push(BEADS_RUNTIME_BLOCK.trim().to_string());
+    }
+
+    sections.join("\n\n")
+}
+
+fn expand_template_content(content: &str, ctx: &TemplateContext) -> String {
+    expand_variables(content, ctx)
 }
 
 // ── Parsed template ──────────────────────────────────────────────────────────
@@ -450,6 +604,29 @@ fn strip_markers(content: &str) -> String {
     result
 }
 
+fn strip_managed_block(content: &str, start_marker: &str, end_marker: &str) -> String {
+    let mut result = String::with_capacity(content.len());
+    let mut in_block = false;
+
+    for line in content.split_inclusive('\n') {
+        let line_content = line.strip_suffix('\n').unwrap_or(line);
+        let trimmed = line_content.trim();
+        if trimmed == start_marker {
+            in_block = true;
+            continue;
+        }
+        if trimmed == end_marker {
+            in_block = false;
+            continue;
+        }
+        if !in_block {
+            result.push_str(line);
+        }
+    }
+
+    result
+}
+
 fn expand_runtime_variables_in_content(content: &str, ctx: &TemplateContext) -> String {
     let mut result = String::with_capacity(content.len());
 
@@ -498,7 +675,11 @@ pub fn inject_runtime_content(dest_path: &Path, runtime_content: &str) -> Result
         String::new()
     };
 
-    let base = strip_markers(&existing);
+    let base = strip_managed_block(
+        &strip_markers(&existing),
+        "<!-- BEGIN BEADS INTEGRATION -->",
+        "<!-- END BEADS INTEGRATION -->",
+    );
 
     let mut injected = base;
     if !injected.is_empty() && !injected.ends_with('\n') {
@@ -582,7 +763,7 @@ pub fn apply_merge_at_runtime(pocket_dir: &Path, ctx: &TemplateContext) -> Resul
 
     for tmpl in templates.iter().filter(|t| t.merge_at_runtime) {
         let dest_rel = expand_variables(&tmpl.destination, ctx);
-        let content = expand_variables(&tmpl.content, ctx);
+        let content = runtime_content_for_template(tmpl, ctx);
         let dest_path = resolve_template_destination(&dest_rel, pocket_dir, ctx);
 
         match inject_runtime_content(&dest_path, &content) {
@@ -758,7 +939,7 @@ fn apply_template_set(
         let content = if tmpl.merge_at_runtime {
             String::new()
         } else {
-            tmpl.content.clone()
+            expand_template_content(&filter_template_content(&tmpl.content, ctx), ctx)
         };
 
         // Resolve the destination: if it starts with the spocket_root, make it
@@ -987,6 +1168,7 @@ pub fn upgrade_pocket(pocket_dir: &Path) -> Result<()> {
         project_root: project_root.clone(),
         spocket_name,
         global_observations_path: global_obs,
+        uses_beads: manifest.uses_beads,
     };
 
     println!(
@@ -1005,7 +1187,10 @@ pub fn upgrade_pocket(pocket_dir: &Path) -> Result<()> {
         TemplateApplyMode::Upgrade,
     )?;
 
-    if files_written == 0 {
+    let runtime_updated = apply_merge_at_runtime(pocket_dir, &ctx)?;
+    let total_updated = files_written + runtime_updated;
+
+    if total_updated == 0 {
         println!(
             "{}",
             "Pocket is already up to date with templates.".bright_green()
@@ -1014,7 +1199,7 @@ pub fn upgrade_pocket(pocket_dir: &Path) -> Result<()> {
         println!(
             "{} {} file(s) written.",
             "Upgrade complete:".bright_green(),
-            files_written.to_string().bright_yellow()
+            total_updated.to_string().bright_yellow()
         );
     }
 
@@ -1076,7 +1261,19 @@ mod tests {
             project_root: PathBuf::from(project_root),
             spocket_name: name.to_string(),
             global_observations_path: PathBuf::from("/global/observations"),
+            uses_beads: false,
         }
+    }
+
+    fn make_ctx_with_beads(
+        spocket_root: &str,
+        project_root: &str,
+        name: &str,
+        uses_beads: bool,
+    ) -> TemplateContext {
+        let mut ctx = make_ctx(spocket_root, project_root, name);
+        ctx.uses_beads = uses_beads;
+        ctx
     }
 
     #[test]
@@ -1467,6 +1664,33 @@ mod tests {
     }
 
     #[test]
+    fn test_filter_template_content_removes_beads_dir_when_disabled() {
+        let ctx = make_ctx("/pocket", "/project", "hash");
+        let content = "SPOCKET_ROOT={{SPOCKET_ROOT}}\nBEADS_DIR={{SPOCKET_ROOT}}/.beads\n";
+
+        assert_eq!(
+            filter_template_content(content, &ctx),
+            "SPOCKET_ROOT={{SPOCKET_ROOT}}\n"
+        );
+    }
+
+    #[test]
+    fn test_runtime_content_for_agents_includes_beads_block_when_enabled() {
+        let ctx = make_ctx_with_beads("/pocket", "/project", "hash", true);
+        let tmpl = Template {
+            destination: "{{SPOCKET_ROOT}}/AGENTS.md".to_string(),
+            content: "Base runtime\n".to_string(),
+            quiet_merge: false,
+            merge_at_runtime: true,
+            source_path: PathBuf::from("/tmp/AGENTS.md"),
+        };
+
+        let content = runtime_content_for_template(&tmpl, &ctx);
+        assert!(content.contains("Base runtime"));
+        assert!(content.contains("<!-- BEGIN BEADS INTEGRATION -->"));
+    }
+
+    #[test]
     fn test_create_mode_places_empty_merge_at_runtime_destination() {
         let dir = std::env::temp_dir().join("spocket_test_create_places_empty_runtime");
         let _ = fs::remove_dir_all(&dir);
@@ -1614,6 +1838,132 @@ mod tests {
             fs::read_to_string(pocket_dir.join(".env")).unwrap(),
             "TEMPLATE_KEY=value\n"
         );
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_create_mode_filters_beads_dir_from_env_when_disabled() {
+        let dir = std::env::temp_dir().join("spocket_test_create_filters_beads_env");
+        let _ = fs::remove_dir_all(&dir);
+        let pocket_dir = dir.join("pocket");
+        fs::create_dir_all(&pocket_dir).unwrap();
+
+        let templates = vec![Template {
+            destination: ".env".to_string(),
+            content: "SPOCKET_ROOT={{SPOCKET_ROOT}}\nBEADS_DIR={{SPOCKET_ROOT}}/.beads\n"
+                .to_string(),
+            quiet_merge: true,
+            merge_at_runtime: false,
+            source_path: dir.join("env-template.md"),
+        }];
+        let ctx = make_ctx(&pocket_dir.to_string_lossy(), "/project", "hash");
+
+        apply_template_set(&templates, &pocket_dir, &ctx, false, TemplateApplyMode::Create)
+            .unwrap();
+
+        assert_eq!(
+            fs::read_to_string(pocket_dir.join(".env")).unwrap(),
+            format!("SPOCKET_ROOT={}\n", pocket_dir.display())
+        );
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_upgrade_mode_expands_template_variables_in_env_files() {
+        let dir = std::env::temp_dir().join("spocket_test_upgrade_expands_env_values");
+        let _ = fs::remove_dir_all(&dir);
+        let pocket_dir = dir.join("pocket");
+        let project_dir = dir.join("project");
+        fs::create_dir_all(&pocket_dir).unwrap();
+        fs::create_dir_all(&project_dir).unwrap();
+
+        let templates = vec![
+            Template {
+                destination: "{{PROJECT_ROOT}}/.env".to_string(),
+                content: "SPOCKET_ROOT={{SPOCKET_ROOT}}\n".to_string(),
+                quiet_merge: true,
+                merge_at_runtime: false,
+                source_path: dir.join("project-env-template.md"),
+            },
+            Template {
+                destination: "{{SPOCKET_ROOT}}/.env".to_string(),
+                content: "PROJECT_ROOT={{PROJECT_ROOT}}\n".to_string(),
+                quiet_merge: true,
+                merge_at_runtime: false,
+                source_path: dir.join("safe-pocket-env-template.md"),
+            },
+        ];
+        let ctx = make_ctx(
+            &pocket_dir.to_string_lossy(),
+            &project_dir.to_string_lossy(),
+            "hash",
+        );
+
+        apply_template_set(
+            &templates,
+            &pocket_dir,
+            &ctx,
+            false,
+            TemplateApplyMode::Upgrade,
+        )
+        .unwrap();
+
+        assert_eq!(
+            fs::read_to_string(project_dir.join(".env")).unwrap(),
+            format!("SPOCKET_ROOT={}\n", pocket_dir.display())
+        );
+        assert_eq!(
+            fs::read_to_string(pocket_dir.join(".env")).unwrap(),
+            format!("PROJECT_ROOT={}\n", project_dir.display())
+        );
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_upgrade_runtime_rehomes_beads_block_inside_markers() {
+        let dir = std::env::temp_dir().join("spocket_test_upgrade_runtime_rehomes_beads_block");
+        let _ = fs::remove_dir_all(&dir);
+        let pocket_dir = dir.join("pocket");
+        fs::create_dir_all(&pocket_dir).unwrap();
+
+        let file = pocket_dir.join("AGENTS.md");
+        fs::write(
+            &file,
+            format!(
+                "{beads}\n{start}\nOld runtime\n{end}\n",
+                beads = BEADS_RUNTIME_BLOCK.trim(),
+                start = RUNTIME_START_MARKER,
+                end = RUNTIME_END_MARKER
+            ),
+        )
+        .unwrap();
+
+        let tmpl = Template {
+            destination: "{{SPOCKET_ROOT}}/AGENTS.md".to_string(),
+            content: "All agents MUST obey {{SPOCKET_ROOT}}/.github/copilot-instructions.md\n"
+                .to_string(),
+            quiet_merge: false,
+            merge_at_runtime: true,
+            source_path: dir.join("agents-template.md"),
+        };
+        let ctx = make_ctx_with_beads(
+            &pocket_dir.to_string_lossy(),
+            "/project",
+            "hash",
+            true,
+        );
+
+        let content = runtime_content_for_template(&tmpl, &ctx);
+        inject_runtime_content(&file, &content).unwrap();
+
+        let updated = fs::read_to_string(&file).unwrap();
+        let start_idx = updated.find(RUNTIME_START_MARKER).unwrap();
+        assert!(!updated[..start_idx].contains("<!-- BEGIN BEADS INTEGRATION -->"));
+        let runtime_block = &updated[start_idx..];
+        assert!(runtime_block.contains("<!-- BEGIN BEADS INTEGRATION -->"));
 
         let _ = fs::remove_dir_all(&dir);
     }
