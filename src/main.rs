@@ -1,5 +1,6 @@
 mod cli;
 mod config;
+mod event;
 mod hash;
 mod manifest;
 mod registry;
@@ -85,6 +86,10 @@ fn handle_command(command: Commands) -> Result<()> {
 
             let mut config = Config::load()?;
             config.register_alias(name.clone(), path.clone())?;
+            let _ = event::append_registry_event(
+                "alias.register",
+                serde_json::json!({ "alias": name, "path": path }),
+            );
 
             println!(
                 "{} {} -> {}",
@@ -100,6 +105,10 @@ fn handle_command(command: Commands) -> Result<()> {
             let mut config = Config::load()?;
 
             if config.unregister_alias(&name)? {
+                let _ = event::append_registry_event(
+                    "alias.unregister",
+                    serde_json::json!({ "alias": name }),
+                );
                 println!(
                     "{} {}",
                     "Unregistered alias:".bright_green(),
@@ -183,7 +192,13 @@ fn handle_command(command: Commands) -> Result<()> {
             yes,
         } => handle_clean(scope, older_than, all, hard, yes),
 
-        Commands::Heal { project, pocket } => handle_heal(project, pocket),
+        Commands::Heal {
+            project,
+            alias,
+            pocket,
+        } => handle_heal(project, alias, pocket),
+
+        Commands::Locate { path } => handle_locate(path),
 
         Commands::Backup { repo, schedule } => handle_backup(repo, schedule),
 
@@ -889,14 +904,35 @@ fn delete_pocket_dir(path: &Path) -> Result<()> {
     Ok(())
 }
 
-fn handle_heal(project: String, pocket: String) -> Result<()> {
+fn handle_heal(
+    project: Option<String>,
+    alias: Option<String>,
+    pocket: Option<String>,
+) -> Result<()> {
     let config = Config::load()?;
-    let project_path = config.resolve_path(&project)?;
+    let project_ref = match (project, alias) {
+        (Some(_), Some(_)) => bail!("Use either --project or --alias, not both."),
+        (Some(project), None) => project,
+        (None, Some(alias)) => config
+            .aliases
+            .get(&alias)
+            .cloned()
+            .ok_or_else(|| anyhow!("Alias not found: {alias}"))?,
+        (None, None) => std::env::current_dir()
+            .context("Failed to get current directory")?
+            .to_string_lossy()
+            .to_string(),
+    };
+    let project_path = config.resolve_path(&project_ref)?;
     if !project_path.exists() {
         bail!("Project path does not exist: {}", project_path.display());
     }
 
-    let source = resolve_workspace_reference(&pocket)?;
+    let pocket_ref = match pocket {
+        Some(pocket) => pocket,
+        None => prompt_heal_pocket(&project_path)?,
+    };
+    let source = resolve_workspace_reference(&pocket_ref)?;
     let target =
         Workspace::new_with_options(vec![project_path.clone()], vec![], false, source.temporary)?;
 
@@ -908,6 +944,11 @@ fn handle_heal(project: String, pocket: String) -> Result<()> {
             )
         })?;
         manifest.update_paths(vec![project_path], &source.pocket_dir)?;
+        let _ = event::append_pocket_event(
+            &source.pocket_dir,
+            "heal.in_place",
+            serde_json::json!({ "core_paths": manifest.core_paths }),
+        );
         println!(
             "{} {}",
             "Healed in place:".bright_green(),
@@ -959,6 +1000,15 @@ fn handle_heal(project: String, pocket: String) -> Result<()> {
     manifest.core_paths = target.core_paths.clone();
     manifest.temporary = target.temporary;
     manifest.save(&target.pocket_dir)?;
+    let _ = event::append_pocket_event(
+        &target.pocket_dir,
+        "heal.replace",
+        serde_json::json!({
+            "source_hash": source.hash,
+            "target_hash": target.hash,
+            "project": project_path,
+        }),
+    );
 
     println!(
         "{} {} -> {}",
@@ -966,6 +1016,92 @@ fn handle_heal(project: String, pocket: String) -> Result<()> {
         source.hash.bright_yellow(),
         target.pocket_dir.display().to_string().bright_blue()
     );
+    Ok(())
+}
+
+fn prompt_heal_pocket(project_path: &Path) -> Result<String> {
+    let mut candidates = Workspace::rank_heal_candidates(project_path)?;
+    if candidates.is_empty() {
+        bail!("No safe pockets found to heal from. Use --pocket <id-or-path>.");
+    }
+
+    println!(
+        "{}",
+        "Safe pockets available for healing:".bright_white().bold()
+    );
+    for (index, (workspace, score)) in candidates.iter().enumerate() {
+        println!(
+            "  {}. {} {} {}",
+            (index + 1).to_string().bright_yellow(),
+            workspace.hash.bright_blue(),
+            format!("score {:.2}", score).dimmed(),
+            workspace.pocket_dir.display().to_string().dimmed()
+        );
+        for path in &workspace.core_paths {
+            println!("     - {}", path.display().to_string().dimmed());
+        }
+    }
+    println!(
+        "  {}. {}",
+        "0".bright_yellow(),
+        "Enter an id/path manually".dimmed()
+    );
+    print!("{} ", "Select pocket to use [0-N]:".bright_white());
+    io::stdout().flush()?;
+
+    let mut input = String::new();
+    io::stdin().read_line(&mut input)?;
+    let input = input.trim();
+    if input.is_empty() || input == "0" {
+        print!("{} ", "Pocket id/path:".bright_white());
+        io::stdout().flush()?;
+        let mut manual = String::new();
+        io::stdin().read_line(&mut manual)?;
+        let manual = manual.trim();
+        if manual.is_empty() {
+            bail!("No pocket selected.");
+        }
+        return Ok(manual.to_string());
+    }
+
+    if let Ok(selection) = input.parse::<usize>() {
+        if selection > 0 && selection <= candidates.len() {
+            return Ok(candidates.remove(selection - 1).0.hash);
+        }
+    }
+
+    bail!("Invalid heal selection: {input}")
+}
+
+fn handle_locate(path: String) -> Result<()> {
+    let config = Config::load()?;
+    let resolved = config.resolve_path(&path)?;
+    let workspace = Workspace::find_workspace_for_cwd(&resolved)?.or_else(|| {
+        Workspace::find_workspace_containing(&resolved)
+            .ok()
+            .flatten()
+    });
+
+    match workspace {
+        Some(workspace) => {
+            let out = serde_json::json!({
+                "status": "found",
+                "hash": workspace.hash,
+                "pocket_dir": workspace.pocket_dir,
+                "core_paths": workspace.core_paths,
+                "temporary": workspace.temporary,
+            });
+            println!("{}", serde_json::to_string(&out)?);
+        }
+        None => {
+            let out = serde_json::json!({
+                "status": "not_found",
+                "path": resolved,
+            });
+            println!("{}", serde_json::to_string(&out)?);
+        }
+    }
+
     Ok(())
 }
 
@@ -1042,12 +1178,21 @@ fn handle_backup(repo: String, schedule: String) -> Result<()> {
         "Backup cron configured:".bright_green(),
         cron_line.bright_blue()
     );
+    let _ = event::append_registry_event(
+        "backup.configure",
+        serde_json::json!({ "repo": repo, "schedule": schedule, "script": script_path }),
+    );
     Ok(())
 }
 
 fn resolve_workspace_reference(reference: &str) -> Result<Workspace> {
+    let direct_path = PathBuf::from(reference);
     let config = Config::load()?;
-    let resolved = config.resolve_path(reference)?;
+    let resolved = if direct_path.is_absolute() && direct_path.exists() {
+        direct_path
+    } else {
+        config.resolve_path(reference)?
+    };
 
     if resolved.is_dir() && registry::is_registry_pocket_dir(&resolved)? {
         let manifest = Manifest::load(&resolved)?.ok_or_else(|| {
@@ -1370,6 +1515,11 @@ fn handle_merge_start(pocket: String) -> Result<()> {
 
     let ctx = build_template_context(&pocket_dir)?;
     let count = template::apply_merge_at_runtime(&pocket_dir, &ctx)?;
+    let _ = event::append_pocket_event(
+        &pocket_dir,
+        "merge.start",
+        serde_json::json!({ "files_changed": count }),
+    );
 
     if count == 0 {
         println!("{}", "No runtime merge templates found.".dimmed());
@@ -1393,6 +1543,11 @@ fn handle_merge_stop(pocket: String) -> Result<()> {
 
     let ctx = build_template_context(&pocket_dir)?;
     let count = template::strip_merge_at_runtime(&pocket_dir, &ctx)?;
+    let _ = event::append_pocket_event(
+        &pocket_dir,
+        "merge.stop",
+        serde_json::json!({ "files_changed": count }),
+    );
 
     if count == 0 {
         println!("{}", "No runtime content to strip.".dimmed());
@@ -1440,7 +1595,15 @@ fn handle_upgrade(path: String) -> Result<()> {
         workspace.pocket_dir
     };
 
-    template::upgrade_pocket(&pocket_dir)
+    let result = template::upgrade_pocket(&pocket_dir);
+    if result.is_ok() {
+        let _ = event::append_pocket_event(
+            &pocket_dir,
+            "pocket.upgrade",
+            serde_json::json!({ "path": path }),
+        );
+    }
+    result
 }
 
 // Helper function to copy directory contents

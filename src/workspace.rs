@@ -954,6 +954,57 @@ impl Workspace {
         Ok(similar)
     }
 
+    pub fn rank_heal_candidates(project_path: &Path) -> Result<Vec<(Self, f64)>> {
+        let project_name = project_path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("")
+            .to_lowercase();
+        let now = chrono::Utc::now();
+        let mut candidates = Vec::new();
+
+        for workspace in Self::list_all()? {
+            let mut score = 0.0;
+
+            if workspace
+                .core_paths
+                .iter()
+                .any(|path| path == project_path || project_path.starts_with(path))
+            {
+                score += 1.0;
+            }
+
+            for path in &workspace.core_paths {
+                let name = path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or("")
+                    .to_lowercase();
+                if !project_name.is_empty() && name == project_name {
+                    score += 0.75;
+                } else if !project_name.is_empty()
+                    && !name.is_empty()
+                    && (name.contains(&project_name) || project_name.contains(&name))
+                {
+                    score += 0.35;
+                }
+            }
+
+            if let Ok(metadata) = fs::metadata(&workspace.pocket_dir) {
+                if let Ok(modified) = metadata.modified() {
+                    let modified: chrono::DateTime<chrono::Utc> = modified.into();
+                    let age_days = (now - modified).num_days().max(0) as f64;
+                    score += 1.0 / (1.0 + age_days);
+                }
+            }
+
+            candidates.push((workspace, score));
+        }
+
+        candidates.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        Ok(candidates)
+    }
+
     /// Prompt user to select a workspace to clone from
     /// Returns the selected workspace or None if user cancels
     pub fn prompt_clone_selection(candidates: &[(Self, f64)]) -> Result<Option<&Self>> {

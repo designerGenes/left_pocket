@@ -264,11 +264,23 @@ pub enum Commands {
     ///   safe_pocket heal --project . --pocket ~/.safe_pocket/oldhash
     #[command(name = "heal")]
     Heal {
-        #[arg(long = "project", value_name = "PATH")]
-        project: String,
+        #[arg(long = "project", value_name = "PATH", conflicts_with = "alias")]
+        project: Option<String>,
+
+        #[arg(long = "alias", value_name = "ALIAS", conflicts_with = "project")]
+        alias: Option<String>,
 
         #[arg(long = "pocket", value_name = "POCKET")]
-        pocket: String,
+        pocket: Option<String>,
+    },
+
+    /// Locate the safe pocket associated with a project or pocket path
+    ///
+    /// Outputs JSON for editor integrations.
+    #[command(name = "locate")]
+    Locate {
+        #[arg(long = "path", value_name = "PATH", default_value = ".")]
+        path: String,
     },
 
     /// Configure a cron job that backs up ~/.safe_pocket to a git remote

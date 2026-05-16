@@ -2,7 +2,7 @@
   "name": "spocket",
   "displayName": "Spocket - Safe Pocket Sync",
   "description": "Real-time sync between VS Code workspace folders and spocket manifests",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "jadennation",
   "engines": {
     "vscode": "^1.85.0"
@@ -11,7 +11,8 @@
     "Other"
   ],
   "activationEvents": [
-    "onStartupFinished"
+    "onStartupFinished",
+    "onCommand:spocket.openDailyFeature"
   ],
   "main": "./out/extension.js",
   "contributes": {

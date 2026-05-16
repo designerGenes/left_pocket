@@ -16,6 +16,8 @@ pub const DEFAULT_PROJECT_ENV: &str = include_str!("templates/project.env.md");
 pub const DEFAULT_SAFE_POCKET_ENV: &str = include_str!("templates/safe_pocket.env.md");
 pub const DEFAULT_PROJECT_GITIGNORE: &str = include_str!("templates/gitignore.md");
 pub const DEFAULT_SAFE_POCKET_GITIGNORE: &str = include_str!("templates/safe_pocket.gitignore.md");
+pub const DEFAULT_FEATURE_TAGS: &str = include_str!("templates/feature-tags.md");
+pub const DEFAULT_OBSERVATIONS: &str = include_str!("templates/observations.md");
 pub const DEFAULT_TALK_LIKE_A_CAT_PROMPT: &str =
     include_str!("templates/prompts/TalkLikeACat.prompt.md");
 
@@ -431,6 +433,8 @@ pub fn ensure_default_assets() -> Result<()> {
             "templates/safe_pocket.gitignore.md",
             DEFAULT_SAFE_POCKET_GITIGNORE,
         ),
+        ("templates/feature-tags.md", DEFAULT_FEATURE_TAGS),
+        ("templates/observations.md", DEFAULT_OBSERVATIONS),
         (
             "templates/prompts/TalkLikeACat.prompt.md",
             DEFAULT_TALK_LIKE_A_CAT_PROMPT,
@@ -1096,6 +1100,15 @@ fn move_existing_to_unhoused(pocket_dir: &Path, path: &Path, operation: &str) ->
     use std::io::Write as IoWrite;
     log.write_all(entry.as_bytes())
         .with_context(|| format!("Failed to write unhoused log: {}", log_path.display()))?;
+    let _ = crate::event::append_pocket_event(
+        pocket_dir,
+        "content.unhoused",
+        serde_json::json!({
+            "operation": operation,
+            "original_path": path,
+            "unhoused_path": target,
+        }),
+    );
 
     Ok(())
 }

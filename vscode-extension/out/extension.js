@@ -105,6 +105,60 @@ function runMergeCommand(action, pocketDir) {
         });
     });
 }
+function locatePocketDir(workspacePath) {
+    return new Promise((resolve) => {
+        const binary = getBinaryPath();
+        (0, child_process_1.execFile)(binary, ["locate", "--path", workspacePath], (error, stdout) => {
+            if (error) {
+                console.error(`spocket locate failed: ${error.message}`);
+                resolve(undefined);
+                return;
+            }
+            try {
+                const result = JSON.parse(stdout.trim());
+                resolve(result.status === "found" ? result.pocket_dir : undefined);
+            }
+            catch {
+                console.error(`Failed to parse locate output: ${stdout}`);
+                resolve(undefined);
+            }
+        });
+    });
+}
+async function resolveActivePocketDir() {
+    if (activePocketDir) {
+        return activePocketDir;
+    }
+    const workspacePocket = isSpocketWorkspace(vscode.workspace.workspaceFile);
+    if (workspacePocket) {
+        activePocketDir = workspacePocket;
+        return workspacePocket;
+    }
+    for (const folder of vscode.workspace.workspaceFolders ?? []) {
+        if (folder.uri.scheme !== "file") {
+            continue;
+        }
+        const located = await locatePocketDir(folder.uri.fsPath);
+        if (located) {
+            activePocketDir = located;
+            return located;
+        }
+    }
+    return undefined;
+}
+function appendPocketEvent(pocketDir, action, details) {
+    const eventPath = path.join(pocketDir, "events.jsonl");
+    const event = {
+        timestamp: new Date().toISOString(),
+        action,
+        details,
+    };
+    fs.appendFile(eventPath, `${JSON.stringify(event)}\n`, (error) => {
+        if (error) {
+            console.error(`spocket event log failed: ${error.message}`);
+        }
+    });
+}
 function updateStatusBar(text, tooltip) {
     if (statusBarItem) {
         statusBarItem.text = text;
@@ -197,7 +251,8 @@ async function findDatedFeatureFiles(featuresDir) {
     return results;
 }
 async function openDailyFeature() {
-    if (!activePocketDir) {
+    const pocketDir = await resolveActivePocketDir();
+    if (!pocketDir) {
         vscode.window.showWarningMessage("Spocket: no active safe pocket workspace.");
         return;
     }
@@ -207,7 +262,7 @@ async function openDailyFeature() {
         .split(/[\\/]+/)
         .filter((part) => part && part !== "." && part !== "..")
         .join("/");
-    const featuresDir = vscode.Uri.file(path.join(activePocketDir, "FEATURES"));
+    const featuresDir = vscode.Uri.file(path.join(pocketDir, "FEATURES"));
     const today = localDateKey(new Date());
     const candidates = (await findDatedFeatureFiles(featuresDir))
         .filter((candidate) => candidate.dateKey === today)
@@ -220,10 +275,15 @@ async function openDailyFeature() {
         }
         return path.basename(a.uri.fsPath).localeCompare(path.basename(b.uri.fsPath));
     });
-    const target = candidates[0]?.uri ?? vscode.Uri.file(path.join(activePocketDir, "FEATURES", safeSubpath, `${today.replace(/-/g, "_")}.md`));
+    const existingTarget = candidates[0]?.uri;
+    const target = existingTarget ?? vscode.Uri.file(path.join(pocketDir, "FEATURES", safeSubpath, `${today.replace(/-/g, "_")}.md`));
     if (!fs.existsSync(target.fsPath)) {
         await vscode.workspace.fs.createDirectory(vscode.Uri.file(path.dirname(target.fsPath)));
         await vscode.workspace.fs.writeFile(target, Buffer.from(`# ${today}\n\n`, "utf8"));
+        appendPocketEvent(pocketDir, "daily_feature.create", { path: target.fsPath });
+    }
+    else {
+        appendPocketEvent(pocketDir, "daily_feature.open", { path: target.fsPath });
     }
     const doc = await vscode.workspace.openTextDocument(target);
     await vscode.window.showTextDocument(doc);
@@ -262,8 +322,9 @@ async function handleFolderChange(pocketDir) {
         syncInProgress = false;
     }
 }
-function activate(context) {
-    const pocketDir = isSpocketWorkspace(vscode.workspace.workspaceFile);
+async function activate(context) {
+    context.subscriptions.push(vscode.commands.registerCommand("spocket.openDailyFeature", openDailyFeature));
+    const pocketDir = await resolveActivePocketDir();
     if (!pocketDir) {
         return;
     }
@@ -277,7 +338,6 @@ function activate(context) {
         handleFolderChange(pocketDir);
     });
     context.subscriptions.push(disposable);
-    context.subscriptions.push(vscode.commands.registerCommand("spocket.openDailyFeature", openDailyFeature));
     handleFolderChange(pocketDir);
     runMergeCommand("merge-start", pocketDir).catch((err) => console.error("spocket merge-start failed:", err));
 }

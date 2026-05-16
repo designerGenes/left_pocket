@@ -202,3 +202,61 @@ fn unknown_feature_still_fails_without_beads_initialization() {
     assert!(!project.join(".beads").exists());
     assert!(env.safe_pockets().is_empty());
 }
+
+#[test]
+fn locate_reports_project_pocket_for_editor_integrations() {
+    let env = TestEnv::new("locate");
+    let project = env.project("project");
+
+    assert_success(&env.run_spocket(&project, &["-i", "."]));
+    let pocket = env.only_pocket();
+
+    let output = env.run_spocket(&project, &["locate", "--path", "."]);
+    assert_success(&output);
+
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value.get("status").and_then(|v| v.as_str()), Some("found"));
+    assert_eq!(
+        value.get("pocket_dir").and_then(|v| v.as_str()),
+        Some(pocket.to_string_lossy().as_ref())
+    );
+}
+
+#[test]
+fn heal_alias_replaces_deterministic_target_with_selected_pocket() {
+    let env = TestEnv::new("heal-alias");
+    let source_project = env.project("source-project");
+    let target_project = env.project("target-project");
+
+    assert_success(&env.run_spocket(&source_project, &["-i", "."]));
+    let source_pocket = env.only_pocket();
+    fs::write(source_pocket.join("FEATURES").join("carried.md"), "carried").unwrap();
+
+    let output = env.run_spocket(
+        &target_project,
+        &["register", &format!("target={}", target_project.display())],
+    );
+    assert_success(&output);
+
+    assert_success(&env.run_spocket(&target_project, &["-i", "."]));
+    let output = env.run_spocket(
+        &target_project,
+        &[
+            "heal",
+            "--alias",
+            "target",
+            "--pocket",
+            source_pocket.to_string_lossy().as_ref(),
+        ],
+    );
+    assert_success(&output);
+
+    let locate = env.run_spocket(&target_project, &["locate", "--path", "."]);
+    assert_success(&locate);
+    let value: serde_json::Value = serde_json::from_slice(&locate.stdout).unwrap();
+    let healed_pocket = PathBuf::from(value.get("pocket_dir").unwrap().as_str().unwrap());
+
+    assert!(healed_pocket.join("FEATURES").join("carried.md").is_file());
+    assert!(healed_pocket.join("events.jsonl").is_file());
+    assert!(env.home.join(".safe_pocket").join("unhoused.log").is_file());
+}

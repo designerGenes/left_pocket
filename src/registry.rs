@@ -274,6 +274,14 @@ pub fn move_to_unhoused(path: &Path, operation: &str) -> Result<Option<PathBuf>>
         .context("Failed to open registry unhoused log")?;
     log.write_all(entry.as_bytes())
         .context("Failed to write registry unhoused log")?;
+    let _ = crate::event::append_registry_event(
+        "content.unhoused",
+        serde_json::json!({
+            "operation": operation,
+            "original_path": path,
+            "unhoused_path": target,
+        }),
+    );
 
     Ok(Some(target))
 }

@@ -17,78 +17,7 @@ For example, if the agent is asked to review our codebase, it should read the co
 
 1. You must always use full paths whenever you reference any file or directory. NEVER use relative paths.
 2. If instructed to use a "cli app" or "terminal command", you should run this command in the context of the project folder, not the safe pocket folder. You should also always try to run the literal command you are told to use, before searching for python files or source code. For example, if I tell you "use the cli app sponge_bob to do X", you must first attempt to run the command "sponge_bob" in the terminal, and only if that fails should you search for a python file or source code that might be relevant.
-3. All python dependencies and environments are managed by 'uv', never by 'pip'.
 
-# Global Observations
-
-Some applications will be frequently interacted with.  Rather than having every project that needs Copilot to interact with those apps learn about the apps each time, we can have a global set of observations that are shared across all safe pockets.  Whenever you intend to interact with an app, first check inside the global observations folder for a directory named like {{GLOBAL_OBSERVATIONS_PATH}}/name_of_app, to see if there are any relevant observations about the app from previous sessions.  If there are, you can use those observations to inform your interactions with the app.  If there aren't, you can create new observations based on your interactions with the app and save them to the global observations folder for future use.
-
-# Observations Logging
-
-As you work, you will inevitably discover significant insights about the project, codebase, patterns, bugs, conventions, and other noteworthy findings. You are required to actively log these as "observation" files in the safe pocket folder.
-
-## What qualifies as an Observation
-
-Log an observation whenever you discover any of the following:
-- Architectural patterns or design decisions in the codebase
-- Recurring bugs, anti-patterns, or footguns
-- Non-obvious conventions or project-specific idioms
-- Important constraints (e.g., dependency quirks, environment limitations)
-- Useful techniques or shortcuts specific to this project
-- Surprising or counter-intuitive behavior you encounter
-- Decisions made during a session that future sessions should know about
-
-When in doubt, log it. Observations are cheap to create and valuable to retain.
-
-## Where to write Observations
-
-Always write observation files to:
-```
-{{SPOCKET_ROOT}}/observations/
-```
-
-This is the safe pocket folder — writing here is explicitly permitted for observation logging.
-
-## Naming Convention
-
-Name each file using the following format:
-```
-YYYY-MM-DD--<slug>.md
-```
-
-Where `<slug>` is a short, lowercase, hyphen-separated summary of the observation's subject derived from its content. The slug should be specific enough to be meaningful at a glance.
-
-Examples:
-- `2025-06-10--uv-env-not-activated-by-default.md`
-- `2025-06-10--project-uses-ruff-not-black.md`
-- `2025-06-11--api-auth-token-stored-in-dotenv.md`
-
-Do NOT use generic slugs like `observation-1` or `misc-finding`.
-
-## File Format
-
-Each observation file should be a short Markdown file with the following structure:
-
-```markdown
-# <Title of Observation>
-
-**Date:** YYYY-MM-DD  
-**Context:** <Brief description of what you were doing when you made this observation>
-
-## Finding
-
-<Clear, concise description of what you observed.>
-
-## Why It Matters
-
-<Why this is worth knowing for future sessions or contributors.>
-
-## Notes
-
-<Any additional details, caveats, or related links. Omit if not needed.>
-```
-
-Keep observations focused. One observation per file. Split large findings into multiple files if needed.
 
 # the "<--- Make it so" directive
 
@@ -103,31 +32,4 @@ consume the contents of the given file, and
 
 ```
 
-# Feature Tags
-
-Feature markdown files may include tags that change how an agent should work on that feature. Tags can appear at the top of the feature file or immediately under a subfeature heading.
-
-Built-in tags include:
-
-```markdown
-#SPOCKET_MUST_INSTALL
-#SPOCKET_MUST_ADD_NEW_TESTS
-#SPOCKET_MUST_UPDATE_DOCUMENTATION
-#SPOCKET_MUST_NOT_UPDATE_DOCUMENTATION
-#SPOCKET_MUST_CREATE_NEW_FILES
-#SPOCKET_MUST_BACKUP
-```
-
-User-defined tags may be configured in:
-
-```text
-$HOME/.config/safe_pocket/feature_tags.yaml
-```
-
-Each custom tag entry should describe what the tag means and its type. Supported types are:
-
-- `start hook`: perform the described action before starting the feature or subfeature.
-- `done hook`: perform the described action before considering the feature or subfeature complete.
-- `rule`: obey the described constraint while working on the feature or subfeature.
-
-When working from a feature file, scan for applicable `#SPOCKET_...` tags before editing. Apply built-in tags directly. If you encounter an unknown tag, read `$HOME/.config/safe_pocket/feature_tags.yaml` and use the tag's description and type to guide your work. Do not mark a feature complete until all applicable done hooks have been satisfied.
+the number of "-"s after the "<" is not relevant and can be any reasonable number of dashes or no dashes.  The important part is that the file is given, followed by a left-facing "arrow" the phrase "make it so".
