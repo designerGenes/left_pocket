@@ -14,7 +14,7 @@ const CACHE_VERSION: u32 = 1;
 const LEGACY_CONFIG_OBSERVATIONS: &str = ".config/safe_pocket/observations";
 const SNAPSHOTS_DIR: &str = "snapshots";
 const TEMPORARY_DIR: &str = "temporary";
-const SNAPSHOT_CHUNK_SIZE: usize = 95 * 1024 * 1024;
+const SNAPSHOT_CHUNK_SIZE: usize = 45 * 1024 * 1024;
 const REGISTRY_GITIGNORE: &str =
     ".DS_Store\n/*/\n!/observations/\n!/snapshots/\n!/snapshots/**\n/temporary/\n";
 const PRE_COMMIT_HOOK: &str =
