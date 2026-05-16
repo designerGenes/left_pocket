@@ -339,13 +339,13 @@ async function activate(context) {
     });
     context.subscriptions.push(disposable);
     handleFolderChange(pocketDir);
-    runMergeCommand("merge-start", pocketDir).catch((err) => console.error("spocket merge-start failed:", err));
+    runMergeCommand("runtime-merge-start", pocketDir).catch((err) => console.error("spocket runtime-merge-start failed:", err));
 }
 function deactivate() {
     statusBarItem?.dispose();
     statusBarItem = undefined;
     if (activePocketDir) {
-        return runMergeCommand("merge-stop", activePocketDir);
+        return runMergeCommand("runtime-merge-stop", activePocketDir);
     }
 }
 //# sourceMappingURL=extension.js.map

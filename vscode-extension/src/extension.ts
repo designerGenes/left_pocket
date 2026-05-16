@@ -97,7 +97,7 @@ function runSync(pocketDir: string): Promise<SyncResult> {
 }
 
 function runMergeCommand(
-  action: "merge-start" | "merge-stop",
+  action: "runtime-merge-start" | "runtime-merge-stop",
   pocketDir: string
 ): Promise<void> {
   return new Promise((resolve) => {
@@ -404,8 +404,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   handleFolderChange(pocketDir);
 
-  runMergeCommand("merge-start", pocketDir).catch((err) =>
-    console.error("spocket merge-start failed:", err)
+  runMergeCommand("runtime-merge-start", pocketDir).catch((err) =>
+    console.error("spocket runtime-merge-start failed:", err)
   );
 }
 
@@ -414,6 +414,6 @@ export function deactivate(): Thenable<void> | void {
   statusBarItem = undefined;
 
   if (activePocketDir) {
-    return runMergeCommand("merge-stop", activePocketDir);
+    return runMergeCommand("runtime-merge-stop", activePocketDir);
   }
 }

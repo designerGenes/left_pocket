@@ -2,6 +2,16 @@
 
 All notable changes to Safe Pocket will be documented in this file.
 
+## [0.8.0] - 2026-05-16
+
+### Added
+- Integration coverage for the public CLI help surface, deprecated-command rejection, and temporary-pocket cleanup behavior
+- Per-test execution summaries describing the steps exercised and how each test environment cleans up after itself
+
+### Changed
+- Replaced `safe_pocket list` with `safe_pocket list-aliases`
+- Renamed the extension-facing runtime merge hooks to hidden `runtime-merge-start` and `runtime-merge-stop` commands so obsolete public commands are removed from the CLI surface
+
 ## [0.4.0] - 2026-05-02
 
 ### Added

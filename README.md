@@ -61,7 +61,7 @@ safe_pocket register backend="$HOME/dev/api"
 ### List Aliases
 
 ```bash
-safe_pocket list
+safe_pocket list-aliases
 ```
 
 ### Create/Open Workspaces

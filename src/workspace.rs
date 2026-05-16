@@ -208,12 +208,11 @@ impl Workspace {
                 .join("observations")
         });
 
-        let config_root = crate::template::safe_pocket_config_dir()
-            .unwrap_or_else(|_| {
-                dirs::config_dir()
-                    .unwrap_or_else(|| PathBuf::from("/"))
-                    .join("safe_pocket")
-            });
+        let config_root = crate::template::safe_pocket_config_dir().unwrap_or_else(|_| {
+            dirs::config_dir()
+                .unwrap_or_else(|| PathBuf::from("/"))
+                .join("safe_pocket")
+        });
 
         let uses_beads = Manifest::load(&self.pocket_dir)?
             .map(|manifest| manifest.uses_beads)
@@ -491,11 +490,7 @@ impl Workspace {
 
     pub fn set_uses_beads(&self) -> Result<()> {
         let mut manifest = Manifest::load(&self.pocket_dir)?.unwrap_or_else(|| {
-            Manifest::new_with_options(
-                self.hash.clone(),
-                self.core_paths.clone(),
-                self.temporary,
-            )
+            Manifest::new_with_options(self.hash.clone(), self.core_paths.clone(), self.temporary)
         });
 
         if !manifest.uses_beads {
@@ -569,14 +564,12 @@ impl Workspace {
                 if crate::verbose() {
                     eprintln!("[beads init stderr] {}", stderr);
                 }
-                return Err(anyhow!(
-                    "bd init failed:\n{}",
-                    stderr
-                ));
+                return Err(anyhow!("bd init failed:\n{}", stderr));
             }
 
-            fs::create_dir_all(&beads_dir)
-                .with_context(|| format!("Failed to create .beads directory: {}", beads_dir.display()))?;
+            fs::create_dir_all(&beads_dir).with_context(|| {
+                format!("Failed to create .beads directory: {}", beads_dir.display())
+            })?;
 
             if !self.beads_database_usable() {
                 return Err(anyhow!(

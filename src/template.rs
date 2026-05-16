@@ -1267,12 +1267,11 @@ pub fn upgrade_pocket(pocket_dir: &Path) -> Result<()> {
             .join("observations")
     });
 
-    let config_root = safe_pocket_config_dir()
-        .unwrap_or_else(|_| {
-            dirs::config_dir()
-                .unwrap_or_else(|| PathBuf::from("/"))
-                .join("safe_pocket")
-        });
+    let config_root = safe_pocket_config_dir().unwrap_or_else(|_| {
+        dirs::config_dir()
+            .unwrap_or_else(|| PathBuf::from("/"))
+            .join("safe_pocket")
+    });
 
     let ctx = TemplateContext {
         spocket_root: pocket_dir.to_path_buf(),
@@ -2040,14 +2039,14 @@ mod tests {
         let templates = vec![
             Template {
                 destination: "{{PROJECT_ROOT}}/.env".to_string(),
-            content: "SPOCKET_ROOT={{SPOCKET_ROOT}}\n".to_string(),
+                content: "SPOCKET_ROOT={{SPOCKET_ROOT}}\n".to_string(),
                 quiet_merge: true,
                 merge_at_runtime: false,
                 source_path: dir.join("project-env-template.md"),
             },
             Template {
                 destination: "{{SPOCKET_ROOT}}/.env".to_string(),
-            content: "PROJECT_ROOT={{PROJECT_ROOT}}\n".to_string(),
+                content: "PROJECT_ROOT={{PROJECT_ROOT}}\n".to_string(),
                 quiet_merge: true,
                 merge_at_runtime: false,
                 source_path: dir.join("safe-pocket-env-template.md"),

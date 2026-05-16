@@ -179,8 +179,8 @@ pub enum Commands {
     },
 
     /// List all registered directory aliases
-    #[command(name = "list")]
-    List,
+    #[command(name = "list-aliases")]
+    ListAliases,
 
     /// List all known safe pockets with their project paths
     #[command(name = "list-workspaces")]
@@ -309,8 +309,8 @@ pub enum Commands {
     ///
     /// For each template marked with `#SPOCKET_MERGE_AT_RUNTIME`, injects the expanded
     /// template content into the destination file wrapped in runtime markers.
-    #[command(name = "merge-start")]
-    MergeStart {
+    #[command(name = "runtime-merge-start", hide = true)]
+    RuntimeMergeStart {
         /// Path to the pocket directory containing the manifest
         #[arg(long = "pocket", value_name = "PATH")]
         pocket: String,
@@ -320,8 +320,8 @@ pub enum Commands {
     ///
     /// Removes any content between `#SPOCKET_RUNTIME_CONTENT_START` and
     /// `#SPOCKET_RUNTIME_CONTENT_END` markers from destination files.
-    #[command(name = "merge-stop")]
-    MergeStop {
+    #[command(name = "runtime-merge-stop", hide = true)]
+    RuntimeMergeStop {
         /// Path to the pocket directory containing the manifest
         #[arg(long = "pocket", value_name = "PATH")]
         pocket: String,

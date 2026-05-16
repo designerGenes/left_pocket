@@ -121,7 +121,7 @@ fn handle_command(command: Commands) -> Result<()> {
             Ok(())
         }
 
-        Commands::List => {
+        Commands::ListAliases => {
             let config = Config::load()?;
 
             if config.aliases.is_empty() {
@@ -172,9 +172,9 @@ fn handle_command(command: Commands) -> Result<()> {
 
         Commands::Sync { pocket } => handle_sync(pocket),
 
-        Commands::MergeStart { pocket } => handle_merge_start(pocket),
+        Commands::RuntimeMergeStart { pocket } => handle_merge_start(pocket),
 
-        Commands::MergeStop { pocket } => handle_merge_stop(pocket),
+        Commands::RuntimeMergeStop { pocket } => handle_merge_stop(pocket),
 
         Commands::Augment {
             add,
@@ -1515,12 +1515,11 @@ fn build_template_context(pocket_dir: &std::path::Path) -> Result<template::Temp
             .join("observations")
     });
 
-    let config_root = template::safe_pocket_config_dir()
-        .unwrap_or_else(|_| {
-            dirs::config_dir()
-                .unwrap_or_else(|| PathBuf::from("/"))
-                .join("safe_pocket")
-        });
+    let config_root = template::safe_pocket_config_dir().unwrap_or_else(|_| {
+        dirs::config_dir()
+            .unwrap_or_else(|| PathBuf::from("/"))
+            .join("safe_pocket")
+    });
 
     Ok(template::TemplateContext {
         spocket_root: pocket_dir.to_path_buf(),
