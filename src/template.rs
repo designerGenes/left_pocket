@@ -33,6 +33,8 @@ pub struct TemplateContext {
     pub spocket_name: String,
     /// Absolute path to the global observations directory (`~/.safe_pocket/observations`).
     pub global_observations_path: PathBuf,
+    /// Absolute path to the safe pocket config directory (`$HOME/.config/safe_pocket`).
+    pub config_root: PathBuf,
     /// Whether this pocket has Beads integration enabled.
     pub uses_beads: bool,
 }
@@ -160,6 +162,10 @@ pub fn expand_variables(text: &str, ctx: &TemplateContext) -> String {
         .replace(
             "{{GLOBAL_OBSERVATIONS_PATH}}",
             &ctx.global_observations_path.to_string_lossy(),
+        )
+        .replace(
+            "{{SPOCKET_CONFIG_ROOT}}",
+            &ctx.config_root.to_string_lossy(),
         )
 }
 
@@ -1261,11 +1267,19 @@ pub fn upgrade_pocket(pocket_dir: &Path) -> Result<()> {
             .join("observations")
     });
 
+    let config_root = safe_pocket_config_dir()
+        .unwrap_or_else(|_| {
+            dirs::config_dir()
+                .unwrap_or_else(|| PathBuf::from("/"))
+                .join("safe_pocket")
+        });
+
     let ctx = TemplateContext {
         spocket_root: pocket_dir.to_path_buf(),
         project_root: project_root.clone(),
         spocket_name,
         global_observations_path: global_obs,
+        config_root,
         uses_beads: manifest.uses_beads,
     };
 
@@ -1359,6 +1373,7 @@ mod tests {
             project_root: PathBuf::from(project_root),
             spocket_name: name.to_string(),
             global_observations_path: PathBuf::from("/global/observations"),
+            config_root: PathBuf::from("/home/user/.config/safe_pocket"),
             uses_beads: false,
         }
     }

@@ -1513,11 +1513,19 @@ fn build_template_context(pocket_dir: &std::path::Path) -> Result<template::Temp
             .join("observations")
     });
 
+    let config_root = template::safe_pocket_config_dir()
+        .unwrap_or_else(|_| {
+            dirs::config_dir()
+                .unwrap_or_else(|| PathBuf::from("/"))
+                .join("safe_pocket")
+        });
+
     Ok(template::TemplateContext {
         spocket_root: pocket_dir.to_path_buf(),
         project_root,
         spocket_name,
         global_observations_path: global_obs,
+        config_root,
         uses_beads: manifest.uses_beads,
     })
 }
