@@ -558,6 +558,11 @@ impl Workspace {
                 ));
             }
 
+            // Create the .beads directory (bd init doesn't create it, just registers with server)
+            // This directory is needed for the redirect mechanism to work properly
+            fs::create_dir_all(&beads_dir)
+                .with_context(|| format!("Failed to create .beads directory: {}", beads_dir.display()))?;
+
             // Show output if verbose mode is enabled
             if crate::verbose() {
                 if !output.stdout.is_empty() {
