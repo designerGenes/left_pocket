@@ -200,6 +200,8 @@ fn handle_command(command: Commands) -> Result<()> {
 
         Commands::Locate { path } => handle_locate(path),
 
+        Commands::SyncRegistryGit => handle_sync_registry_git(),
+
         Commands::Backup { repo, schedule } => handle_backup(repo, schedule),
 
         Commands::Completions { shell } => {
@@ -1181,6 +1183,20 @@ fn handle_backup(repo: String, schedule: String) -> Result<()> {
     let _ = event::append_registry_event(
         "backup.configure",
         serde_json::json!({ "repo": repo, "schedule": schedule, "script": script_path }),
+    );
+    Ok(())
+}
+
+fn handle_sync_registry_git() -> Result<()> {
+    let count = registry::sync_registry_git_state()?;
+    println!(
+        "{} {} pocket snapshot(s)",
+        "Registry git snapshot refreshed:".bright_green(),
+        count.to_string().bright_yellow()
+    );
+    let _ = event::append_registry_event(
+        "registry.snapshot.sync",
+        serde_json::json!({ "pockets": count }),
     );
     Ok(())
 }

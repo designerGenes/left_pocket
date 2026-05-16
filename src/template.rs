@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 
 pub const DEFAULT_COPILOT_INSTRUCTIONS: &str = include_str!("templates/copilot-instructions.md");
 pub const DEFAULT_AGENTS_MD: &str = include_str!("templates/AGENTS.md");
-pub const DEFAULT_DIRECTORY_STRUCTURE: &str = include_str!("templates/directory_structure.md");
+pub const DEFAULT_DIRECTORY_STRUCTURE: &str = include_str!("templates/directory_structure.yaml");
 pub const DEFAULT_PROJECT_ENV: &str = include_str!("templates/project.env.md");
 pub const DEFAULT_SAFE_POCKET_ENV: &str = include_str!("templates/safe_pocket.env.md");
 pub const DEFAULT_PROJECT_GITIGNORE: &str = include_str!("templates/gitignore.md");
@@ -326,8 +326,9 @@ fn parse_destination_directive(line: &str) -> Option<String> {
 /// observations
 /// ```
 ///
-/// Indentation is expressed by leading `- ` prefixes. Each `- ` adds one level
-/// of nesting under the most recent parent at the preceding depth.
+/// Indentation is expressed by leading `- ` prefixes, optionally preceded by
+/// whitespace. Each `- ` adds one level of nesting under the most recent parent
+/// at the preceding depth.
 pub fn parse_directory_structure(content: &str) -> Result<Vec<PathBuf>> {
     let mut dirs: Vec<PathBuf> = Vec::new();
     // Stack of (depth, path) representing the current nesting context.
@@ -356,7 +357,7 @@ pub fn parse_directory_structure(content: &str) -> Result<Vec<PathBuf>> {
         } else {
             if depth > 0 {
                 return Err(anyhow!(
-                    "directory_structure.md line {}: indented entry '{}' has no parent",
+                    "directory structure line {}: indented entry '{}' has no parent",
                     line_no + 1,
                     name
                 ));
@@ -375,14 +376,13 @@ pub fn parse_directory_structure(content: &str) -> Result<Vec<PathBuf>> {
 /// Returns `(depth, directory_name)`.
 fn parse_directory_line(line: &str) -> (usize, String) {
     let mut depth: usize = 0;
-    let mut rest = line;
+    let mut rest = line.trim_start();
 
     while rest.starts_with("- ") {
         depth += 1;
         rest = &rest[2..];
     }
 
-    // Also handle "- " at the very end without a trailing space
     let name = rest.trim().to_string();
     (depth, name)
 }
@@ -457,7 +457,7 @@ pub fn ensure_default_assets() -> Result<()> {
     }
 
     // Default directory structure
-    let dir_struct_path = config_dir.join("directory_structure.md");
+    let dir_struct_path = config_dir.join("directory_structure.yaml");
     if !dir_struct_path.exists() {
         fs::write(&dir_struct_path, DEFAULT_DIRECTORY_STRUCTURE).with_context(|| {
             format!(
@@ -543,18 +543,20 @@ fn merge_templates_by_destination(templates: Vec<Template>) -> Vec<Template> {
 
 /// Load the directory structure, respecting project-local override.
 ///
-/// 1. If `project_dir` contains a `directory_template.md`, use it (project-local takes precedence).
+/// 1. If `project_dir` contains a `directory_template.md` or `directory_template.yaml`, use it.
 /// 2. Otherwise, look in `$HOME/.config/safe_pocket/` for *exactly one* file matching
-///    `directory_structure.md`. Error if more than one is found.
+///    `directory_structure.md` or `directory_structure.yaml`. Error if more than one is found.
 /// 3. If neither exists, return an empty list.
 pub fn load_directory_structure(project_dir: Option<&Path>) -> Result<Vec<PathBuf>> {
     // Check project-local first
     if let Some(proj) = project_dir {
-        let local_file = proj.join("directory_template.md");
-        if local_file.exists() {
-            let content = fs::read_to_string(&local_file)
-                .context("Failed to read project-local directory_template.md")?;
-            return parse_directory_structure(&content);
+        for local_file_name in ["directory_template.md", "directory_template.yaml"] {
+            let local_file = proj.join(local_file_name);
+            if local_file.exists() {
+                let content = fs::read_to_string(&local_file)
+                    .with_context(|| format!("Failed to read project-local {}", local_file_name))?;
+                return parse_directory_structure(&content);
+            }
         }
     }
 
@@ -568,7 +570,11 @@ pub fn load_directory_structure(project_dir: Option<&Path>) -> Result<Vec<PathBu
             let path = entry.path();
             if path.is_file() {
                 if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                    if name == "directory_structure.md" || name == "directory_template.md" {
+                    if name == "directory_structure.md"
+                        || name == "directory_structure.yaml"
+                        || name == "directory_template.md"
+                        || name == "directory_template.yaml"
+                    {
                         structure_files.push(path);
                     }
                 }

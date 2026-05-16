@@ -283,6 +283,14 @@ pub enum Commands {
         path: String,
     },
 
+    /// Refresh the top-level ~/.safe_pocket git snapshot
+    ///
+    /// Copies every safe pocket into ~/.safe_pocket/snapshots without nested
+    /// `.git` directories so the registry root repository can version all pocket
+    /// contents together.
+    #[command(name = "sync-registry-git")]
+    SyncRegistryGit,
+
     /// Configure a cron job that backs up ~/.safe_pocket to a git remote
     ///
     /// The backup mirror lives at ~/.safe_pocket_backup_repo and is pushed by cron.

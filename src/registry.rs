@@ -3,6 +3,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use crate::manifest::Manifest;
 
@@ -11,7 +12,12 @@ const CACHE_FILE: &str = "registry_cache.json";
 const CACHE_TMP: &str = "registry_cache.json.tmp";
 const CACHE_VERSION: u32 = 1;
 const LEGACY_CONFIG_OBSERVATIONS: &str = ".config/safe_pocket/observations";
+const SNAPSHOTS_DIR: &str = "snapshots";
 const TEMPORARY_DIR: &str = "temporary";
+const REGISTRY_GITIGNORE: &str =
+    ".DS_Store\n/*/\n!/observations/\n!/snapshots/\n!/snapshots/**\n/temporary/\n";
+const PRE_COMMIT_HOOK: &str =
+    "#!/bin/sh\nset -eu\nsafe_pocket sync-registry-git >/dev/null\ngit add -A .\n";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RegistryCache {
@@ -85,7 +91,14 @@ pub fn registry_root() -> Result<PathBuf> {
 pub fn registry_dir() -> Result<PathBuf> {
     let dir = registry_root()?;
     fs::create_dir_all(&dir).context("Failed to create safe pocket registry directory")?;
+    ensure_registry_git_state_from(&dir)?;
     Ok(dir)
+}
+
+pub fn sync_registry_git_state() -> Result<usize> {
+    let root = registry_dir()?;
+    ensure_registry_git_state_from(&root)?;
+    sync_registry_snapshot_from(&root)
 }
 
 pub fn temporary_registry_dir() -> Result<PathBuf> {
@@ -190,6 +203,7 @@ pub fn upsert_pocket(pocket_dir: &Path, manifest: &Manifest) -> Result<()> {
     }
 
     let root = registry_dir()?;
+    ensure_registry_git_state_from(&root)?;
     let mut cache = load_cache_or_rebuild_from(&root)?;
     let entry = entry_from_manifest(pocket_dir, manifest);
 
@@ -200,7 +214,9 @@ pub fn upsert_pocket(pocket_dir: &Path, manifest: &Manifest) -> Result<()> {
     sort_entries(&mut cache.pockets);
     cache.generated_at = Utc::now();
 
-    write_cache_to(&root, &cache)
+    write_cache_to(&root, &cache)?;
+    let _ = sync_registry_snapshot_from(&root);
+    Ok(())
 }
 
 pub fn remove_pocket(pocket_dir: &Path) -> Result<()> {
@@ -209,6 +225,7 @@ pub fn remove_pocket(pocket_dir: &Path) -> Result<()> {
     }
 
     let root = registry_dir()?;
+    ensure_registry_git_state_from(&root)?;
     let mut cache = load_cache_or_rebuild_from(&root)?;
     let before = cache.pockets.len();
     cache.pockets.retain(|entry| entry.path != pocket_dir);
@@ -218,6 +235,7 @@ pub fn remove_pocket(pocket_dir: &Path) -> Result<()> {
         write_cache_to(&root, &cache)?;
     }
 
+    let _ = sync_registry_snapshot_from(&root);
     Ok(())
 }
 
@@ -282,6 +300,8 @@ pub fn move_to_unhoused(path: &Path, operation: &str) -> Result<Option<PathBuf>>
             "unhoused_path": target,
         }),
     );
+
+    let _ = sync_registry_git_state();
 
     Ok(Some(target))
 }
@@ -362,8 +382,216 @@ fn collect_pockets_from_dir(root: &Path, cache: &mut RegistryCache) -> Result<()
 fn is_reserved_registry_dir(path: &Path) -> bool {
     matches!(
         path.file_name().and_then(|name| name.to_str()),
-        Some("observations" | "registry" | "unhoused" | TEMPORARY_DIR)
+        Some("observations" | "registry" | "unhoused" | SNAPSHOTS_DIR | TEMPORARY_DIR)
     )
+}
+
+fn ensure_registry_git_state_from(root: &Path) -> Result<()> {
+    fs::create_dir_all(root).context("Failed to create safe pocket registry root")?;
+
+    if !root.join(".git").exists() {
+        let output = Command::new("git")
+            .args(["init"])
+            .current_dir(root)
+            .output()
+            .context("Failed to initialize ~/.safe_pocket git repository")?;
+        if !output.status.success() {
+            bail!(
+                "Failed to initialize ~/.safe_pocket git repository: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+    }
+
+    ensure_registry_gitignore(root)?;
+    ensure_registry_pre_commit_hook(root)?;
+    Ok(())
+}
+
+fn ensure_registry_gitignore(root: &Path) -> Result<()> {
+    let path = root.join(".gitignore");
+    let mut content = if path.exists() {
+        fs::read_to_string(&path)
+            .with_context(|| format!("Failed to read registry gitignore: {}", path.display()))?
+    } else {
+        String::new()
+    };
+
+    for line in REGISTRY_GITIGNORE.lines() {
+        if !content.lines().any(|existing| existing == line) {
+            if !content.is_empty() && !content.ends_with('\n') {
+                content.push('\n');
+            }
+            content.push_str(line);
+            content.push('\n');
+        }
+    }
+
+    fs::write(&path, content)
+        .with_context(|| format!("Failed to write registry gitignore: {}", path.display()))?;
+    Ok(())
+}
+
+fn ensure_registry_pre_commit_hook(root: &Path) -> Result<()> {
+    let hook_path = root.join(".git").join("hooks").join("pre-commit");
+    if let Some(parent) = hook_path.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("Failed to create hook directory: {}", parent.display()))?;
+    }
+
+    fs::write(&hook_path, PRE_COMMIT_HOOK)
+        .with_context(|| format!("Failed to write pre-commit hook: {}", hook_path.display()))?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut permissions = fs::metadata(&hook_path)
+            .with_context(|| format!("Failed to stat hook: {}", hook_path.display()))?
+            .permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&hook_path, permissions).with_context(|| {
+            format!(
+                "Failed to set executable permissions on hook: {}",
+                hook_path.display()
+            )
+        })?;
+    }
+
+    Ok(())
+}
+
+fn sync_registry_snapshot_from(root: &Path) -> Result<usize> {
+    let snapshots_root = root.join(SNAPSHOTS_DIR);
+    let pockets_root = snapshots_root.join("pockets");
+    let temporary_root = snapshots_root.join(TEMPORARY_DIR);
+    fs::create_dir_all(&pockets_root).with_context(|| {
+        format!(
+            "Failed to create snapshots directory: {}",
+            pockets_root.display()
+        )
+    })?;
+    fs::create_dir_all(&temporary_root).with_context(|| {
+        format!(
+            "Failed to create temporary snapshots directory: {}",
+            temporary_root.display()
+        )
+    })?;
+
+    let mut expected = Vec::new();
+    let mut count = 0;
+
+    for entry in fs::read_dir(root).context("Failed to read safe pocket registry root")? {
+        let entry = entry?;
+        let path = entry.path();
+        if !path.is_dir()
+            || is_reserved_registry_dir(&path)
+            || path.file_name().and_then(|n| n.to_str()) == Some(".git")
+        {
+            continue;
+        }
+
+        let name = match path.file_name().and_then(|name| name.to_str()) {
+            Some(name) => name,
+            None => continue,
+        };
+        let target = pockets_root.join(name);
+        mirror_snapshot_dir(&path, &target)?;
+        expected.push(target);
+        count += 1;
+    }
+
+    let temporary_source = root.join(TEMPORARY_DIR);
+    if temporary_source.exists() {
+        for entry in fs::read_dir(&temporary_source).with_context(|| {
+            format!(
+                "Failed to read temporary pockets: {}",
+                temporary_source.display()
+            )
+        })? {
+            let entry = entry?;
+            let path = entry.path();
+            if !path.is_dir() {
+                continue;
+            }
+
+            let name = match path.file_name().and_then(|name| name.to_str()) {
+                Some(name) => name,
+                None => continue,
+            };
+            let target = temporary_root.join(name);
+            mirror_snapshot_dir(&path, &target)?;
+            expected.push(target);
+            count += 1;
+        }
+    }
+
+    prune_stale_snapshot_children(&pockets_root, &expected)?;
+    prune_stale_snapshot_children(&temporary_root, &expected)?;
+
+    Ok(count)
+}
+
+fn mirror_snapshot_dir(src: &Path, dst: &Path) -> Result<()> {
+    if dst.exists() {
+        fs::remove_dir_all(dst).with_context(|| {
+            format!("Failed to remove old snapshot directory: {}", dst.display())
+        })?;
+    }
+    copy_dir_all_without_git(src, dst)
+}
+
+fn copy_dir_all_without_git(src: &Path, dst: &Path) -> Result<()> {
+    fs::create_dir_all(dst)
+        .with_context(|| format!("Failed to create snapshot directory: {}", dst.display()))?;
+
+    for entry in fs::read_dir(src)
+        .with_context(|| format!("Failed to read source directory: {}", src.display()))?
+    {
+        let entry = entry?;
+        let path = entry.path();
+        let target = dst.join(entry.file_name());
+        let file_type = entry.file_type()?;
+
+        if file_type.is_dir() {
+            if path.file_name().and_then(|name| name.to_str()) == Some(".git") {
+                continue;
+            }
+            copy_dir_all_without_git(&path, &target)?;
+        } else {
+            fs::copy(&path, &target).with_context(|| {
+                format!(
+                    "Failed to copy safe pocket content into snapshot: {} -> {}",
+                    path.display(),
+                    target.display()
+                )
+            })?;
+        }
+    }
+
+    Ok(())
+}
+
+fn prune_stale_snapshot_children(root: &Path, expected: &[PathBuf]) -> Result<()> {
+    if !root.exists() {
+        return Ok(());
+    }
+
+    for entry in fs::read_dir(root)
+        .with_context(|| format!("Failed to read snapshot directory: {}", root.display()))?
+    {
+        let entry = entry?;
+        let path = entry.path();
+        if !expected.iter().any(|expected_path| expected_path == &path) {
+            fs::remove_dir_all(&path).with_context(|| {
+                format!(
+                    "Failed to remove stale snapshot directory: {}",
+                    path.display()
+                )
+            })?;
+        }
+    }
+
+    Ok(())
 }
 
 fn has_workspace_file(pocket_dir: &Path, hash: &str) -> bool {
@@ -497,6 +725,26 @@ mod tests {
 
         let cache = rebuild_cache_from(&root).unwrap();
         assert!(cache.pockets.is_empty());
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn test_sync_registry_snapshot_creates_git_safe_copies() {
+        let root = std::env::temp_dir().join("spocket_registry_snapshot_test");
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+
+        let pocket_dir = root.join("abc123");
+        fs::create_dir_all(pocket_dir.join(".git")).unwrap();
+        fs::write(pocket_dir.join("file.txt"), "hello").unwrap();
+
+        let count = sync_registry_snapshot_from(&root).unwrap();
+        assert_eq!(count, 1);
+
+        let snapshot = root.join("snapshots").join("pockets").join("abc123");
+        assert!(snapshot.join("file.txt").is_file());
+        assert!(!snapshot.join(".git").exists());
 
         let _ = fs::remove_dir_all(&root);
     }
