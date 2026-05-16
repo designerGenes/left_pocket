@@ -529,6 +529,10 @@ impl Workspace {
                 println!("{}", "Initialising Beads in safe pocket...".bright_white());
             }
 
+            // Build bd init command without --stealth (which doesn't create local .beads directories).
+            // Use standard init that creates proper .beads/ directory in the pocket.
+            // Add --force to handle case where a Dolt server already exists from another pocket,
+            // and --quiet to skip interactive confirmation in non-interactive environments.
             let output = Command::new("bd")
                 .args([
                     "init",
@@ -536,7 +540,6 @@ impl Workspace {
                     "dolt",
                     "--prefix",
                     &self.hash,
-                    "--stealth",
                     "--force",
                     "--quiet",
                 ])
@@ -545,13 +548,21 @@ impl Workspace {
                 .context("Failed to execute `bd init` — is `bd` installed and on PATH?")?;
 
             if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                if crate::verbose() {
+                    eprintln!("[beads init stderr] {}", stderr);
+                }
                 return Err(anyhow!(
                     "bd init failed:\n{}",
-                    String::from_utf8_lossy(&output.stderr)
+                    stderr
                 ));
             }
 
+            // Show output if verbose mode is enabled
             if crate::verbose() {
+                if !output.stdout.is_empty() {
+                    println!("{}", String::from_utf8_lossy(&output.stdout));
+                }
                 println!(
                     "{} {}",
                     "Beads initialised in:".bright_green(),
