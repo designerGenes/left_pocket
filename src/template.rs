@@ -2040,23 +2040,24 @@ mod tests {
         let templates = vec![
             Template {
                 destination: "{{PROJECT_ROOT}}/.env".to_string(),
-                content: "SPOCKET_ROOT={{SPOCKET_ROOT}}\n".to_string(),
+            content: "SPOCKET_ROOT={{SPOCKET_ROOT}}\n".to_string(),
                 quiet_merge: true,
                 merge_at_runtime: false,
                 source_path: dir.join("project-env-template.md"),
             },
             Template {
                 destination: "{{SPOCKET_ROOT}}/.env".to_string(),
-                content: "PROJECT_ROOT={{PROJECT_ROOT}}\n".to_string(),
+            content: "PROJECT_ROOT={{PROJECT_ROOT}}\n".to_string(),
                 quiet_merge: true,
                 merge_at_runtime: false,
                 source_path: dir.join("safe-pocket-env-template.md"),
             },
         ];
-        let ctx = make_ctx(
+        let ctx = make_ctx_with_beads(
             &pocket_dir.to_string_lossy(),
             &project_dir.to_string_lossy(),
             "hash",
+            true,
         );
 
         apply_template_set(

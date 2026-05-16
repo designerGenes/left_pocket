@@ -152,7 +152,7 @@ impl Workspace {
         self.pocket_dir.exists() && self.workspace_file_path().exists()
     }
 
-    pub fn create(&self) -> Result<()> {
+    pub fn create_with_beads(&self, uses_beads: bool) -> Result<()> {
         if self.exists() {
             if crate::verbose() {
                 println!("{}", "Workspace already exists".dimmed());
@@ -165,19 +165,16 @@ impl Workspace {
             println!("{}", "Creating new safe pocket...".bright_white());
         }
 
-        // Create pocket directory structure
-        self.create_pocket_structure()?;
+        fs::create_dir_all(&self.pocket_dir).context("Failed to create pocket directory")?;
 
-        // Create workspace file
-        self.create_workspace_file()?;
-
-        // Initialize git
-        self.init_git()?;
-
-        // Write manifest
-        let manifest =
+        let mut manifest =
             Manifest::new_with_options(self.hash.clone(), self.core_paths.clone(), self.temporary);
+        manifest.set_uses_beads(uses_beads);
         manifest.save(&self.pocket_dir)?;
+
+        self.create_pocket_structure()?;
+        self.create_workspace_file()?;
+        self.init_git()?;
 
         if crate::verbose() {
             println!(
@@ -195,7 +192,7 @@ impl Workspace {
         Ok(())
     }
 
-    fn create_pocket_structure(&self) -> Result<()> {
+    pub(crate) fn create_pocket_structure(&self) -> Result<()> {
         fs::create_dir_all(&self.pocket_dir).context("Failed to create pocket directory")?;
 
         let primary_project_path = self
@@ -218,13 +215,17 @@ impl Workspace {
                     .join("safe_pocket")
             });
 
+        let uses_beads = Manifest::load(&self.pocket_dir)?
+            .map(|manifest| manifest.uses_beads)
+            .unwrap_or(false);
+
         let ctx = crate::template::TemplateContext {
             spocket_root: self.pocket_dir.clone(),
             project_root: primary_project_path.clone(),
             spocket_name: self.hash.clone(),
             global_observations_path: global_obs,
             config_root,
-            uses_beads: false,
+            uses_beads,
         };
 
         // Apply templates (non-interactive for new pockets — no overwrite prompts)
@@ -488,6 +489,23 @@ impl Workspace {
         self.write_workspace_file_preserving(None)
     }
 
+    pub fn set_uses_beads(&self) -> Result<()> {
+        let mut manifest = Manifest::load(&self.pocket_dir)?.unwrap_or_else(|| {
+            Manifest::new_with_options(
+                self.hash.clone(),
+                self.core_paths.clone(),
+                self.temporary,
+            )
+        });
+
+        if !manifest.uses_beads {
+            manifest.set_uses_beads(true);
+            manifest.save(&self.pocket_dir)?;
+        }
+
+        Ok(())
+    }
+
     fn init_git(&self) -> Result<()> {
         let output = Command::new("git")
             .args(["init"])
@@ -508,15 +526,15 @@ impl Workspace {
     /// Set up Beads issue tracking in the safe pocket, and plant redirect stubs in every
     /// core project folder so `bd` commands work from the project directory.
     ///
-    /// Idempotent: skips `bd init` if `.beads/` already exists in the pocket.
+    /// Idempotent: skips `bd init` only when `bd where` can open the pocket database.
     pub fn setup_beads(&self) -> Result<()> {
         let beads_dir = self.pocket_dir.join(".beads");
         let config_dir = crate::template::safe_pocket_config_dir()?;
         let storage_dir = Self::spocket_dir()?;
         let legacy_storage_dir = Self::legacy_spocket_dir()?;
 
-        // ── 1. Run `bd init` inside the pocket directory (only if not already done) ──
-        if beads_dir.exists() {
+        // ── 1. Run `bd init` inside the pocket directory (only if usable) ──
+        if self.beads_database_usable() {
             if crate::verbose() {
                 println!(
                     "{} {}",
@@ -529,20 +547,19 @@ impl Workspace {
                 println!("{}", "Initialising Beads in safe pocket...".bright_white());
             }
 
-            // Build bd init command without --stealth (which doesn't create local .beads directories).
-            // Use standard init that creates proper .beads/ directory in the pocket.
-            // Add --force to handle case where a Dolt server already exists from another pocket,
-            // and --quiet to skip interactive confirmation in non-interactive environments.
+            // Use documented non-interactive local Dolt initialization for the pocket workspace.
             let output = Command::new("bd")
                 .args([
                     "init",
-                    "--backend",
-                    "dolt",
                     "--prefix",
                     &self.hash,
-                    "--force",
+                    "--non-interactive",
                     "--quiet",
                 ])
+                .env("BD_NON_INTERACTIVE", "1")
+                .env_remove("BEADS_DIR")
+                .env_remove("BEADS_DB")
+                .env_remove("BD_DB")
                 .current_dir(&self.pocket_dir)
                 .output()
                 .context("Failed to execute `bd init` — is `bd` installed and on PATH?")?;
@@ -558,10 +575,15 @@ impl Workspace {
                 ));
             }
 
-            // Create the .beads directory (bd init doesn't create it, just registers with server)
-            // This directory is needed for the redirect mechanism to work properly
             fs::create_dir_all(&beads_dir)
                 .with_context(|| format!("Failed to create .beads directory: {}", beads_dir.display()))?;
+
+            if !self.beads_database_usable() {
+                return Err(anyhow!(
+                    "bd init did not create a usable database in {}",
+                    beads_dir.display()
+                ));
+            }
 
             // Show output if verbose mode is enabled
             if crate::verbose() {
@@ -630,14 +652,21 @@ impl Workspace {
             }
         }
 
-        if let Some(mut manifest) = Manifest::load(&self.pocket_dir)? {
-            if !manifest.uses_beads {
-                manifest.set_uses_beads(true);
-                manifest.save(&self.pocket_dir)?;
-            }
-        }
+        self.set_uses_beads()?;
 
         Ok(())
+    }
+
+    fn beads_database_usable(&self) -> bool {
+        Command::new("bd")
+            .args(["where", "--json"])
+            .env_remove("BEADS_DIR")
+            .env_remove("BEADS_DB")
+            .env_remove("BD_DB")
+            .current_dir(&self.pocket_dir)
+            .output()
+            .map(|output| output.status.success())
+            .unwrap_or(false)
     }
 
     /// Detect workspace file drift and prompt the user to resolve it.

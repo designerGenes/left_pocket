@@ -34,7 +34,7 @@ impl TestEnv {
         let bd_path = bin_dir.join("bd");
         fs::write(
             &bd_path,
-            "#!/bin/sh\nif [ \"$1\" = \"init\" ]; then mkdir -p .beads; exit 0; fi\nexit 0\n",
+            "#!/bin/sh\nif [ \"$1\" = \"init\" ]; then mkdir -p .beads/embeddeddolt; touch .beads/usable; exit 0; fi\nif [ \"$1\" = \"where\" ]; then [ -f .beads/usable ] && exit 0 || exit 1; fi\nexit 0\n",
         )
         .expect("failed to write fake bd command");
         fs::set_permissions(&bd_path, fs::Permissions::from_mode(0o755))
@@ -127,7 +127,18 @@ fn new_pocket_defaults_to_beads() {
 
     let pocket = env.only_pocket();
     assert!(pocket.join(".beads").is_dir());
-    assert!(project.join(".beads").join("redirect").is_file());
+    assert_eq!(
+        fs::read_to_string(project.join(".beads").join("redirect")).unwrap(),
+        pocket.join(".beads").to_string_lossy()
+    );
+    assert_eq!(
+        fs::read_to_string(project.join(".env")).unwrap(),
+        format!("SPOCKET_ROOT={}\n", pocket.display())
+    );
+    assert_eq!(
+        fs::read_to_string(pocket.join(".env")).unwrap(),
+        format!("PROJECT_ROOT={}\n", project.canonicalize().unwrap().display())
+    );
     assert!(manifest_uses_beads(&pocket));
 }
 
@@ -169,7 +180,10 @@ fn existing_non_beads_pocket_can_be_explicitly_upgraded() {
 
     let pocket = env.only_pocket();
     assert!(pocket.join(".beads").is_dir());
-    assert!(project.join(".beads").join("redirect").is_file());
+    assert_eq!(
+        fs::read_to_string(project.join(".beads").join("redirect")).unwrap(),
+        pocket.join(".beads").to_string_lossy()
+    );
     assert!(manifest_uses_beads(&pocket));
 }
 

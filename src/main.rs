@@ -514,6 +514,8 @@ fn handle_workspace(cli: Cli) -> Result<()> {
         let workspace = Workspace::clone_from(&source_path, &core_paths, cli.temporary)?;
 
         if beads_allowed {
+            workspace.set_uses_beads()?;
+            workspace.create_pocket_structure()?;
             workspace.setup_beads()?;
         }
 
@@ -663,11 +665,11 @@ fn handle_workspace(cli: Cli) -> Result<()> {
                 );
             } else {
                 // User chose not to clone
-                workspace.create()?;
+                workspace.create_with_beads(beads_allowed)?;
             }
         } else {
             // No similar workspaces found
-            workspace.create()?;
+            workspace.create_with_beads(beads_allowed)?;
         }
 
         if beads_allowed {
