@@ -32,4 +32,4 @@ consume the contents of the given file, and
 
 ```
 
-the number of "-"s after the "<" is not relevant and can be any reasonable number of dashes or no dashes.  The important part is that the file is given, followed by a left-facing "arrow" the phrase "make it so".
+the number of "-"s after the "<" is not relevant and can be any reasonable number of dashes or no dashes.  The important part is that the file is given, followed by a left-facing "arrow" the phrase "make it so". 

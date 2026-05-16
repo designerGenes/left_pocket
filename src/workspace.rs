@@ -529,6 +529,8 @@ impl Workspace {
                     "--prefix",
                     &self.hash,
                     "--stealth",
+                    "--force",
+                    "--quiet",
                 ])
                 .current_dir(&self.pocket_dir)
                 .output()
