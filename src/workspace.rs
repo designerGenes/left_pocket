@@ -527,11 +527,6 @@ impl Workspace {
         } else {
             if crate::verbose() {
                 println!("{}", "Initialising Beads in safe pocket...".bright_white());
-                println!(
-                    "{} {}",
-                    "  Pocket dir:".dimmed(),
-                    self.pocket_dir.display().to_string().bright_blue()
-                );
             }
 
             let output = Command::new("bd")
@@ -548,28 +543,6 @@ impl Workspace {
                 .current_dir(&self.pocket_dir)
                 .output()
                 .context("Failed to execute `bd init` — is `bd` installed and on PATH?")?;
-
-            if crate::verbose() {
-                println!(
-                    "{} {}",
-                    "  bd init exit code:".dimmed(),
-                    output.status.code().unwrap_or(-1)
-                );
-                if !output.stderr.is_empty() {
-                    println!(
-                        "{} {}",
-                        "  stderr:".dimmed(),
-                        String::from_utf8_lossy(&output.stderr).trim()
-                    );
-                }
-                if !output.stdout.is_empty() {
-                    println!(
-                        "{} {}",
-                        "  stdout:".dimmed(),
-                        String::from_utf8_lossy(&output.stdout).trim()
-                    );
-                }
-            }
 
             if !output.status.success() {
                 return Err(anyhow!(
