@@ -113,6 +113,121 @@ function updateStatusBar(text, tooltip) {
         }
     }
 }
+function pad2(value) {
+    return value.toString().padStart(2, "0");
+}
+function localDateKey(date) {
+    return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
+}
+function parseDatedFilename(fileName) {
+    const stem = fileName.replace(/\.md$/i, "");
+    const currentYear = new Date().getFullYear();
+    const monthNames = {
+        january: 1,
+        jan: 1,
+        february: 2,
+        feb: 2,
+        march: 3,
+        mar: 3,
+        april: 4,
+        apr: 4,
+        may: 5,
+        june: 6,
+        jun: 6,
+        july: 7,
+        jul: 7,
+        august: 8,
+        aug: 8,
+        september: 9,
+        sep: 9,
+        sept: 9,
+        october: 10,
+        oct: 10,
+        november: 11,
+        nov: 11,
+        december: 12,
+        dec: 12,
+    };
+    let match = stem.match(/^(\d{4})[-_](\d{1,2})[-_](\d{1,2})(?:\D.*)?$/);
+    if (match) {
+        return `${match[1]}-${pad2(Number(match[2]))}-${pad2(Number(match[3]))}`;
+    }
+    match = stem.match(/^(\d{1,2})[-_](\d{1,2})[-_](\d{2})(?:\D.*)?$/);
+    if (match) {
+        return `20${match[3]}-${pad2(Number(match[1]))}-${pad2(Number(match[2]))}`;
+    }
+    match = stem.match(/^([A-Za-z]+)[-_](\d{1,2})(?:[-_](\d{4}))?(?:\D.*)?$/);
+    if (match && monthNames[match[1].toLowerCase()]) {
+        return `${match[3] ?? currentYear}-${pad2(monthNames[match[1].toLowerCase()])}-${pad2(Number(match[2]))}`;
+    }
+    match = stem.match(/^(\d{1,2})[-_]([A-Za-z]+)(?:[-_](\d{4}))?(?:\D.*)?$/);
+    if (match && monthNames[match[2].toLowerCase()]) {
+        return `${match[3] ?? currentYear}-${pad2(monthNames[match[2].toLowerCase()])}-${pad2(Number(match[1]))}`;
+    }
+    return undefined;
+}
+async function findDatedFeatureFiles(featuresDir) {
+    const results = [];
+    async function walk(dir) {
+        let entries;
+        try {
+            entries = await vscode.workspace.fs.readDirectory(dir);
+        }
+        catch {
+            return;
+        }
+        for (const [name, type] of entries) {
+            const uri = vscode.Uri.joinPath(dir, name);
+            if (type === vscode.FileType.Directory) {
+                await walk(uri);
+                continue;
+            }
+            if (type !== vscode.FileType.File || !name.toLowerCase().endsWith(".md")) {
+                continue;
+            }
+            const dateKey = parseDatedFilename(name);
+            if (!dateKey) {
+                continue;
+            }
+            const stat = await vscode.workspace.fs.stat(uri);
+            results.push({ uri, dateKey, mtimeMs: stat.mtime, ctimeMs: stat.ctime });
+        }
+    }
+    await walk(featuresDir);
+    return results;
+}
+async function openDailyFeature() {
+    if (!activePocketDir) {
+        vscode.window.showWarningMessage("Spocket: no active safe pocket workspace.");
+        return;
+    }
+    const config = vscode.workspace.getConfiguration("spocket");
+    const configuredSubpath = config.get("dailyFeatureSubpath")?.trim() ?? "";
+    const safeSubpath = configuredSubpath
+        .split(/[\\/]+/)
+        .filter((part) => part && part !== "." && part !== "..")
+        .join("/");
+    const featuresDir = vscode.Uri.file(path.join(activePocketDir, "FEATURES"));
+    const today = localDateKey(new Date());
+    const candidates = (await findDatedFeatureFiles(featuresDir))
+        .filter((candidate) => candidate.dateKey === today)
+        .sort((a, b) => {
+        if (b.mtimeMs !== a.mtimeMs) {
+            return b.mtimeMs - a.mtimeMs;
+        }
+        if (b.ctimeMs !== a.ctimeMs) {
+            return b.ctimeMs - a.ctimeMs;
+        }
+        return path.basename(a.uri.fsPath).localeCompare(path.basename(b.uri.fsPath));
+    });
+    const target = candidates[0]?.uri ?? vscode.Uri.file(path.join(activePocketDir, "FEATURES", safeSubpath, `${today.replace(/-/g, "_")}.md`));
+    if (!fs.existsSync(target.fsPath)) {
+        await vscode.workspace.fs.createDirectory(vscode.Uri.file(path.dirname(target.fsPath)));
+        await vscode.workspace.fs.writeFile(target, Buffer.from(`# ${today}\n\n`, "utf8"));
+    }
+    const doc = await vscode.workspace.openTextDocument(target);
+    await vscode.window.showTextDocument(doc);
+}
 async function handleFolderChange(pocketDir) {
     if (syncInProgress) {
         return;
@@ -162,6 +277,7 @@ function activate(context) {
         handleFolderChange(pocketDir);
     });
     context.subscriptions.push(disposable);
+    context.subscriptions.push(vscode.commands.registerCommand("spocket.openDailyFeature", openDailyFeature));
     handleFolderChange(pocketDir);
     runMergeCommand("merge-start", pocketDir).catch((err) => console.error("spocket merge-start failed:", err));
 }

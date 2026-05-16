@@ -254,6 +254,37 @@ pub enum Commands {
         yes: bool,
     },
 
+    /// Reconnect a project directory to an existing safe pocket
+    ///
+    /// Moves the selected pocket's contents into the deterministic pocket path
+    /// for PROJECT. If that target pocket already exists, it is moved aside under
+    /// ~/.safe_pocket/unhoused/ before replacement.
+    ///
+    ///   safe_pocket heal --project ~/dev/app --pocket abc123
+    ///   safe_pocket heal --project . --pocket ~/.safe_pocket/oldhash
+    #[command(name = "heal")]
+    Heal {
+        #[arg(long = "project", value_name = "PATH")]
+        project: String,
+
+        #[arg(long = "pocket", value_name = "POCKET")]
+        pocket: String,
+    },
+
+    /// Configure a cron job that backs up ~/.safe_pocket to a git remote
+    ///
+    /// The backup mirror lives at ~/.safe_pocket_backup_repo and is pushed by cron.
+    ///
+    ///   safe_pocket backup --repo git@github.com:you/safe-pocket-backup.git
+    #[command(name = "backup")]
+    Backup {
+        #[arg(long = "repo", value_name = "GIT_URL")]
+        repo: String,
+
+        #[arg(long = "schedule", value_name = "CRON", default_value = "0 * * * *")]
+        schedule: String,
+    },
+
     /// Inject runtime content into destination files (called by the VS Code extension on open)
     ///
     /// For each template marked with `#SPOCKET_MERGE_AT_RUNTIME`, injects the expanded

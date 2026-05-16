@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -221,6 +221,63 @@ pub fn remove_pocket(pocket_dir: &Path) -> Result<()> {
     Ok(())
 }
 
+pub fn move_to_unhoused(path: &Path, operation: &str) -> Result<Option<PathBuf>> {
+    let root = registry_root()?;
+    if !path.starts_with(&root) {
+        bail!(
+            "Refusing to move path outside ~/.safe_pocket: {}",
+            path.display()
+        );
+    }
+    if !path.exists() {
+        return Ok(None);
+    }
+
+    let timestamp = Utc::now().format("%Y%m%dT%H%M%SZ").to_string();
+    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("item");
+    let mut target = root.join("unhoused").join(&timestamp).join(name);
+    let mut suffix = 1;
+    while target.exists() {
+        let file_name = target
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("item")
+            .to_string();
+        target.set_file_name(format!("{file_name}.{suffix}"));
+        suffix += 1;
+    }
+
+    if let Some(parent) = target.parent() {
+        fs::create_dir_all(parent).context("Failed to create registry unhoused directory")?;
+    }
+    fs::rename(path, &target).with_context(|| {
+        format!(
+            "Failed to move safe pocket content to unhoused: {} -> {}",
+            path.display(),
+            target.display()
+        )
+    })?;
+
+    let log_path = root.join("unhoused.log");
+    let entry = format!(
+        "{}\t{}\t{}\t{}\n",
+        Utc::now().to_rfc3339(),
+        operation,
+        path.display(),
+        target.display()
+    );
+    use std::io::Write as IoWrite;
+    let mut log = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path)
+        .context("Failed to open registry unhoused log")?;
+    log.write_all(entry.as_bytes())
+        .context("Failed to write registry unhoused log")?;
+
+    Ok(Some(target))
+}
+
 fn read_cache_from(root: &Path) -> Result<RegistryCache> {
     let content =
         fs::read_to_string(cache_path_for(root)).context("Failed to read registry cache")?;
@@ -297,7 +354,7 @@ fn collect_pockets_from_dir(root: &Path, cache: &mut RegistryCache) -> Result<()
 fn is_reserved_registry_dir(path: &Path) -> bool {
     matches!(
         path.file_name().and_then(|name| name.to_str()),
-        Some("observations" | "registry" | TEMPORARY_DIR)
+        Some("observations" | "registry" | "unhoused" | TEMPORARY_DIR)
     )
 }
 
@@ -415,6 +472,23 @@ mod tests {
         assert_eq!(cache.pockets.len(), 1);
         assert!(cache.pockets[0].temporary);
         assert_eq!(cache.pockets[0].path, pocket_dir);
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn test_rebuild_cache_skips_unhoused_directory() {
+        let root = std::env::temp_dir().join("spocket_registry_unhoused_test");
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(root.join("unhoused").join("moved123")).unwrap();
+
+        let manifest = Manifest::new("manifest_hash".to_string(), vec![PathBuf::from("/tmp/p")]);
+        manifest
+            .save(&root.join("unhoused").join("moved123"))
+            .unwrap();
+
+        let cache = rebuild_cache_from(&root).unwrap();
+        assert!(cache.pockets.is_empty());
 
         let _ = fs::remove_dir_all(&root);
     }

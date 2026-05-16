@@ -22,9 +22,28 @@
           "type": "string",
           "default": "safe_pocket",
           "description": "Path to the spocket binary"
+        },
+        "spocket.dailyFeatureSubpath": {
+          "type": "string",
+          "default": "",
+          "description": "Optional subfolder under FEATURES where new daily feature files should be created"
         }
       }
-    }
+    },
+    "commands": [
+      {
+        "command": "spocket.openDailyFeature",
+        "title": "Spocket: Open Daily Feature"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "spocket.openDailyFeature",
+        "key": "ctrl+alt+t",
+        "mac": "ctrl+alt+t",
+        "when": "workspaceFolderCount > 0"
+      }
+    ]
   },
   "scripts": {
     "compile": "tsc -p ./",

@@ -102,3 +102,32 @@ consume the contents of the given file, and
 - do NOT return until all of the above has been completed, tested, and committed locally in Git
 
 ```
+
+# Feature Tags
+
+Feature markdown files may include tags that change how an agent should work on that feature. Tags can appear at the top of the feature file or immediately under a subfeature heading.
+
+Built-in tags include:
+
+```markdown
+#SPOCKET_MUST_INSTALL
+#SPOCKET_MUST_ADD_NEW_TESTS
+#SPOCKET_MUST_UPDATE_DOCUMENTATION
+#SPOCKET_MUST_NOT_UPDATE_DOCUMENTATION
+#SPOCKET_MUST_CREATE_NEW_FILES
+#SPOCKET_MUST_BACKUP
+```
+
+User-defined tags may be configured in:
+
+```text
+$HOME/.config/safe_pocket/feature_tags.yaml
+```
+
+Each custom tag entry should describe what the tag means and its type. Supported types are:
+
+- `start hook`: perform the described action before starting the feature or subfeature.
+- `done hook`: perform the described action before considering the feature or subfeature complete.
+- `rule`: obey the described constraint while working on the feature or subfeature.
+
+When working from a feature file, scan for applicable `#SPOCKET_...` tags before editing. Apply built-in tags directly. If you encounter an unknown tag, read `$HOME/.config/safe_pocket/feature_tags.yaml` and use the tag's description and type to guide your work. Do not mark a feature complete until all applicable done hooks have been satisfied.

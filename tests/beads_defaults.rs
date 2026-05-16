@@ -43,11 +43,7 @@ impl TestEnv {
         let existing_path = std::env::var("PATH").unwrap_or_default();
         let path = format!("{}:{existing_path}", bin_dir.display());
 
-        Self {
-            root,
-            home,
-            path,
-        }
+        Self { root, home, path }
     }
 
     fn project(&self, name: &str) -> PathBuf {
@@ -88,7 +84,10 @@ impl TestEnv {
     fn only_pocket(&self) -> PathBuf {
         let pockets = self.safe_pockets();
         assert_eq!(pockets.len(), 1, "expected exactly one safe pocket");
-        pockets.into_iter().next().expect("safe pocket should exist")
+        pockets
+            .into_iter()
+            .next()
+            .expect("safe pocket should exist")
     }
 }
 
@@ -110,7 +109,8 @@ fn assert_success(output: &Output) {
 fn manifest_uses_beads(pocket: &Path) -> bool {
     let manifest_path = pocket.join("manifest.json");
     let manifest = fs::read_to_string(&manifest_path).expect("failed to read manifest");
-    let value: serde_json::Value = serde_json::from_str(&manifest).expect("failed to parse manifest");
+    let value: serde_json::Value =
+        serde_json::from_str(&manifest).expect("failed to parse manifest");
     value
         .get("uses_beads")
         .and_then(|value| value.as_bool())

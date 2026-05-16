@@ -7,12 +7,12 @@ mod template;
 mod workspace;
 
 use anyhow::{anyhow, bail, Context, Result};
+use chrono::{Duration, Utc};
 use clap::{CommandFactory, Parser};
 use clap_complete::generate;
 use colored::Colorize;
-use chrono::{Duration, Utc};
 use std::fs;
-use std::io;
+use std::io::{self, Write as IoWrite};
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::OnceLock;
@@ -182,6 +182,10 @@ fn handle_command(command: Commands) -> Result<()> {
             hard,
             yes,
         } => handle_clean(scope, older_than, all, hard, yes),
+
+        Commands::Heal { project, pocket } => handle_heal(project, pocket),
+
+        Commands::Backup { repo, schedule } => handle_backup(repo, schedule),
 
         Commands::Completions { shell } => {
             let mut cmd = Cli::command();
@@ -520,19 +524,21 @@ fn handle_workspace(cli: Cli) -> Result<()> {
                     existing.hash
                 ));
             }
-            println!(
-                "{} {}",
-                "Opening existing workspace:".bright_green(),
-                existing.hash.bright_yellow()
-            );
+            if verbose() {
+                println!(
+                    "{} {}",
+                    "Opening existing workspace:".bright_green(),
+                    existing.hash.bright_yellow()
+                );
+            }
 
             existing.migrate_storage_references()?;
 
             let should_setup_beads = beads_allowed
                 && (beads_requested
-                || Manifest::load(&existing.pocket_dir)?
-                    .map(|manifest| manifest.uses_beads)
-                    .unwrap_or(false));
+                    || Manifest::load(&existing.pocket_dir)?
+                        .map(|manifest| manifest.uses_beads)
+                        .unwrap_or(false));
 
             if should_setup_beads {
                 existing.setup_beads()?;
@@ -572,17 +578,19 @@ fn handle_workspace(cli: Cli) -> Result<()> {
         // (handles pockets that evolved in-place via sync/augment)
         if let Some(existing) = Workspace::find_workspace_by_manifest_paths(&core_paths)? {
             if existing.temporary == cli.temporary {
-            println!(
-                "{} {} (matched by manifest)",
-                "Found existing pocket:".bright_green(),
-                existing.hash.bright_yellow()
-            );
+                if verbose() {
+                    println!(
+                        "{} {} (matched by manifest)",
+                        "Found existing pocket:".bright_green(),
+                        existing.hash.bright_yellow()
+                    );
+                }
 
                 let should_setup_beads = beads_allowed
                     && (beads_requested
-                    || Manifest::load(&existing.pocket_dir)?
-                        .map(|manifest| manifest.uses_beads)
-                        .unwrap_or(false));
+                        || Manifest::load(&existing.pocket_dir)?
+                            .map(|manifest| manifest.uses_beads)
+                            .unwrap_or(false));
 
                 if should_setup_beads {
                     existing.setup_beads()?;
@@ -603,8 +611,10 @@ fn handle_workspace(cli: Cli) -> Result<()> {
 
                 // Copy safe pocket contents
                 if workspace.pocket_dir.exists() {
-                    fs::remove_dir_all(&workspace.pocket_dir)
-                        .context("Failed to remove existing target pocket")?;
+                    registry::move_to_unhoused(
+                        &workspace.pocket_dir,
+                        "smart clone target replacement",
+                    )?;
                     registry::remove_pocket(&workspace.pocket_dir)?;
                 }
 
@@ -649,16 +659,18 @@ fn handle_workspace(cli: Cli) -> Result<()> {
 
         open_with_merge(&workspace)?;
     } else {
-        println!("{}", "Using existing workspace".dimmed());
+        if verbose() {
+            println!("{}", "Using existing workspace".dimmed());
+        }
 
         workspace.migrate_storage_references()?;
 
         // Run beads setup regardless of whether the pocket is new — idempotent
         let should_setup_beads = beads_allowed
             && (beads_requested
-            || Manifest::load(&workspace.pocket_dir)?
-                .map(|manifest| manifest.uses_beads)
-                .unwrap_or(false));
+                || Manifest::load(&workspace.pocket_dir)?
+                    .map(|manifest| manifest.uses_beads)
+                    .unwrap_or(false));
 
         if should_setup_beads {
             workspace.setup_beads()?;
@@ -761,7 +773,11 @@ fn handle_clean(
     let cache = registry::load_cache_or_rebuild()?;
     let entries: Vec<RegistryEntry> = if let Some(scope) = scope {
         match scope {
-            CleanScope::Temporary => cache.pockets.into_iter().filter(|entry| entry.temporary).collect(),
+            CleanScope::Temporary => cache
+                .pockets
+                .into_iter()
+                .filter(|entry| entry.temporary)
+                .collect(),
         }
     } else if let Some(age) = older_than {
         let cutoff = parse_age_cutoff(&age)?;
@@ -860,14 +876,172 @@ fn confirm_hard_clean(entries: &[RegistryEntry], yes: bool) -> Result<()> {
 fn delete_pocket_dir(path: &Path) -> Result<()> {
     let registry_root = registry::registry_root()?;
     if !path.starts_with(&registry_root) {
-        bail!("Refusing to delete path outside ~/.safe_pocket: {}", path.display());
+        bail!(
+            "Refusing to delete path outside ~/.safe_pocket: {}",
+            path.display()
+        );
     }
 
     if path.exists() {
-        fs::remove_dir_all(path)
-            .with_context(|| format!("Failed to delete safe pocket: {}", path.display()))?;
+        registry::move_to_unhoused(path, "clean hard delete")?;
     }
 
+    Ok(())
+}
+
+fn handle_heal(project: String, pocket: String) -> Result<()> {
+    let config = Config::load()?;
+    let project_path = config.resolve_path(&project)?;
+    if !project_path.exists() {
+        bail!("Project path does not exist: {}", project_path.display());
+    }
+
+    let source = resolve_workspace_reference(&pocket)?;
+    let target =
+        Workspace::new_with_options(vec![project_path.clone()], vec![], false, source.temporary)?;
+
+    if source.pocket_dir == target.pocket_dir {
+        let mut manifest = Manifest::load(&source.pocket_dir)?.ok_or_else(|| {
+            anyhow!(
+                "No manifest found in safe pocket: {}",
+                source.pocket_dir.display()
+            )
+        })?;
+        manifest.update_paths(vec![project_path], &source.pocket_dir)?;
+        println!(
+            "{} {}",
+            "Healed in place:".bright_green(),
+            source.pocket_dir.display().to_string().bright_blue()
+        );
+        return Ok(());
+    }
+
+    if target.pocket_dir.exists() {
+        registry::move_to_unhoused(&target.pocket_dir, "heal target replacement")?;
+        registry::remove_pocket(&target.pocket_dir)?;
+    }
+
+    if let Some(parent) = target.pocket_dir.parent() {
+        fs::create_dir_all(parent).context("Failed to create target safe pocket parent")?;
+    }
+
+    fs::rename(&source.pocket_dir, &target.pocket_dir).or_else(|_| {
+        copy_dir_all(&source.pocket_dir, &target.pocket_dir)?;
+        fs::remove_dir_all(&source.pocket_dir)?;
+        Ok::<(), anyhow::Error>(())
+    })?;
+
+    registry::remove_pocket(&source.pocket_dir)?;
+
+    let workspace_file = Workspace::find_workspace_file(&target.pocket_dir);
+    if let Some(old_file) = workspace_file {
+        let new_file = target.workspace_file_path();
+        if old_file != new_file && old_file.exists() {
+            fs::rename(&old_file, &new_file).with_context(|| {
+                format!(
+                    "Failed to rename workspace file: {} -> {}",
+                    old_file.display(),
+                    new_file.display()
+                )
+            })?;
+        }
+    }
+
+    target.create_workspace_file()?;
+    let mut manifest = Manifest::load(&target.pocket_dir)?.unwrap_or_else(|| {
+        Manifest::new_with_options(
+            target.hash.clone(),
+            target.core_paths.clone(),
+            target.temporary,
+        )
+    });
+    manifest.hash = target.hash.clone();
+    manifest.core_paths = target.core_paths.clone();
+    manifest.temporary = target.temporary;
+    manifest.save(&target.pocket_dir)?;
+
+    println!(
+        "{} {} -> {}",
+        "Healed safe pocket:".bright_green(),
+        source.hash.bright_yellow(),
+        target.pocket_dir.display().to_string().bright_blue()
+    );
+    Ok(())
+}
+
+fn handle_backup(repo: String, schedule: String) -> Result<()> {
+    let backup_repo = registry::registry_root()?.with_file_name(".safe_pocket_backup_repo");
+    let script_path = registry::registry_root()?.join("backup.sh");
+    let source_dir = registry::registry_root()?;
+
+    fs::create_dir_all(&source_dir).context("Failed to create safe pocket registry root")?;
+
+    if !backup_repo.exists() {
+        let output = std::process::Command::new("git")
+            .args(["clone", &repo, &backup_repo.to_string_lossy()])
+            .output()
+            .context("Failed to clone backup repository")?;
+        if !output.status.success() {
+            bail!(
+                "git clone failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+    }
+
+    let script = format!(
+        "#!/bin/sh\nset -eu\nrsync -a --delete --exclude '.git/' --exclude 'backup.sh' '{source}/' '{backup}/'\ncd '{backup}'\ngit add .\nif ! git diff --cached --quiet; then\n  git commit -m 'Back up safe pockets'\n  git push\nfi\n",
+        source = source_dir.display(),
+        backup = backup_repo.display()
+    );
+    fs::write(&script_path, script)
+        .with_context(|| format!("Failed to write backup script: {}", script_path.display()))?;
+
+    let _ = std::process::Command::new("chmod")
+        .args(["+x", &script_path.to_string_lossy()])
+        .status();
+
+    let cron_line = format!("{} {}", schedule, script_path.display());
+    let current = std::process::Command::new("crontab").arg("-l").output();
+    let mut cron = current
+        .ok()
+        .filter(|output| output.status.success())
+        .map(|output| String::from_utf8_lossy(&output.stdout).to_string())
+        .unwrap_or_default();
+
+    cron = cron
+        .lines()
+        .filter(|line| !line.contains(&script_path.to_string_lossy().to_string()))
+        .map(str::to_string)
+        .collect::<Vec<_>>()
+        .join("\n");
+    if !cron.is_empty() {
+        cron.push('\n');
+    }
+    cron.push_str(&cron_line);
+    cron.push('\n');
+
+    let mut child = std::process::Command::new("crontab")
+        .arg("-")
+        .stdin(std::process::Stdio::piped())
+        .spawn()
+        .context("Failed to update crontab")?;
+    child
+        .stdin
+        .as_mut()
+        .context("Failed to open crontab stdin")?
+        .write_all(cron.as_bytes())
+        .context("Failed to write crontab")?;
+    let status = child.wait().context("Failed to wait for crontab")?;
+    if !status.success() {
+        bail!("crontab update failed");
+    }
+
+    println!(
+        "{} {}",
+        "Backup cron configured:".bright_green(),
+        cron_line.bright_blue()
+    );
     Ok(())
 }
 
@@ -877,7 +1051,10 @@ fn resolve_workspace_reference(reference: &str) -> Result<Workspace> {
 
     if resolved.is_dir() && registry::is_registry_pocket_dir(&resolved)? {
         let manifest = Manifest::load(&resolved)?.ok_or_else(|| {
-            anyhow!("No manifest found in pocket directory: {}", resolved.display())
+            anyhow!(
+                "No manifest found in pocket directory: {}",
+                resolved.display()
+            )
         })?;
 
         return Ok(Workspace {
@@ -952,8 +1129,7 @@ fn handle_sync(pocket: String) -> Result<()> {
         sidecar_paths: vec![],
         pocket_dir: pocket_dir.clone(),
         create_readmes: false,
-        temporary: pocket_dir
-            .starts_with(Workspace::temporary_spocket_dir()?),
+        temporary: pocket_dir.starts_with(Workspace::temporary_spocket_dir()?),
     };
     migration_workspace.migrate_storage_references()?;
 

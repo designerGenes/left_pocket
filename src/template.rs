@@ -1,5 +1,6 @@
 use anyhow::{anyhow, Context, Result};
 use colored::Colorize;
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -8,15 +9,15 @@ use std::path::{Path, PathBuf};
 // are copied into the user's template directory unless the user already has
 // their own version of each file.
 
-pub const DEFAULT_COPILOT_INSTRUCTIONS: &str = include_str!("defaults/copilot-instructions.md");
-pub const DEFAULT_AGENTS_MD: &str = include_str!("defaults/AGENTS.md");
-pub const DEFAULT_DIRECTORY_STRUCTURE: &str = include_str!("defaults/directory_structure.md");
-pub const DEFAULT_PROJECT_ENV: &str = include_str!("defaults/project.env.md");
-pub const DEFAULT_SAFE_POCKET_ENV: &str = include_str!("defaults/safe_pocket.env.md");
-pub const DEFAULT_PROJECT_GITIGNORE: &str = include_str!("defaults/gitignore.md");
-pub const DEFAULT_SAFE_POCKET_GITIGNORE: &str = include_str!("defaults/safe_pocket.gitignore.md");
+pub const DEFAULT_COPILOT_INSTRUCTIONS: &str = include_str!("templates/copilot-instructions.md");
+pub const DEFAULT_AGENTS_MD: &str = include_str!("templates/AGENTS.md");
+pub const DEFAULT_DIRECTORY_STRUCTURE: &str = include_str!("templates/directory_structure.md");
+pub const DEFAULT_PROJECT_ENV: &str = include_str!("templates/project.env.md");
+pub const DEFAULT_SAFE_POCKET_ENV: &str = include_str!("templates/safe_pocket.env.md");
+pub const DEFAULT_PROJECT_GITIGNORE: &str = include_str!("templates/gitignore.md");
+pub const DEFAULT_SAFE_POCKET_GITIGNORE: &str = include_str!("templates/safe_pocket.gitignore.md");
 pub const DEFAULT_TALK_LIKE_A_CAT_PROMPT: &str =
-    include_str!("defaults/prompts/TalkLikeACat.prompt.md");
+    include_str!("templates/prompts/TalkLikeACat.prompt.md");
 
 // ── Template variables ───────────────────────────────────────────────────────
 
@@ -513,7 +514,27 @@ pub fn load_templates() -> Result<Vec<Template>> {
         }
     }
 
-    Ok(templates)
+    Ok(merge_templates_by_destination(templates))
+}
+
+fn merge_templates_by_destination(templates: Vec<Template>) -> Vec<Template> {
+    let mut grouped: BTreeMap<String, Template> = BTreeMap::new();
+
+    for tmpl in templates {
+        grouped
+            .entry(tmpl.destination.clone())
+            .and_modify(|existing| {
+                if !existing.content.ends_with('\n') && !existing.content.is_empty() {
+                    existing.content.push('\n');
+                }
+                existing.content.push_str(&tmpl.content);
+                existing.quiet_merge |= tmpl.quiet_merge;
+                existing.merge_at_runtime |= tmpl.merge_at_runtime;
+            })
+            .or_insert(tmpl);
+    }
+
+    grouped.into_values().collect()
 }
 
 /// Load the directory structure, respecting project-local override.
@@ -1007,6 +1028,10 @@ fn apply_template_set(
             }
         }
 
+        if mode == TemplateApplyMode::Upgrade && dest_path.exists() {
+            move_existing_to_unhoused(pocket_dir, &dest_path, "template upgrade")?;
+        }
+
         fs::write(&dest_path, &content)
             .with_context(|| format!("Failed to write template to: {}", dest_path.display()))?;
         files_written += 1;
@@ -1019,6 +1044,60 @@ fn apply_template_set(
     }
 
     Ok(files_written)
+}
+
+fn move_existing_to_unhoused(pocket_dir: &Path, path: &Path, operation: &str) -> Result<()> {
+    if !path.starts_with(pocket_dir) || !path.exists() {
+        return Ok(());
+    }
+
+    let relative = path.strip_prefix(pocket_dir).unwrap_or(path);
+    let timestamp = chrono::Utc::now().format("%Y%m%dT%H%M%SZ").to_string();
+    let mut target = pocket_dir.join("unhoused").join(&timestamp).join(relative);
+    let mut suffix = 1;
+
+    while target.exists() {
+        let file_name = target
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("item")
+            .to_string();
+        target.set_file_name(format!("{file_name}.{suffix}"));
+        suffix += 1;
+    }
+
+    if let Some(parent) = target.parent() {
+        fs::create_dir_all(parent).with_context(|| {
+            format!("Failed to create unhoused directory: {}", parent.display())
+        })?;
+    }
+
+    fs::rename(path, &target).with_context(|| {
+        format!(
+            "Failed to move existing safe pocket content to unhoused: {} -> {}",
+            path.display(),
+            target.display()
+        )
+    })?;
+
+    let log_path = pocket_dir.join("unhoused.log");
+    let entry = format!(
+        "{}\t{}\t{}\t{}\n",
+        chrono::Utc::now().to_rfc3339(),
+        operation,
+        path.display(),
+        target.display()
+    );
+    let mut log = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path)
+        .with_context(|| format!("Failed to open unhoused log: {}", log_path.display()))?;
+    use std::io::Write as IoWrite;
+    log.write_all(entry.as_bytes())
+        .with_context(|| format!("Failed to write unhoused log: {}", log_path.display()))?;
+
+    Ok(())
 }
 
 /// Resolve a template destination path to an absolute path.
@@ -1315,6 +1394,45 @@ mod tests {
 
         let input = "{{SPOCKET_ROOT}} and {{SPOCKET_ROOT}} again";
         assert_eq!(expand_variables(input, &ctx), "/sp and /sp again");
+    }
+
+    #[test]
+    fn test_merge_templates_by_destination_combines_duplicates() {
+        let templates = vec![
+            Template {
+                destination: "AGENTS.md".to_string(),
+                content: "First".to_string(),
+                quiet_merge: false,
+                merge_at_runtime: false,
+                source_path: PathBuf::from("first.md"),
+            },
+            Template {
+                destination: "README.md".to_string(),
+                content: "Read me\n".to_string(),
+                quiet_merge: false,
+                merge_at_runtime: false,
+                source_path: PathBuf::from("readme.md"),
+            },
+            Template {
+                destination: "AGENTS.md".to_string(),
+                content: "Second\n".to_string(),
+                quiet_merge: true,
+                merge_at_runtime: true,
+                source_path: PathBuf::from("second.md"),
+            },
+        ];
+
+        let merged = merge_templates_by_destination(templates);
+        assert_eq!(merged.len(), 2);
+
+        let agents = merged
+            .iter()
+            .find(|tmpl| tmpl.destination == "AGENTS.md")
+            .unwrap();
+        assert_eq!(agents.content, "First\nSecond\n");
+        assert!(agents.quiet_merge);
+        assert!(agents.merge_at_runtime);
+        assert_eq!(agents.source_path, PathBuf::from("first.md"));
     }
 
     // ── parse_template ──────────────────────────────────────────────────
@@ -1859,8 +1977,14 @@ mod tests {
         }];
         let ctx = make_ctx(&pocket_dir.to_string_lossy(), "/project", "hash");
 
-        apply_template_set(&templates, &pocket_dir, &ctx, false, TemplateApplyMode::Create)
-            .unwrap();
+        apply_template_set(
+            &templates,
+            &pocket_dir,
+            &ctx,
+            false,
+            TemplateApplyMode::Create,
+        )
+        .unwrap();
 
         assert_eq!(
             fs::read_to_string(pocket_dir.join(".env")).unwrap(),
@@ -1949,12 +2073,7 @@ mod tests {
             merge_at_runtime: true,
             source_path: dir.join("agents-template.md"),
         };
-        let ctx = make_ctx_with_beads(
-            &pocket_dir.to_string_lossy(),
-            "/project",
-            "hash",
-            true,
-        );
+        let ctx = make_ctx_with_beads(&pocket_dir.to_string_lossy(), "/project", "hash", true);
 
         let content = runtime_content_for_template(&tmpl, &ctx);
         inject_runtime_content(&file, &content).unwrap();

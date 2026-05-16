@@ -154,12 +154,16 @@ impl Workspace {
 
     pub fn create(&self) -> Result<()> {
         if self.exists() {
-            println!("{}", "Workspace already exists".dimmed());
+            if crate::verbose() {
+                println!("{}", "Workspace already exists".dimmed());
+            }
             // Still do drift detection for existing workspaces
             return Ok(());
         }
 
-        println!("{}", "Creating new safe pocket...".bright_white());
+        if crate::verbose() {
+            println!("{}", "Creating new safe pocket...".bright_white());
+        }
 
         // Create pocket directory structure
         self.create_pocket_structure()?;
@@ -171,23 +175,22 @@ impl Workspace {
         self.init_git()?;
 
         // Write manifest
-        let manifest = Manifest::new_with_options(
-            self.hash.clone(),
-            self.core_paths.clone(),
-            self.temporary,
-        );
+        let manifest =
+            Manifest::new_with_options(self.hash.clone(), self.core_paths.clone(), self.temporary);
         manifest.save(&self.pocket_dir)?;
 
-        println!(
-            "{} {}",
-            "Created workspace:".bright_green(),
-            self.hash.bright_yellow()
-        );
-        println!(
-            "  {} {}",
-            "Location:".dimmed(),
-            self.pocket_dir.display().to_string().bright_blue()
-        );
+        if crate::verbose() {
+            println!(
+                "{} {}",
+                "Created workspace:".bright_green(),
+                self.hash.bright_yellow()
+            );
+            println!(
+                "  {} {}",
+                "Location:".dimmed(),
+                self.pocket_dir.display().to_string().bright_blue()
+            );
+        }
 
         Ok(())
     }
@@ -506,16 +509,27 @@ impl Workspace {
 
         // ── 1. Run `bd init` inside the pocket directory (only if not already done) ──
         if beads_dir.exists() {
-            println!(
-                "{} {}",
-                "Beads already initialised in pocket:".dimmed(),
-                self.hash.bright_yellow()
-            );
+            if crate::verbose() {
+                println!(
+                    "{} {}",
+                    "Beads already initialised in pocket:".dimmed(),
+                    self.hash.bright_yellow()
+                );
+            }
         } else {
-            println!("{}", "Initialising Beads in safe pocket...".bright_white());
+            if crate::verbose() {
+                println!("{}", "Initialising Beads in safe pocket...".bright_white());
+            }
 
             let output = Command::new("bd")
-                .args(["init", "--backend", "dolt", "--prefix", &self.hash])
+                .args([
+                    "init",
+                    "--backend",
+                    "dolt",
+                    "--prefix",
+                    &self.hash,
+                    "--stealth",
+                ])
                 .current_dir(&self.pocket_dir)
                 .output()
                 .context("Failed to execute `bd init` — is `bd` installed and on PATH?")?;
@@ -527,11 +541,13 @@ impl Workspace {
                 ));
             }
 
-            println!(
-                "{} {}",
-                "Beads initialised in:".bright_green(),
-                beads_dir.display().to_string().bright_blue()
-            );
+            if crate::verbose() {
+                println!(
+                    "{} {}",
+                    "Beads initialised in:".bright_green(),
+                    beads_dir.display().to_string().bright_blue()
+                );
+            }
         }
 
         // ── 2. Plant `.beads/redirect` stub in every core project folder ──────────
@@ -552,12 +568,14 @@ impl Workspace {
             if redirect_file.exists() {
                 let existing = fs::read_to_string(&redirect_file).unwrap_or_default();
                 if existing.trim() == beads_dir_str.trim() {
-                    println!(
-                        "{} {} {}",
-                        "Redirect already set in:".dimmed(),
-                        project_path.display().to_string().bright_blue(),
-                        "(unchanged)".dimmed()
-                    );
+                    if crate::verbose() {
+                        println!(
+                            "{} {} {}",
+                            "Redirect already set in:".dimmed(),
+                            project_path.display().to_string().bright_blue(),
+                            "(unchanged)".dimmed()
+                        );
+                    }
                     continue;
                 }
             }
@@ -576,12 +594,14 @@ impl Workspace {
                 )
             })?;
 
-            println!(
-                "{} {} → {}",
-                "Beads redirect planted in:".bright_green(),
-                project_path.display().to_string().bright_blue(),
-                beads_dir_str.bright_yellow()
-            );
+            if crate::verbose() {
+                println!(
+                    "{} {} → {}",
+                    "Beads redirect planted in:".bright_green(),
+                    project_path.display().to_string().bright_blue(),
+                    beads_dir_str.bright_yellow()
+                );
+            }
         }
 
         if let Some(mut manifest) = Manifest::load(&self.pocket_dir)? {
@@ -690,10 +710,12 @@ impl Workspace {
 
         // If there are sidecars, we need to temporarily add them
         if !self.sidecar_paths.is_empty() {
-            println!(
-                "Adding {} sidecar directories...",
-                self.sidecar_paths.len().to_string().bright_yellow()
-            );
+            if crate::verbose() {
+                println!(
+                    "Adding {} sidecar directories...",
+                    self.sidecar_paths.len().to_string().bright_yellow()
+                );
+            }
 
             let (mut workspace, _) = Self::read_workspace_file(&workspace_path, &self.pocket_dir)?;
 
@@ -718,12 +740,14 @@ impl Workspace {
             fs::write(&workspace_path, workspace_json).context("Failed to write workspace file")?;
         }
 
-        println!("{}", "Opening workspace in VS Code...".bright_cyan());
-        println!(
-            "  {} {}",
-            "File:".dimmed(),
-            workspace_path.display().to_string().bright_blue()
-        );
+        if crate::verbose() {
+            println!("{}", "Opening workspace in VS Code...".bright_cyan());
+            println!(
+                "  {} {}",
+                "File:".dimmed(),
+                workspace_path.display().to_string().bright_blue()
+            );
+        }
 
         // Open in VS Code
         let output = Command::new("code")
@@ -764,12 +788,15 @@ impl Workspace {
         );
 
         // Create new workspace (never create READMEs when cloning)
-        let target_workspace = Self::new_with_options(target_paths.to_vec(), vec![], false, temporary)?;
+        let target_workspace =
+            Self::new_with_options(target_paths.to_vec(), vec![], false, temporary)?;
 
         // Copy safe pocket contents
         if target_workspace.pocket_dir.exists() {
-            fs::remove_dir_all(&target_workspace.pocket_dir)
-                .context("Failed to remove existing target pocket")?;
+            crate::registry::move_to_unhoused(
+                &target_workspace.pocket_dir,
+                "clone target replacement",
+            )?;
             crate::registry::remove_pocket(&target_workspace.pocket_dir)?;
         }
 
@@ -1131,8 +1158,9 @@ mod tests {
 
     #[test]
     fn test_new_with_options_temporary_uses_temporary_registry_dir() {
-        let workspace = Workspace::new_with_options(vec![PathBuf::from("/tmp/project")], vec![], false, true)
-            .unwrap();
+        let workspace =
+            Workspace::new_with_options(vec![PathBuf::from("/tmp/project")], vec![], false, true)
+                .unwrap();
 
         assert!(workspace.temporary);
         assert!(workspace

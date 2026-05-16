@@ -148,7 +148,9 @@ impl Manifest {
             }
         }
 
-        if !manifest_declares_uses_beads && Self::infer_legacy_uses_beads(pocket_dir, &manifest.core_paths) {
+        if !manifest_declares_uses_beads
+            && Self::infer_legacy_uses_beads(pocket_dir, &manifest.core_paths)
+        {
             manifest.uses_beads = true;
             if update_registry {
                 manifest.save(pocket_dir)?;
