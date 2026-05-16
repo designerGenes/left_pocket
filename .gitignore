@@ -1,2 +1,3 @@
 .env
 target/**/*
+ingest_templates.sh
