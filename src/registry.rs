@@ -14,6 +14,7 @@ const CACHE_VERSION: u32 = 1;
 const LEGACY_CONFIG_OBSERVATIONS: &str = ".config/safe_pocket/observations";
 const SNAPSHOTS_DIR: &str = "snapshots";
 const TEMPORARY_DIR: &str = "temporary";
+const SNAPSHOT_CHUNK_SIZE: usize = 95 * 1024 * 1024;
 const REGISTRY_GITIGNORE: &str =
     ".DS_Store\n/*/\n!/observations/\n!/snapshots/\n!/snapshots/**\n/temporary/\n";
 const PRE_COMMIT_HOOK: &str =
@@ -558,15 +559,66 @@ fn copy_dir_all_without_git(src: &Path, dst: &Path) -> Result<()> {
             }
             copy_dir_all_without_git(&path, &target)?;
         } else {
-            fs::copy(&path, &target).with_context(|| {
-                format!(
-                    "Failed to copy safe pocket content into snapshot: {} -> {}",
-                    path.display(),
-                    target.display()
-                )
-            })?;
+            copy_file_for_snapshot(&path, &target)?;
         }
     }
+
+    Ok(())
+}
+
+fn copy_file_for_snapshot(src: &Path, dst: &Path) -> Result<()> {
+    let metadata = fs::metadata(src).with_context(|| {
+        format!(
+            "Failed to read file metadata for snapshot: {}",
+            src.display()
+        )
+    })?;
+
+    if metadata.len() as usize <= SNAPSHOT_CHUNK_SIZE {
+        fs::copy(src, dst).with_context(|| {
+            format!(
+                "Failed to copy safe pocket content into snapshot: {} -> {}",
+                src.display(),
+                dst.display()
+            )
+        })?;
+        return Ok(());
+    }
+
+    let bytes = fs::read(src)
+        .with_context(|| format!("Failed to read large file for snapshot: {}", src.display()))?;
+    let file_name = dst
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("file")
+        .to_string();
+    let chunks = bytes.len().div_ceil(SNAPSHOT_CHUNK_SIZE);
+
+    for (index, chunk) in bytes.chunks(SNAPSHOT_CHUNK_SIZE).enumerate() {
+        let chunk_path = dst.with_file_name(format!("{file_name}.part{:04}", index + 1));
+        fs::write(&chunk_path, chunk).with_context(|| {
+            format!(
+                "Failed to write snapshot chunk: {} -> {}",
+                src.display(),
+                chunk_path.display()
+            )
+        })?;
+    }
+
+    let manifest_path = dst.with_file_name(format!("{file_name}.snapshot.json"));
+    let manifest = serde_json::json!({
+        "original_name": file_name,
+        "original_size": bytes.len(),
+        "chunk_size": SNAPSHOT_CHUNK_SIZE,
+        "chunks": chunks,
+        "note": "Large file stored as snapshot chunks to stay below GitHub's per-file size limit.",
+    });
+    fs::write(&manifest_path, serde_json::to_string_pretty(&manifest)?).with_context(|| {
+        format!(
+            "Failed to write snapshot manifest: {}",
+            manifest_path.display()
+        )
+    })?;
 
     Ok(())
 }
@@ -745,6 +797,30 @@ mod tests {
         let snapshot = root.join("snapshots").join("pockets").join("abc123");
         assert!(snapshot.join("file.txt").is_file());
         assert!(!snapshot.join(".git").exists());
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn test_snapshot_large_file_is_chunked() {
+        let root = std::env::temp_dir().join("spocket_registry_snapshot_large_file_test");
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+
+        let pocket_dir = root.join("abc123");
+        fs::create_dir_all(&pocket_dir).unwrap();
+        let target = pocket_dir.join("large.bin");
+        let bytes = vec![7u8; SNAPSHOT_CHUNK_SIZE + 32];
+        fs::write(&target, bytes).unwrap();
+
+        let count = sync_registry_snapshot_from(&root).unwrap();
+        assert_eq!(count, 1);
+
+        let snapshot_dir = root.join("snapshots").join("pockets").join("abc123");
+        assert!(!snapshot_dir.join("large.bin").exists());
+        assert!(snapshot_dir.join("large.bin.part0001").is_file());
+        assert!(snapshot_dir.join("large.bin.part0002").is_file());
+        assert!(snapshot_dir.join("large.bin.snapshot.json").is_file());
 
         let _ = fs::remove_dir_all(&root);
     }
