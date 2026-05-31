@@ -2,6 +2,39 @@
 
 All notable changes to Safe Pocket will be documented in this file.
 
+## [1.0.0] - 2026-05-31
+
+### Added
+- **Built-in task tracker** (`spocket task`): a fast, SQLite-backed, Jira-style
+  issue tracker that replaces Beads. The database lives at
+  `~/.safe_pocket/global_data/tasks.db` and is shared across every project.
+  - `spocket task list [--priority N] [--project <path>] [--raw]` — list open
+    and in-progress tasks, sorted by priority then creation time. `--priority N`
+    shows tasks at priority `N` or more urgent (lower number).
+  - `spocket task create --named "…" [--description "…"] [--priority N]` — create
+    a task. IDs are `<prefix>-<6 chars>`, where the prefix is derived from the
+    safe pocket associated with the current directory.
+  - `spocket task <ID> assign --agent "…"` — record which agent owns a task.
+  - `spocket task <ID> start [--notes "…"]` — mark a task in progress.
+  - `spocket task <ID> log [--notes "…"]` — append a progress note.
+  - `spocket task <ID> close [--notes "…"]` — mark a task done.
+  - `spocket task <ID> discard` — soft-delete (status becomes `discarded`).
+  - `spocket task <ID> describe [--raw]` — show full details and history; `--raw`
+    emits JSON.
+  - `spocket task <ID> reprefix <new-prefix>` — rewrite a project's task IDs when
+    its safe pocket name changes.
+  - IDs may be referenced by full id, case-insensitively, or by the bare 6-char
+    suffix when run from inside the owning project.
+- The runtime AGENTS.md block now advertises the `spocket task` workflow to
+  agents instead of Beads.
+
+### Removed
+- **Beads integration is gone.** Removed the `--use beads` / `--without-beads`
+  flags, the `bd` install shim, the `.beads` redirect stubs, the `uses_beads`
+  manifest field, and all `bd`-driven setup. Existing pockets are cleaned up: the
+  legacy `<!-- BEGIN/END BEADS INTEGRATION -->` block is stripped and any
+  `BEADS_DIR=` env lines are removed on the next runtime merge.
+
 ## [0.11.0] - 2026-05-31
 
 ### Added

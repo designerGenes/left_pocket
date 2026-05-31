@@ -152,7 +152,7 @@ impl Workspace {
         self.pocket_dir.exists() && self.workspace_file_path().exists()
     }
 
-    pub fn create_with_beads(&self, uses_beads: bool) -> Result<()> {
+    pub fn create(&self) -> Result<()> {
         if self.exists() {
             if crate::verbose() {
                 println!("{}", "Workspace already exists".dimmed());
@@ -167,9 +167,8 @@ impl Workspace {
 
         fs::create_dir_all(&self.pocket_dir).context("Failed to create pocket directory")?;
 
-        let mut manifest =
+        let manifest =
             Manifest::new_with_options(self.hash.clone(), self.core_paths.clone(), self.temporary);
-        manifest.set_uses_beads(uses_beads);
         manifest.save(&self.pocket_dir)?;
 
         self.create_pocket_structure()?;
@@ -214,17 +213,12 @@ impl Workspace {
                 .join("safe_pocket")
         });
 
-        let uses_beads = Manifest::load(&self.pocket_dir)?
-            .map(|manifest| manifest.uses_beads)
-            .unwrap_or(false);
-
         let ctx = crate::template::TemplateContext {
             spocket_root: self.pocket_dir.clone(),
             project_root: primary_project_path.clone(),
             spocket_name: self.hash.clone(),
             global_observations_path: global_obs,
             config_root,
-            uses_beads,
         };
 
         // Apply templates (non-interactive for new pockets — no overwrite prompts)
@@ -488,19 +482,6 @@ impl Workspace {
         self.write_workspace_file_preserving(None)
     }
 
-    pub fn set_uses_beads(&self) -> Result<()> {
-        let mut manifest = Manifest::load(&self.pocket_dir)?.unwrap_or_else(|| {
-            Manifest::new_with_options(self.hash.clone(), self.core_paths.clone(), self.temporary)
-        });
-
-        if !manifest.uses_beads {
-            manifest.set_uses_beads(true);
-            manifest.save(&self.pocket_dir)?;
-        }
-
-        Ok(())
-    }
-
     fn init_git(&self) -> Result<()> {
         let output = Command::new("git")
             .args(["init"])
@@ -516,150 +497,6 @@ impl Workspace {
         }
 
         Ok(())
-    }
-
-    /// Set up Beads issue tracking in the safe pocket, and plant redirect stubs in every
-    /// core project folder so `bd` commands work from the project directory.
-    ///
-    /// Idempotent: skips `bd init` only when `bd where` can open the pocket database.
-    pub fn setup_beads(&self) -> Result<()> {
-        let beads_dir = self.pocket_dir.join(".beads");
-        let config_dir = crate::template::safe_pocket_config_dir()?;
-        let storage_dir = Self::spocket_dir()?;
-        let legacy_storage_dir = Self::legacy_spocket_dir()?;
-
-        // ── 1. Run `bd init` inside the pocket directory (only if usable) ──
-        if self.beads_database_usable() {
-            if crate::verbose() {
-                println!(
-                    "{} {}",
-                    "Beads already initialised in pocket:".dimmed(),
-                    self.hash.bright_yellow()
-                );
-            }
-        } else {
-            if crate::verbose() {
-                println!("{}", "Initialising Beads in safe pocket...".bright_white());
-            }
-
-            // Use documented non-interactive local Dolt initialization for the pocket workspace.
-            let output = Command::new("bd")
-                .args([
-                    "init",
-                    "--prefix",
-                    &self.hash,
-                    "--non-interactive",
-                    "--quiet",
-                ])
-                .env("BD_NON_INTERACTIVE", "1")
-                .env_remove("BEADS_DIR")
-                .env_remove("BEADS_DB")
-                .env_remove("BD_DB")
-                .current_dir(&self.pocket_dir)
-                .output()
-                .context("Failed to execute `bd init` — is `bd` installed and on PATH?")?;
-
-            if !output.status.success() {
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                if crate::verbose() {
-                    eprintln!("[beads init stderr] {}", stderr);
-                }
-                return Err(anyhow!("bd init failed:\n{}", stderr));
-            }
-
-            fs::create_dir_all(&beads_dir).with_context(|| {
-                format!("Failed to create .beads directory: {}", beads_dir.display())
-            })?;
-
-            if !self.beads_database_usable() {
-                return Err(anyhow!(
-                    "bd init did not create a usable database in {}",
-                    beads_dir.display()
-                ));
-            }
-
-            // Show output if verbose mode is enabled
-            if crate::verbose() {
-                if !output.stdout.is_empty() {
-                    println!("{}", String::from_utf8_lossy(&output.stdout));
-                }
-                println!(
-                    "{} {}",
-                    "Beads initialised in:".bright_green(),
-                    beads_dir.display().to_string().bright_blue()
-                );
-            }
-        }
-
-        // ── 2. Plant `.beads/redirect` stub in every core project folder ──────────
-        let beads_dir_str = beads_dir.to_string_lossy().into_owned();
-
-        for project_path in &self.core_paths {
-            if project_path.starts_with(&config_dir)
-                || project_path.starts_with(&storage_dir)
-                || project_path.starts_with(&legacy_storage_dir)
-            {
-                continue;
-            }
-
-            let project_beads_dir = project_path.join(".beads");
-            let redirect_file = project_beads_dir.join("redirect");
-
-            // Check if redirect already points to the right place (idempotent)
-            if redirect_file.exists() {
-                let existing = fs::read_to_string(&redirect_file).unwrap_or_default();
-                if existing.trim() == beads_dir_str.trim() {
-                    if crate::verbose() {
-                        println!(
-                            "{} {} {}",
-                            "Redirect already set in:".dimmed(),
-                            project_path.display().to_string().bright_blue(),
-                            "(unchanged)".dimmed()
-                        );
-                    }
-                    continue;
-                }
-            }
-
-            fs::create_dir_all(&project_beads_dir).with_context(|| {
-                format!(
-                    "Failed to create .beads/ in project folder: {}",
-                    project_path.display()
-                )
-            })?;
-
-            fs::write(&redirect_file, &beads_dir_str).with_context(|| {
-                format!(
-                    "Failed to write .beads/redirect in: {}",
-                    project_path.display()
-                )
-            })?;
-
-            if crate::verbose() {
-                println!(
-                    "{} {} → {}",
-                    "Beads redirect planted in:".bright_green(),
-                    project_path.display().to_string().bright_blue(),
-                    beads_dir_str.bright_yellow()
-                );
-            }
-        }
-
-        self.set_uses_beads()?;
-
-        Ok(())
-    }
-
-    fn beads_database_usable(&self) -> bool {
-        Command::new("bd")
-            .args(["where", "--json"])
-            .env_remove("BEADS_DIR")
-            .env_remove("BEADS_DB")
-            .env_remove("BD_DB")
-            .current_dir(&self.pocket_dir)
-            .output()
-            .map(|output| output.status.success())
-            .unwrap_or(false)
     }
 
     /// Detect workspace file drift and prompt the user to resolve it.

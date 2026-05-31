@@ -13,8 +13,6 @@ pub struct Manifest {
     pub core_paths: Vec<PathBuf>,
     pub created_at: DateTime<Utc>,
     #[serde(default)]
-    pub uses_beads: bool,
-    #[serde(default)]
     pub temporary: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parent_hash: Option<String>,
@@ -79,7 +77,6 @@ impl Manifest {
             hash,
             core_paths,
             created_at: Utc::now(),
-            uses_beads: false,
             temporary,
             parent_hash: None,
             children: Vec::new(),
@@ -105,7 +102,6 @@ impl Manifest {
             hash,
             core_paths,
             created_at: Utc::now(),
-            uses_beads: false,
             temporary,
             parent_hash: Some(parent_hash),
             children: Vec::new(),
@@ -133,7 +129,6 @@ impl Manifest {
         }
 
         let content = fs::read_to_string(&manifest_path).context("Failed to read manifest file")?;
-        let manifest_declares_uses_beads = content.contains("\"uses_beads\"");
 
         let mut manifest: Manifest =
             serde_json::from_str(&content).context("Failed to parse manifest file")?;
@@ -148,48 +143,9 @@ impl Manifest {
             }
         }
 
-        if !manifest_declares_uses_beads
-            && Self::infer_legacy_uses_beads(pocket_dir, &manifest.core_paths)
-        {
-            manifest.uses_beads = true;
-            if update_registry {
-                manifest.save(pocket_dir)?;
-            } else {
-                manifest.save_manifest_file(pocket_dir)?;
-            }
-        }
-
         Ok(Some(manifest))
     }
 
-    fn infer_legacy_uses_beads(pocket_dir: &Path, core_paths: &[PathBuf]) -> bool {
-        if pocket_dir.join(".beads").exists() {
-            return true;
-        }
-
-        let pocket_env = pocket_dir.join(".env");
-        if fs::read_to_string(&pocket_env)
-            .map(|content| content.contains("BEADS_DIR="))
-            .unwrap_or(false)
-        {
-            return true;
-        }
-
-        let agents_md = pocket_dir.join("AGENTS.md");
-        if fs::read_to_string(&agents_md)
-            .map(|content| content.contains("<!-- BEGIN BEADS INTEGRATION -->"))
-            .unwrap_or(false)
-        {
-            return true;
-        }
-
-        core_paths.iter().any(|path| {
-            fs::read_to_string(path.join(".env"))
-                .map(|content| content.contains("BEADS_DIR="))
-                .unwrap_or(false)
-                || path.join(".beads").exists()
-        })
-    }
 
     /// Atomic write: write to tmp file then update the registry cache.
     pub fn save(&self, pocket_dir: &Path) -> Result<()> {
@@ -215,10 +171,6 @@ impl Manifest {
         if !self.children.contains(&child_hash) {
             self.children.push(child_hash);
         }
-    }
-
-    pub fn set_uses_beads(&mut self, uses_beads: bool) {
-        self.uses_beads = uses_beads;
     }
 
     /// Register a worktree path (idempotent). Returns true if newly added.
@@ -311,7 +263,6 @@ impl Manifest {
             hash: hash.to_string(),
             core_paths,
             created_at,
-            uses_beads: false,
             temporary: false,
             parent_hash: None,
             children: Vec::new(),
@@ -343,7 +294,6 @@ mod tests {
 
         assert_eq!(m.hash, "abc123");
         assert_eq!(m.core_paths, paths);
-        assert!(!m.uses_beads);
         assert!(!m.temporary);
         assert!(m.parent_hash.is_none());
         assert!(m.children.is_empty());
@@ -376,7 +326,6 @@ mod tests {
         manifest.save(&tmp).unwrap();
 
         let loaded = Manifest::load(&tmp).unwrap().unwrap();
-        assert!(!loaded.uses_beads);
         assert!(loaded.temporary);
 
         let _ = fs::remove_dir_all(&tmp);
@@ -406,7 +355,6 @@ mod tests {
         let loaded = Manifest::load(&tmp).unwrap().unwrap();
         assert_eq!(loaded.hash, "testhash");
         assert_eq!(loaded.core_paths, paths);
-        assert!(!loaded.uses_beads);
         assert_eq!(loaded.version, 1);
 
         let _ = fs::remove_dir_all(&tmp);
@@ -430,13 +378,11 @@ mod tests {
         let mut m = Manifest::new_cloned("h1".to_string(), paths, "h0".to_string());
         m.add_child("h2".to_string());
         m.augmented_from = Some("h_old".to_string());
-        m.uses_beads = true;
 
         let json = serde_json::to_string_pretty(&m).unwrap();
         let deserialized: Manifest = serde_json::from_str(&json).unwrap();
 
         assert_eq!(deserialized.hash, "h1");
-        assert!(deserialized.uses_beads);
         assert_eq!(deserialized.parent_hash, Some("h0".to_string()));
         assert_eq!(deserialized.children, vec!["h2"]);
         assert_eq!(deserialized.augmented_from, Some("h_old".to_string()));
@@ -533,52 +479,5 @@ mod tests {
         let m2 = Manifest::new("test".to_string(), vec![]);
         let json2 = serde_json::to_string_pretty(&m2).unwrap();
         assert!(!json2.contains("birth_hash"));
-    }
-
-    #[test]
-    fn test_manifest_set_uses_beads_persists() {
-        let tmp = std::env::temp_dir().join("spocket_manifest_beads_test");
-        let _ = fs::remove_dir_all(&tmp);
-        fs::create_dir_all(&tmp).unwrap();
-
-        let mut manifest = Manifest::new("beads_hash".to_string(), vec![PathBuf::from("/a")]);
-        manifest.set_uses_beads(true);
-        manifest.save(&tmp).unwrap();
-
-        let loaded = Manifest::load(&tmp).unwrap().unwrap();
-        assert!(loaded.uses_beads);
-
-        let _ = fs::remove_dir_all(&tmp);
-    }
-
-    #[test]
-    fn test_manifest_load_infers_legacy_uses_beads() {
-        let root = std::env::temp_dir().join("spocket_manifest_infer_beads_test");
-        let _ = fs::remove_dir_all(&root);
-        fs::create_dir_all(&root).unwrap();
-
-        let tmp = root.join("pocket");
-        fs::create_dir_all(&tmp).unwrap();
-
-        let project_dir = root.join("project");
-        fs::create_dir_all(&project_dir).unwrap();
-        fs::write(project_dir.join(".env"), "BEADS_DIR=/tmp/pocket/.beads\n").unwrap();
-
-        fs::write(
-            tmp.join("manifest.json"),
-            format!(
-                "{{\n  \"hash\": \"abc123\",\n  \"core_paths\": [\n    \"{}\"\n  ],\n  \"created_at\": \"2026-01-01T00:00:00Z\",\n  \"temporary\": false,\n  \"children\": [],\n  \"version\": 1\n}}",
-                project_dir.display()
-            ),
-        )
-        .unwrap();
-
-        let loaded = Manifest::load(&tmp).unwrap().unwrap();
-        assert!(loaded.uses_beads);
-
-        let persisted = fs::read_to_string(tmp.join("manifest.json")).unwrap();
-        assert!(persisted.contains("\"uses_beads\": true"));
-
-        let _ = fs::remove_dir_all(&root);
     }
 }

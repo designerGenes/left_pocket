@@ -6,6 +6,7 @@ mod feature;
 mod hash;
 mod manifest;
 mod registry;
+mod task;
 mod template;
 mod workspace;
 
@@ -230,6 +231,8 @@ fn handle_command(command: Commands) -> Result<()> {
             new,
             subpath,
         } => handle_daily_feature(pocket, new, subpath),
+
+        Commands::Task { args } => task::run_cli(args),
     }
 }
 
@@ -537,21 +540,6 @@ fn find_existing_workspace_for_paths(paths: &[PathBuf]) -> Result<Option<Workspa
 
 fn handle_workspace(cli: Cli) -> Result<()> {
     let config = Config::load()?;
-    let beads_requested = cli
-        .use_features
-        .iter()
-        .any(|feature| feature.eq_ignore_ascii_case("beads"));
-    let beads_allowed = !cli.without_beads;
-
-    // Validate unknown --use values
-    for feature in &cli.use_features {
-        if feature.to_lowercase() != "beads" {
-            return Err(anyhow!(
-                "Unknown feature '{}'. Supported values: beads",
-                feature
-            ));
-        }
-    }
 
     // Resolve core paths
     let mut core_paths = Vec::new();
@@ -586,11 +574,7 @@ fn handle_workspace(cli: Cli) -> Result<()> {
 
         let workspace = Workspace::clone_from(&source_path, &core_paths, cli.temporary)?;
 
-        if beads_allowed {
-            workspace.set_uses_beads()?;
-            workspace.create_pocket_structure()?;
-            workspace.setup_beads()?;
-        }
+        workspace.create_pocket_structure()?;
 
         open_with_merge(&workspace)?;
 
@@ -625,16 +609,6 @@ fn handle_workspace(cli: Cli) -> Result<()> {
             }
 
             existing.migrate_storage_references()?;
-
-            let should_setup_beads = beads_allowed
-                && (beads_requested
-                    || Manifest::load(&existing.pocket_dir)?
-                        .map(|manifest| manifest.uses_beads)
-                        .unwrap_or(false));
-
-            if should_setup_beads {
-                existing.setup_beads()?;
-            }
 
             // If the CLI paths differ from this pocket's core_paths, the user is
             // opening via a registered worktree path. Inject those paths as sidecars
@@ -676,16 +650,6 @@ fn handle_workspace(cli: Cli) -> Result<()> {
                         "Found existing pocket:".bright_green(),
                         existing.hash.bright_yellow()
                     );
-                }
-
-                let should_setup_beads = beads_allowed
-                    && (beads_requested
-                        || Manifest::load(&existing.pocket_dir)?
-                            .map(|manifest| manifest.uses_beads)
-                            .unwrap_or(false));
-
-                if should_setup_beads {
-                    existing.setup_beads()?;
                 }
 
                 open_with_merge(&existing)?;
@@ -738,15 +702,11 @@ fn handle_workspace(cli: Cli) -> Result<()> {
                 );
             } else {
                 // User chose not to clone
-                workspace.create_with_beads(beads_allowed)?;
+                workspace.create()?;
             }
         } else {
             // No similar workspaces found
-            workspace.create_with_beads(beads_allowed)?;
-        }
-
-        if beads_allowed {
-            workspace.setup_beads()?;
+            workspace.create()?;
         }
 
         open_with_merge(&workspace)?;
@@ -756,17 +716,6 @@ fn handle_workspace(cli: Cli) -> Result<()> {
         }
 
         workspace.migrate_storage_references()?;
-
-        // Run beads setup regardless of whether the pocket is new — idempotent
-        let should_setup_beads = beads_allowed
-            && (beads_requested
-                || Manifest::load(&workspace.pocket_dir)?
-                    .map(|manifest| manifest.uses_beads)
-                    .unwrap_or(false));
-
-        if should_setup_beads {
-            workspace.setup_beads()?;
-        }
 
         // Drift detection
         let drift_result = workspace.detect_and_resolve_drift()?;
@@ -1702,7 +1651,6 @@ fn build_template_context(pocket_dir: &std::path::Path) -> Result<template::Temp
         spocket_name,
         global_observations_path: global_obs,
         config_root,
-        uses_beads: manifest.uses_beads,
     })
 }
 

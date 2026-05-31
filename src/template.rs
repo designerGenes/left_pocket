@@ -35,122 +35,77 @@ pub struct TemplateContext {
     pub global_observations_path: PathBuf,
     /// Absolute path to the safe pocket config directory (`$HOME/.config/safe_pocket`).
     pub config_root: PathBuf,
-    /// Whether this pocket has Beads integration enabled.
-    pub uses_beads: bool,
 }
 
-const BEADS_RUNTIME_BLOCK: &str = r#"<!-- BEGIN BEADS INTEGRATION -->
-## Issue Tracking with bd (beads)
+/// Legacy markers for the old Beads integration block. Retained only so that
+/// pockets created before the built-in task tracker can have the stale block
+/// stripped out on their next runtime merge. Nothing new is ever written with
+/// these markers.
+const LEGACY_BEADS_BEGIN_MARKER: &str = "<!-- BEGIN BEADS INTEGRATION -->";
+const LEGACY_BEADS_END_MARKER: &str = "<!-- END BEADS INTEGRATION -->";
 
-**IMPORTANT**: This project uses **bd (beads)** for ALL issue tracking. Do NOT use markdown TODOs, task lists, or other tracking methods.
+/// Agent-facing guidance injected into AGENTS.md at runtime, describing
+/// safe_pocket's built-in task tracker (`spocket task`).
+const TASK_RUNTIME_BLOCK: &str = r#"<!-- BEGIN SPOCKET TASK INTEGRATION -->
+## Issue Tracking with `spocket task`
 
-### Why bd?
+**IMPORTANT**: This project tracks all work in safe_pocket's built-in task
+tracker. Do NOT use markdown TODO lists or external issue trackers — use
+`spocket task` so every agent shares one source of truth.
 
-- Dependency-aware: Track blockers and relationships between issues
-- Git-friendly: Dolt-powered version control with native sync
-- Agent-optimized: JSON output, ready work detection, discovered-from links
-- Prevents duplicate tracking systems and confusion
+### Why `spocket task`?
 
-### Quick Start
+- Fast: backed by a local SQLite database, no network or daemon required.
+- Shared: every agent on this safe pocket sees the same task list.
+- Scoped: tasks are grouped per project by a prefix derived automatically from
+  the safe pocket — just run the commands from inside the project directory.
 
-**Check ready work:**
-
-```bash
-bd ready --json
-```
-
-**Create new issues:**
-
-```bash
-bd create "Issue title" --description="Detailed context" -t bug|feature|task -p 0-4 --json
-bd create "Issue title" --description="What this issue is about" -p 1 --deps discovered-from:bd-123 --json
-```
-
-**Claim and update:**
+### Quick reference
 
 ```bash
-bd update <id> --claim --json
-bd update bd-42 --priority 1 --json
+# What work is open (lowest priority number = highest urgency)?
+spocket task list
+spocket task list --priority 1      # only P0 and P1
+spocket task list --raw             # JSON, for programmatic use
+
+# Create work
+spocket task create --named "Implement feature X" \
+  --description "Why this matters and what to do" --priority 1
+
+# Drive a task through its lifecycle (ID may be the full id or the suffix)
+spocket task <ID> assign --agent "Builder"
+spocket task <ID> start  --notes "Starting now"
+spocket task <ID> log    --notes "Progress / findings"
+spocket task <ID> close  --notes "Done and verified"
+spocket task <ID> discard
+spocket task <ID> describe          # full details + history
+spocket task <ID> describe --raw    # JSON
 ```
-
-**Complete work:**
-
-```bash
-bd close bd-42 --reason "Completed" --json
-```
-
-### Issue Types
-
-- `bug` - Something broken
-- `feature` - New functionality
-- `task` - Work item (tests, docs, refactoring)
-- `epic` - Large feature with subtasks
-- `chore` - Maintenance (dependencies, tooling)
 
 ### Priorities
 
-- `0` - Critical (security, data loss, broken builds)
-- `1` - High (major features, important bugs)
-- `2` - Medium (default, nice-to-have)
-- `3` - Low (polish, optimization)
-- `4` - Backlog (future ideas)
+- `0` — Critical (security, data loss, broken builds)
+- `1` — High (major features, important bugs)
+- `2` — Medium (default)
+- `3` — Low (polish, optimization)
+- `4` — Backlog (future ideas)
 
 ### Workflow for AI Agents
 
-1. **Check ready work**: `bd ready` shows unblocked issues
-2. **Claim your task atomically**: `bd update <id> --claim`
-3. **Work on it**: Implement, test, document
-4. **Discover new work?** Create linked issue:
-   - `bd create "Found bug" --description="Details about what was found" -p 1 --deps discovered-from:<parent-id>`
-5. **Complete**: `bd close bd-42 --reason "Done"`
+1. **Check open work**: `spocket task list` before asking what to do.
+2. **Claim it**: `spocket task <ID> assign --agent "<you>"` then
+   `spocket task <ID> start`.
+3. **Record progress**: `spocket task <ID> log --notes "…"` as you go.
+4. **Discover new work?** `spocket task create --named "…" --description "…"`.
+5. **Finish**: `spocket task <ID> close --notes "…"`.
 
-### Auto-Sync
+### Rules
 
-bd automatically syncs via Dolt:
-
-- Each write auto-commits to Dolt history
-- Use `bd dolt push`/`bd dolt pull` for remote sync
-- No manual export/import needed!
-
-### Important Rules
-
-- ✅ Use bd for ALL task tracking
-- ✅ Always use `--json` flag for programmatic use
-- ✅ Link discovered work with `discovered-from` dependencies
-- ✅ Check `bd ready` before asking "what should I work on?"
-- ❌ Do NOT create markdown TODO lists
-- ❌ Do NOT use external issue trackers
-- ❌ Do NOT duplicate tracking systems
-
-For more details, see README.md and docs/QUICKSTART.md.
-
-## Landing the Plane (Session Completion)
-
-**When ending a work session**, you MUST complete ALL steps below. Work is NOT complete until `git push` succeeds.
-
-**MANDATORY WORKFLOW:**
-
-1. **File issues for remaining work** - Create issues for anything that needs follow-up
-2. **Run quality gates** (if code changed) - Tests, linters, builds
-3. **Update issue status** - Close finished work, update in-progress items
-4. **PUSH TO REMOTE** - This is MANDATORY:
-   ```bash
-   git pull --rebase
-   bd sync
-   git push
-   git status  # MUST show "up to date with origin"
-   ```
-5. **Clean up** - Clear stashes, prune remote branches
-6. **Verify** - All changes committed AND pushed
-7. **Hand off** - Provide context for next session
-
-**CRITICAL RULES:**
-- Work is NOT complete until `git push` succeeds
-- NEVER stop before pushing - that leaves work stranded locally
-- NEVER say "ready to push when you are" - YOU must push
-- If push fails, resolve and retry until it succeeds
-
-<!-- END BEADS INTEGRATION -->
+- ✅ Use `spocket task` for ALL task tracking.
+- ✅ Use `--raw` when you need structured (JSON) output.
+- ❌ Do NOT create markdown TODO lists.
+- ❌ Do NOT use external issue trackers.
+<!-- END SPOCKET TASK INTEGRATION -->
 "#;
 
 /// Replace `{{SPOCKET_ROOT}}`, `{{PROJECT_ROOT}}`, `{{SPOCKET_NAME}}`,
@@ -169,11 +124,9 @@ pub fn expand_variables(text: &str, ctx: &TemplateContext) -> String {
         )
 }
 
-fn filter_template_content(content: &str, ctx: &TemplateContext) -> String {
-    if ctx.uses_beads {
-        return content.to_string();
-    }
-
+fn filter_template_content(content: &str, _ctx: &TemplateContext) -> String {
+    // Always strip any legacy `BEADS_DIR=` lines: the built-in task tracker
+    // replaced beads, so this variable is never wanted anymore.
     let mut kept = Vec::new();
     for line in content.lines() {
         if line.trim_start().starts_with("BEADS_DIR=") {
@@ -196,8 +149,8 @@ fn runtime_content_for_template(tmpl: &Template, ctx: &TemplateContext) -> Strin
         sections.push(base);
     }
 
-    if ctx.uses_beads && tmpl.destination == "{{SPOCKET_ROOT}}/AGENTS.md" {
-        sections.push(BEADS_RUNTIME_BLOCK.trim().to_string());
+    if tmpl.destination == "{{SPOCKET_ROOT}}/AGENTS.md" {
+        sections.push(TASK_RUNTIME_BLOCK.trim().to_string());
     }
 
     sections.join("\n\n")
@@ -778,8 +731,8 @@ pub fn inject_runtime_content(dest_path: &Path, runtime_content: &str) -> Result
 
     let base = strip_managed_block(
         &strip_markers(&existing),
-        "<!-- BEGIN BEADS INTEGRATION -->",
-        "<!-- END BEADS INTEGRATION -->",
+        LEGACY_BEADS_BEGIN_MARKER,
+        LEGACY_BEADS_END_MARKER,
     );
 
     let mut injected = base;
@@ -1343,7 +1296,6 @@ pub fn upgrade_pocket(pocket_dir: &Path) -> Result<()> {
         spocket_name,
         global_observations_path: global_obs,
         config_root,
-        uses_beads: manifest.uses_beads,
     };
 
     println!(
@@ -1437,19 +1389,7 @@ mod tests {
             spocket_name: name.to_string(),
             global_observations_path: PathBuf::from("/global/observations"),
             config_root: PathBuf::from("/home/user/.config/safe_pocket"),
-            uses_beads: false,
         }
-    }
-
-    fn make_ctx_with_beads(
-        spocket_root: &str,
-        project_root: &str,
-        name: &str,
-        uses_beads: bool,
-    ) -> TemplateContext {
-        let mut ctx = make_ctx(spocket_root, project_root, name);
-        ctx.uses_beads = uses_beads;
-        ctx
     }
 
     #[test]
@@ -1949,7 +1889,7 @@ mod tests {
     }
 
     #[test]
-    fn test_filter_template_content_removes_beads_dir_when_disabled() {
+    fn test_filter_template_content_removes_beads_dir() {
         let ctx = make_ctx("/pocket", "/project", "hash");
         let content = "SPOCKET_ROOT={{SPOCKET_ROOT}}\nBEADS_DIR={{SPOCKET_ROOT}}/.beads\n";
 
@@ -1960,8 +1900,8 @@ mod tests {
     }
 
     #[test]
-    fn test_runtime_content_for_agents_includes_beads_block_when_enabled() {
-        let ctx = make_ctx_with_beads("/pocket", "/project", "hash", true);
+    fn test_runtime_content_for_agents_includes_task_block() {
+        let ctx = make_ctx("/pocket", "/project", "hash");
         let tmpl = Template {
             destination: "{{SPOCKET_ROOT}}/AGENTS.md".to_string(),
             content: "Base runtime\n".to_string(),
@@ -1972,7 +1912,8 @@ mod tests {
 
         let content = runtime_content_for_template(&tmpl, &ctx);
         assert!(content.contains("Base runtime"));
-        assert!(content.contains("<!-- BEGIN BEADS INTEGRATION -->"));
+        assert!(content.contains("<!-- BEGIN SPOCKET TASK INTEGRATION -->"));
+        assert!(content.contains("spocket task"));
     }
 
     #[test]
@@ -2128,7 +2069,7 @@ mod tests {
     }
 
     #[test]
-    fn test_create_mode_filters_beads_dir_from_env_when_disabled() {
+    fn test_create_mode_filters_beads_dir_from_env() {
         let dir = std::env::temp_dir().join("spocket_test_create_filters_beads_env");
         let _ = fs::remove_dir_all(&dir);
         let pocket_dir = dir.join("pocket");
@@ -2186,11 +2127,10 @@ mod tests {
                 source_path: dir.join("safe-pocket-env-template.md"),
             },
         ];
-        let ctx = make_ctx_with_beads(
+        let ctx = make_ctx(
             &pocket_dir.to_string_lossy(),
             &project_dir.to_string_lossy(),
             "hash",
-            true,
         );
 
         apply_template_set(
@@ -2215,8 +2155,8 @@ mod tests {
     }
 
     #[test]
-    fn test_upgrade_runtime_rehomes_beads_block_inside_markers() {
-        let dir = std::env::temp_dir().join("spocket_test_upgrade_runtime_rehomes_beads_block");
+    fn test_upgrade_runtime_strips_legacy_beads_and_injects_task_block() {
+        let dir = std::env::temp_dir().join("spocket_test_upgrade_runtime_strips_legacy_beads");
         let _ = fs::remove_dir_all(&dir);
         let pocket_dir = dir.join("pocket");
         fs::create_dir_all(&pocket_dir).unwrap();
@@ -2225,8 +2165,9 @@ mod tests {
         fs::write(
             &file,
             format!(
-                "{beads}\n{start}\nOld runtime\n{end}\n",
-                beads = BEADS_RUNTIME_BLOCK.trim(),
+                "{begin}\nlegacy beads guidance\n{end_legacy}\n{start}\nOld runtime\n{end}\n",
+                begin = LEGACY_BEADS_BEGIN_MARKER,
+                end_legacy = LEGACY_BEADS_END_MARKER,
                 start = RUNTIME_START_MARKER,
                 end = RUNTIME_END_MARKER
             ),
@@ -2241,16 +2182,18 @@ mod tests {
             merge_at_runtime: true,
             source_path: dir.join("agents-template.md"),
         };
-        let ctx = make_ctx_with_beads(&pocket_dir.to_string_lossy(), "/project", "hash", true);
+        let ctx = make_ctx(&pocket_dir.to_string_lossy(), "/project", "hash");
 
         let content = runtime_content_for_template(&tmpl, &ctx);
         inject_runtime_content(&file, &content).unwrap();
 
         let updated = fs::read_to_string(&file).unwrap();
+        // The legacy beads block must be gone entirely.
+        assert!(!updated.contains(LEGACY_BEADS_BEGIN_MARKER));
+        // The new task block lives inside the runtime markers.
         let start_idx = updated.find(RUNTIME_START_MARKER).unwrap();
-        assert!(!updated[..start_idx].contains("<!-- BEGIN BEADS INTEGRATION -->"));
         let runtime_block = &updated[start_idx..];
-        assert!(runtime_block.contains("<!-- BEGIN BEADS INTEGRATION -->"));
+        assert!(runtime_block.contains("<!-- BEGIN SPOCKET TASK INTEGRATION -->"));
 
         let _ = fs::remove_dir_all(&dir);
     }

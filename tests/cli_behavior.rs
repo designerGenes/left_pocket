@@ -48,7 +48,7 @@ impl TestEnv {
             .expect("system clock should be after unix epoch")
             .as_nanos();
         let root = std::env::temp_dir().join(format!(
-            "spocket-beads-defaults-{name}-{}-{unique}",
+            "spocket-cli-behavior-{name}-{}-{unique}",
             std::process::id()
         ));
         let home = root.join("home");
@@ -65,15 +65,6 @@ impl TestEnv {
         .expect("failed to write fake code command");
         fs::set_permissions(&code_path, fs::Permissions::from_mode(0o755))
             .expect("failed to make fake code executable");
-
-        let bd_path = bin_dir.join("bd");
-        fs::write(
-            &bd_path,
-            "#!/bin/sh\nif [ \"$1\" = \"init\" ]; then mkdir -p .beads/embeddeddolt; touch .beads/usable; exit 0; fi\nif [ \"$1\" = \"where\" ]; then [ -f .beads/usable ] && exit 0 || exit 1; fi\nexit 0\n",
-        )
-        .expect("failed to write fake bd command");
-        fs::set_permissions(&bd_path, fs::Permissions::from_mode(0o755))
-            .expect("failed to make fake bd executable");
 
         let existing_path = std::env::var("PATH").unwrap_or_default();
         let path = format!("{}:{existing_path}", bin_dir.display());
@@ -181,17 +172,6 @@ fn assert_success(output: &Output) {
     );
 }
 
-fn manifest_uses_beads(pocket: &Path) -> bool {
-    let manifest_path = pocket.join("manifest.json");
-    let manifest = fs::read_to_string(&manifest_path).expect("failed to read manifest");
-    let value: serde_json::Value =
-        serde_json::from_str(&manifest).expect("failed to parse manifest");
-    value
-        .get("uses_beads")
-        .and_then(|value| value.as_bool())
-        .expect("manifest should contain uses_beads")
-}
-
 fn assert_failure(output: &Output) {
     assert!(
         !output.status.success(),
@@ -293,163 +273,6 @@ fn outdated_commands_are_rejected() {
         ));
     }
 
-    summary.print();
-}
-
-#[test]
-fn new_pocket_defaults_to_beads() {
-    let env = TestEnv::new("default");
-    let project = env.project("project");
-    let mut summary = TestSummary::new(
-        "new_pocket_defaults_to_beads",
-        "default workspace creation enables beads and writes redirect/env files",
-        "the test runs in an isolated HOME and removes the temp root recursively on drop, which clears both projects and registry entries",
-    );
-
-    let output = env.run_spocket(&project, &["-i", "."]);
-    assert_success(&output);
-    summary.step("Opened a new workspace with `spocket -i .`".to_string());
-
-    let pocket = env.only_pocket();
-    assert!(pocket.join(".beads").is_dir());
-    assert_eq!(
-        fs::read_to_string(project.join(".beads").join("redirect")).unwrap(),
-        pocket.join(".beads").to_string_lossy()
-    );
-    assert_eq!(
-        fs::read_to_string(project.join(".env")).unwrap(),
-        format!("SPOCKET_ROOT={}\n", pocket.display())
-    );
-    assert_eq!(
-        fs::read_to_string(pocket.join(".env")).unwrap(),
-        format!(
-            "PROJECT_ROOT={}\n",
-            project.canonicalize().unwrap().display()
-        )
-    );
-    assert!(manifest_uses_beads(&pocket));
-    summary.step("Verified beads initialization, redirect wiring, and env templates inside the created pocket".to_string());
-    summary.print();
-}
-
-#[test]
-fn new_pocket_with_without_beads_does_not_initialize_beads() {
-    let env = TestEnv::new("without");
-    let project = env.project("project");
-    let mut summary = TestSummary::new(
-        "new_pocket_with_without_beads_does_not_initialize_beads",
-        "`--without-beads` skips beads setup for new pockets",
-        "the isolated HOME and temp root are deleted at the end of the test, so no test-created pocket remains registered",
-    );
-
-    let output = env.run_spocket(&project, &["-i", ".", "--without-beads"]);
-    assert_success(&output);
-    summary.step("Created a new workspace with `--without-beads`".to_string());
-
-    let pocket = env.only_pocket();
-    assert!(!pocket.join(".beads").exists());
-    assert!(!project.join(".beads").exists());
-    assert!(!manifest_uses_beads(&pocket));
-    summary.step(
-        "Confirmed that neither the pocket nor the project received beads artifacts".to_string(),
-    );
-    summary.print();
-}
-
-#[test]
-fn existing_non_beads_pocket_is_not_auto_upgraded_on_reuse() {
-    let env = TestEnv::new("reuse-without");
-    let project = env.project("project");
-    let mut summary = TestSummary::new(
-        "existing_non_beads_pocket_is_not_auto_upgraded_on_reuse",
-        "reopening a non-beads pocket preserves its original non-beads state",
-        "cleanup is handled by deleting the isolated temp HOME, which removes the registry cache and pocket directory together",
-    );
-
-    assert_success(&env.run_spocket(&project, &["-i", ".", "--without-beads"]));
-    summary.step("Created an initial pocket without beads".to_string());
-    assert_success(&env.run_spocket(&project, &["-i", "."]));
-    summary.step("Reopened the same pocket with default options".to_string());
-
-    let pocket = env.only_pocket();
-    assert!(!pocket.join(".beads").exists());
-    assert!(!project.join(".beads").exists());
-    assert!(!manifest_uses_beads(&pocket));
-    summary.step("Verified that reuse did not silently upgrade the pocket to beads".to_string());
-    summary.print();
-}
-
-#[test]
-fn existing_non_beads_pocket_can_be_explicitly_upgraded() {
-    let env = TestEnv::new("upgrade");
-    let project = env.project("project");
-    let mut summary = TestSummary::new(
-        "existing_non_beads_pocket_can_be_explicitly_upgraded",
-        "`--use beads` upgrades an existing non-beads pocket when asked explicitly",
-        "the isolated registry and project tree are removed from /tmp when the test finishes",
-    );
-
-    assert_success(&env.run_spocket(&project, &["-i", ".", "--without-beads"]));
-    summary.step("Created a pocket without beads".to_string());
-    assert_success(&env.run_spocket(&project, &["-i", ".", "--use", "beads"]));
-    summary.step("Reopened the pocket with `--use beads`".to_string());
-
-    let pocket = env.only_pocket();
-    assert!(pocket.join(".beads").is_dir());
-    assert_eq!(
-        fs::read_to_string(project.join(".beads").join("redirect")).unwrap(),
-        pocket.join(".beads").to_string_lossy()
-    );
-    assert!(manifest_uses_beads(&pocket));
-    summary.step(
-        "Verified that beads was initialized and the redirect file now targets the upgraded pocket"
-            .to_string(),
-    );
-    summary.print();
-}
-
-#[test]
-fn without_beads_wins_over_use_beads_for_new_pocket() {
-    let env = TestEnv::new("conflict");
-    let project = env.project("project");
-    let mut summary = TestSummary::new(
-        "without_beads_wins_over_use_beads_for_new_pocket",
-        "`--without-beads` takes precedence over `--use beads` on new pocket creation",
-        "the test leaves no residue because its HOME and registry are temporary and removed after completion",
-    );
-
-    let output = env.run_spocket(&project, &["-i", ".", "--use", "beads", "--without-beads"]);
-    assert_success(&output);
-    summary.step("Created a workspace using both `--use beads` and `--without-beads`".to_string());
-
-    let pocket = env.only_pocket();
-    assert!(!pocket.join(".beads").exists());
-    assert!(!project.join(".beads").exists());
-    assert!(!manifest_uses_beads(&pocket));
-    summary.step("Verified that the pocket stayed beadless, proving precedence stayed explicit and predictable".to_string());
-    summary.print();
-}
-
-#[test]
-fn unknown_feature_still_fails_without_beads_initialization() {
-    let env = TestEnv::new("unknown");
-    let project = env.project("project");
-    let mut summary = TestSummary::new(
-        "unknown_feature_still_fails_without_beads_initialization",
-        "unknown optional features fail fast without partially initializing a pocket",
-        "the project and HOME are test-local and deleted automatically, leaving no registry references behind",
-    );
-
-    let output = env.run_spocket(&project, &["-i", ".", "--use", "memvid"]);
-
-    assert!(!output.status.success());
-    assert!(
-        String::from_utf8_lossy(&output.stderr).contains("Unknown feature 'memvid'")
-            || String::from_utf8_lossy(&output.stdout).contains("Unknown feature 'memvid'")
-    );
-    assert!(!project.join(".beads").exists());
-    assert!(env.safe_pockets().is_empty());
-    summary.step("Attempted to enable unsupported feature `memvid` and confirmed the command failed before creating pocket state".to_string());
     summary.print();
 }
 
@@ -690,5 +513,69 @@ fn simulate_runtime_injects_content_without_launching_vscode() {
         "expected VS Code NOT to launch under --simulate-runtime"
     );
     summary.step("Verified VS Code was never launched under --simulate-runtime".to_string());
+    summary.print();
+}
+
+/// The built-in task tracker replaces Beads. A freshly created pocket must not
+/// receive any `.beads` artifacts or redirect stubs.
+#[test]
+fn new_pocket_has_no_beads_artifacts() {
+    let env = TestEnv::new("no-beads");
+    let project = env.project("project");
+    let mut summary = TestSummary::new(
+        "new_pocket_has_no_beads_artifacts",
+        "default workspace creation no longer initializes Beads anywhere",
+        "the isolated HOME and temp root are removed recursively on drop",
+    );
+
+    let output = env.run_spocket(&project, &["-i", "."]);
+    assert_success(&output);
+    summary.step("Opened a new workspace with `spocket -i .`".to_string());
+
+    let pocket = env.only_pocket();
+    assert!(!pocket.join(".beads").exists());
+    assert!(!project.join(".beads").exists());
+
+    let manifest = fs::read_to_string(pocket.join("manifest.json")).unwrap();
+    assert!(
+        !manifest.contains("uses_beads"),
+        "manifest should not carry the legacy uses_beads field"
+    );
+    summary.step("Confirmed no `.beads` directories and no `uses_beads` manifest field".to_string());
+
+    // The project .env should still be written, just without a BEADS_DIR line.
+    let project_env = fs::read_to_string(project.join(".env")).unwrap();
+    assert!(project_env.contains("SPOCKET_ROOT="));
+    assert!(!project_env.contains("BEADS_DIR="));
+    summary.step("Verified `.env` carries SPOCKET_ROOT and no BEADS_DIR line".to_string());
+    summary.print();
+}
+
+/// AGENTS.md should advertise the built-in `spocket task` tracker at runtime.
+#[test]
+fn runtime_agents_md_advertises_task_tracker() {
+    let env = TestEnv::new("task-block");
+    let project = env.project("project");
+    let mut summary = TestSummary::new(
+        "runtime_agents_md_advertises_task_tracker",
+        "runtime merge injects the spocket task guidance block into AGENTS.md",
+        "the temporary HOME and project tree are deleted on drop",
+    );
+
+    let output = env.run_spocket(
+        &project,
+        &["-i", ".", "--temporary", "--simulate-runtime", "--silent"],
+    );
+    assert_success(&output);
+    summary.step("Ran `spocket -i . --temporary --simulate-runtime --silent`".to_string());
+
+    let pocket = env.only_pocket();
+    let agents = fs::read_to_string(pocket.join("AGENTS.md")).unwrap();
+    assert!(
+        agents.contains("spocket task"),
+        "AGENTS.md should mention the built-in task tracker"
+    );
+    assert!(!agents.contains("bd ready"), "AGENTS.md should not mention beads");
+    summary.step("Verified AGENTS.md mentions `spocket task` and not beads".to_string());
     summary.print();
 }

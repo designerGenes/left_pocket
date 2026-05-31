@@ -87,20 +87,6 @@ pub struct Cli {
     #[arg(long = "temporary")]
     pub temporary: bool,
 
-    /// Enable an optional feature
-    ///
-    /// Currently supported values:
-    ///   beads   Initialise a Beads (bd) issue-tracking database in the pocket
-    ///           and plant a .beads/redirect stub in each project directory.
-    ///
-    ///   safe_pocket -i . --use beads
-    #[arg(long = "use", value_name = "FEATURE")]
-    pub use_features: Vec<String>,
-
-    /// Skip automatic Beads setup for this command
-    #[arg(long = "without-beads")]
-    pub without_beads: bool,
-
     /// Skip creating README files in empty directories
     ///
     /// By default safe_pocket writes helpful README.md files into new empty
@@ -427,9 +413,34 @@ pub enum Commands {
         #[command(subcommand)]
         action: WorktreeAction,
     },
-}
 
-// ── Shell choice enum ─────────────────────────────────────────────────────────
+    /// Track project tasks in a fast, built-in issue tracker (replaces Beads)
+    ///
+    /// Tasks live in a global SQLite database at
+    /// ~/.safe_pocket/global_data/tasks.db and are grouped per safe pocket by a
+    /// prefix derived from the pocket directory name. When run from inside a
+    /// registered project, the correct prefix is detected automatically.
+    ///
+    ///   spocket task list [--priority N] [--project PATH] [--raw]
+    ///   spocket task create --named "Implement X" --description "…" --priority 1
+    ///   spocket task <ID> assign --agent "Builder"
+    ///   spocket task <ID> start  [--notes "…"]
+    ///   spocket task <ID> log     --notes "…"
+    ///   spocket task <ID> close  [--notes "…"]
+    ///   spocket task <ID> discard
+    ///   spocket task <ID> describe [--raw]
+    ///   spocket task reprefix --from OLD --to NEW
+    #[command(name = "task")]
+    Task {
+        /// Task subcommand and its arguments (parsed by the task module)
+        #[arg(
+            trailing_var_arg = true,
+            allow_hyphen_values = true,
+            value_name = "ARGS"
+        )]
+        args: Vec<String>,
+    },
+}
 
 /// Supported shells for tab-completion generation.
 #[derive(Debug, Clone, ValueEnum)]

@@ -257,12 +257,12 @@ safe_pocket -i ~/monorepo/feature-a
 safe_pocket -i ~/monorepo/feature-b --clone-from ~/monorepo/feature-a
 ```
 
-## Recent Features (v0.4.0)
+## Recent Features (v1.0.0)
 
+- Built-in `spocket task` tracker (SQLite-backed) replaces Beads for issue tracking
 - `safe_pocket` is now the primary binary name, with `spocket` kept as an alias
 - Temporary pockets can live under `~/.safe_pocket/temporary/`
 - `clean` and `mark temporary` commands were added for safe pocket lifecycle management
-- Beads now defaults on unless `--without-beads` is passed
 
 ### Previous: v0.2.1
 
@@ -281,7 +281,6 @@ safe_pocket -i ~/monorepo/feature-b --clone-from ~/monorepo/feature-a
 - GitHub repo integration for safe pockets (push/pull safe pocket as a repo)
 - Workspace editing without breaking hash associations (add/remove directories)
 - Custom templates for safe pocket contents
-- Beads integration (Ralph Wiggum loops and custom API interactions)
 - Workspace cleanup utilities (remove unused workspaces, fix mismatches)
 - Configurable similarity threshold for smart cloning
 - Workspace tagging and search
