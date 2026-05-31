@@ -1,4 +1,4 @@
-#SPOCKET_TEMPLATE_DESTINATION: {{SPOCKET_CONFIG_ROOT}}/feature_tags.yaml
+#SPOCKET_INSTALL_DESTINATION: {{SPOCKET_CONFIG_ROOT}}/feature_tags.yaml
 
 SPOCKET_MUST_RUN_INSTALL_COMMAND:
   description: "before this feature is considered complete, the agent must run this specific series of install commands line by line and verify that the full process was successful."
@@ -31,3 +31,6 @@ SPOCKET_MUST_BACKUP_AFTER:
   andPush: true/false
   description: "after making changes to the project, the agent must commit to the safe pocket's local repository and the larger $HOME/.safe_pocket folder repository.  If andPush is true, then the agent must also commit the backup to the safe pocket's local repository and push it to the larger $HOME/.safe_pocket folder repository."
   type: "done hook"
+SPOCKET_CONVERSATION_ENABLED:
+  description: "{{SPOCKET_CONFIG_ROOT}}/feature_tags/conversation.feature.tag.yaml"
+  type: "during hook"

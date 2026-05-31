@@ -5,21 +5,24 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 // ── Default assets (embedded at compile time) ────────────────────────────────
-// These are the "factory defaults" that ship with spocket. On first run they
-// are copied into the user's template directory unless the user already has
-// their own version of each file.
-
-pub const DEFAULT_COPILOT_INSTRUCTIONS: &str = include_str!("templates/copilot-instructions.md");
-pub const DEFAULT_AGENTS_MD: &str = include_str!("templates/AGENTS.md");
-pub const DEFAULT_DIRECTORY_STRUCTURE: &str = include_str!("templates/directory_structure.yaml");
-pub const DEFAULT_PROJECT_ENV: &str = include_str!("templates/project.env.md");
-pub const DEFAULT_SAFE_POCKET_ENV: &str = include_str!("templates/safe_pocket.env.md");
-pub const DEFAULT_PROJECT_GITIGNORE: &str = include_str!("templates/gitignore.md");
-pub const DEFAULT_SAFE_POCKET_GITIGNORE: &str = include_str!("templates/safe_pocket.gitignore.md");
-pub const DEFAULT_FEATURE_TAGS: &str = include_str!("templates/feature-tags.md");
-pub const DEFAULT_OBSERVATIONS: &str = include_str!("templates/observations.md");
-pub const DEFAULT_TALK_LIKE_A_CAT_PROMPT: &str =
-    include_str!("templates/prompts/TalkLikeACat.prompt.md");
+// These are the "factory defaults" that ship with spocket. Rather than
+// hand-maintaining a list of `include_str!` constants, `build.rs` walks the
+// entire `src/templates` tree at compile time and generates the
+// `EMBEDDED_TEMPLATES: &[(&str, &str)]` table below (relative_path,
+// file_contents). Adding, moving, or renaming a template file therefore needs
+// no Rust changes.
+//
+// On first run each embedded file is materialised into the user's config
+// directory (never overwriting an existing file):
+// - Files whose `#SPOCKET_TEMPLATE_DESTINATION` targets `{{SPOCKET_CONFIG_ROOT}}`
+//   or `{{SPOCKET_REGISTRY_ROOT}}` are *interpreted* now — the directive is
+//   stripped, the two install-known roots are expanded, and the result is
+//   written to the resolved path (e.g. `directory_structure.md` →
+//   `$HOME/.config/safe_pocket/directory_structure.yaml`).
+// - All other files are *staged verbatim* under
+//   `$HOME/.config/safe_pocket/templates/<relative_path>` so the runtime
+//   template loader can parse and apply them to individual pockets.
+include!(concat!(env!("OUT_DIR"), "/embedded_templates.rs"));
 
 // ── Template variables ───────────────────────────────────────────────────────
 
@@ -109,8 +112,12 @@ spocket task <ID> describe --raw    # JSON
 "#;
 
 /// Replace `{{SPOCKET_ROOT}}`, `{{PROJECT_ROOT}}`, `{{SPOCKET_NAME}}`,
-/// and `{{GLOBAL_OBSERVATIONS_PATH}}` in `text`.
+/// `{{GLOBAL_OBSERVATIONS_PATH}}`, `{{SPOCKET_CONFIG_ROOT}}`, and
+/// `{{SPOCKET_REGISTRY_ROOT}}` in `text`.
 pub fn expand_variables(text: &str, ctx: &TemplateContext) -> String {
+    let registry_root = crate::registry::registry_root()
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_else(|_| "{{SPOCKET_REGISTRY_ROOT}}".to_string());
     text.replace("{{SPOCKET_ROOT}}", &ctx.spocket_root.to_string_lossy())
         .replace("{{PROJECT_ROOT}}", &ctx.project_root.to_string_lossy())
         .replace("{{SPOCKET_NAME}}", &ctx.spocket_name)
@@ -122,6 +129,21 @@ pub fn expand_variables(text: &str, ctx: &TemplateContext) -> String {
             "{{SPOCKET_CONFIG_ROOT}}",
             &ctx.config_root.to_string_lossy(),
         )
+        .replace("{{SPOCKET_REGISTRY_ROOT}}", &registry_root)
+}
+
+/// Token marking a destination/content as resolvable at install time (before any
+/// pocket exists), using only the two install-known roots.
+const CONFIG_ROOT_TOKEN: &str = "{{SPOCKET_CONFIG_ROOT}}";
+const REGISTRY_ROOT_TOKEN: &str = "{{SPOCKET_REGISTRY_ROOT}}";
+
+/// Expand only the two install-known roots (`{{SPOCKET_CONFIG_ROOT}}` and
+/// `{{SPOCKET_REGISTRY_ROOT}}`). Pocket-level variables such as
+/// `{{SPOCKET_ROOT}}` are intentionally left untouched so that literal examples
+/// embedded in interpreted files (e.g. feature-tag descriptions) survive.
+fn expand_install_roots(text: &str, config_root: &Path, registry_root: &Path) -> String {
+    text.replace(CONFIG_ROOT_TOKEN, &config_root.to_string_lossy())
+        .replace(REGISTRY_ROOT_TOKEN, &registry_root.to_string_lossy())
 }
 
 fn filter_template_content(content: &str, _ctx: &TemplateContext) -> String {
@@ -196,7 +218,14 @@ pub struct Template {
 pub fn parse_template(path: &Path) -> Result<Vec<Template>> {
     let raw = fs::read_to_string(path)
         .with_context(|| format!("Failed to read template file: {}", path.display()))?;
+    parse_template_content(&raw, path)
+}
 
+/// Parse already-loaded template `raw` content into one or more [`Template`]
+/// blocks. `source` is used only for diagnostics and `Template::source_path`.
+/// See [`parse_template`] for the directive grammar.
+pub fn parse_template_content(raw: &str, source: &Path) -> Result<Vec<Template>> {
+    let path = source;
     let raw_ends_with_newline = raw.ends_with('\n');
 
     // Accumulator for the block currently being built.
@@ -226,6 +255,13 @@ pub fn parse_template(path: &Path) -> Result<Vec<Template>> {
             // Allow leading blank lines before the first directive; anything else
             // (non-whitespace before the first destination) is an error.
             if line.trim().is_empty() {
+                continue;
+            }
+            // Tolerate other `#SPOCKET_*` directive lines (e.g. a stray
+            // `#SPOCKET_INSTALL_DESTINATION`) that may precede the first
+            // template block — they are install-time metadata and are simply
+            // stripped here.
+            if line.trim_start().starts_with("#SPOCKET") {
                 continue;
             }
             return Err(anyhow!(
@@ -414,86 +450,125 @@ pub fn ensure_default_assets() -> Result<()> {
     let tmpl_dir = config_dir.join("templates");
     fs::create_dir_all(&tmpl_dir).context("Failed to create templates directory")?;
 
-    let prompts_dir = tmpl_dir.join("prompts");
-    fs::create_dir_all(&prompts_dir).context("Failed to create templates/prompts directory")?;
-
     // Ensure global observations directory exists in the registry, not config.
     let _ = crate::registry::global_observations_dir()?;
 
-    // Default template files
-    let defaults: &[(&str, &str)] = &[
-        (
-            "templates/copilot-instructions.md",
-            DEFAULT_COPILOT_INSTRUCTIONS,
-        ),
-        ("templates/AGENTS.md", DEFAULT_AGENTS_MD),
-        ("templates/project.env.md", DEFAULT_PROJECT_ENV),
-        ("templates/safe_pocket.env.md", DEFAULT_SAFE_POCKET_ENV),
-        ("templates/gitignore.md", DEFAULT_PROJECT_GITIGNORE),
-        (
-            "templates/safe_pocket.gitignore.md",
-            DEFAULT_SAFE_POCKET_GITIGNORE,
-        ),
-        ("templates/feature-tags.md", DEFAULT_FEATURE_TAGS),
-        ("templates/observations.md", DEFAULT_OBSERVATIONS),
-        (
-            "templates/prompts/TalkLikeACat.prompt.md",
-            DEFAULT_TALK_LIKE_A_CAT_PROMPT,
-        ),
-    ];
+    let registry_root = crate::registry::registry_root()?;
+    install_embedded_templates(&config_dir, &registry_root)
+}
 
-    for (rel_path, content) in defaults {
-        let target = config_dir.join(rel_path);
-        if !target.exists() {
-            fs::write(&target, content)
-                .with_context(|| format!("Failed to write default asset: {}", target.display()))?;
-            if crate::verbose() {
-                println!(
-                    "{} {}",
-                    "Installed default template:".bright_green(),
-                    target.display().to_string().dimmed()
-                );
-            }
-        }
+/// Materialise every embedded template into the user's config directory, never
+/// overwriting an existing file.
+///
+/// Placement is driven entirely by directives inside each file (no hard-coded
+/// file names):
+/// - `#SPOCKET_INSTALL_DESTINATION: <path>` places the file at `<path>` (one or
+///   more) at install time. These directives are **stripped** from the placed
+///   file. Used for assets that live directly in the config root, e.g.
+///   `directory_structure.yaml`, `feature_tags.yaml`, and the conversation
+///   feature-tag definition.
+/// - When a file has **no** `#SPOCKET_INSTALL_DESTINATION`, it is mirrored to
+///   `<config_dir>/templates/<relative_path>` so the runtime loader can find it.
+///
+/// `#SPOCKET_TEMPLATE_DESTINATION` directives are always **left intact** in the
+/// placed file — they are consumed later, at runtime, when a new pocket is
+/// created.
+pub fn install_embedded_templates(config_dir: &Path, registry_root: &Path) -> Result<()> {
+    for (rel, content) in EMBEDDED_TEMPLATES {
+        install_one_embedded(rel, content, config_dir, registry_root)?;
+    }
+    Ok(())
+}
+
+fn install_one_embedded(
+    rel: &str,
+    content: &str,
+    config_dir: &Path,
+    registry_root: &Path,
+) -> Result<()> {
+    // Collect any explicit install destinations and produce the placed body
+    // (the same content with every `#SPOCKET_INSTALL_DESTINATION` line removed).
+    let install_dirs: Vec<String> = content
+        .lines()
+        .filter_map(parse_install_destination_directive)
+        .collect();
+    let placed = strip_install_directives(content);
+
+    if install_dirs.is_empty() {
+        // Default: mirror into the system-wide templates directory so the
+        // runtime loader can pick it up (its TEMPLATE_DESTINATION is preserved).
+        let staged = config_dir.join("templates").join(rel);
+        return write_if_absent(&staged, &placed, "template");
     }
 
-    // Default directory structure
-    let dir_struct_path = config_dir.join("directory_structure.yaml");
-    if !dir_struct_path.exists() {
-        fs::write(&dir_struct_path, DEFAULT_DIRECTORY_STRUCTURE).with_context(|| {
-            format!(
-                "Failed to write default directory structure: {}",
-                dir_struct_path.display()
-            )
-        })?;
-        if crate::verbose() {
-            println!(
-                "{} {}",
-                "Installed default directory structure:".bright_green(),
-                dir_struct_path.display().to_string().dimmed()
-            );
+    // Explicit install destination(s): place directly into the config tree.
+    for dir in &install_dirs {
+        let dest = expand_install_roots(dir, config_dir, registry_root);
+        write_if_absent(Path::new(&dest), &placed, "config asset")?;
+    }
+    Ok(())
+}
+
+/// Remove every `#SPOCKET_INSTALL_DESTINATION` line from `content`. If any were
+/// removed, a leading run of blank lines is trimmed so the placed file starts at
+/// its real content. `#SPOCKET_TEMPLATE_DESTINATION` and all other lines are
+/// preserved verbatim.
+fn strip_install_directives(content: &str) -> String {
+    let mut kept: Vec<&str> = Vec::new();
+    let mut removed = false;
+    for line in content.lines() {
+        if parse_install_destination_directive(line).is_some() {
+            removed = true;
+            continue;
         }
+        kept.push(line);
     }
 
-    // Default unified agent definitions (synced to OpenCode / VS Code separately).
-    let agents_dir = tmpl_dir.join("agents");
-    fs::create_dir_all(&agents_dir).context("Failed to create templates/agents directory")?;
-    for (file_name, content) in crate::agents::DEFAULT_AGENTS {
-        let target = agents_dir.join(file_name);
-        if !target.exists() {
-            fs::write(&target, content).with_context(|| {
-                format!("Failed to write default agent template: {}", target.display())
-            })?;
-            if crate::verbose() {
-                println!(
-                    "{} {}",
-                    "Installed default agent template:".bright_green(),
-                    target.display().to_string().dimmed()
-                );
-            }
+    let mut body = kept.join("\n");
+    if content.ends_with('\n') && !body.is_empty() {
+        body.push('\n');
+    }
+    if removed {
+        while body.starts_with('\n') {
+            body.remove(0);
         }
     }
+    body
+}
 
+/// Parse a `#SPOCKET_INSTALL_DESTINATION` directive from a line. Accepts both
+/// `#SPOCKET_INSTALL_DESTINATION: path` and `#SPOCKET_INSTALL_DESTINATION path`.
+fn parse_install_destination_directive(line: &str) -> Option<String> {
+    let line = line.trim();
+    let prefix = "#SPOCKET_INSTALL_DESTINATION";
+    if !line.starts_with(prefix) {
+        return None;
+    }
+    let rest = line[prefix.len()..].trim_start_matches(':').trim();
+    if rest.is_empty() {
+        None
+    } else {
+        Some(rest.to_string())
+    }
+}
+
+fn write_if_absent(target: &Path, content: &str, label: &str) -> Result<()> {
+    if target.exists() {
+        return Ok(());
+    }
+    if let Some(parent) = target.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("Failed to create directory: {}", parent.display()))?;
+    }
+    fs::write(target, content)
+        .with_context(|| format!("Failed to write {}: {}", label, target.display()))?;
+    if crate::verbose() {
+        println!(
+            "{} {}",
+            format!("Installed {}:", label).bright_green(),
+            target.display().to_string().dimmed()
+        );
+    }
     Ok(())
 }
 pub fn load_templates() -> Result<Vec<Template>> {
@@ -2237,5 +2312,169 @@ mod tests {
         assert!(result.contains("C=3"));
         // Should not have double blank lines added
         assert!(!result.contains("\n\n\n"));
+    }
+
+    // ── embedded templates + install_embedded_templates ─────────────────────
+
+    #[test]
+    fn test_embedded_templates_populated() {
+        // build.rs must have embedded the whole src/templates tree.
+        assert!(
+            EMBEDDED_TEMPLATES.len() >= 5,
+            "expected the embedded template table to be populated, got {}",
+            EMBEDDED_TEMPLATES.len()
+        );
+        let rels: Vec<&str> = EMBEDDED_TEMPLATES.iter().map(|(r, _)| *r).collect();
+        assert!(rels.contains(&"AGENTS.md"), "AGENTS.md should be embedded");
+        assert!(
+            rels.contains(&"directory_structure.md"),
+            "directory_structure.md should be embedded"
+        );
+        assert!(
+            rels.iter().any(|r| r.starts_with("agents/")),
+            "agent definitions should be embedded under agents/"
+        );
+    }
+
+    #[test]
+    fn test_install_interprets_config_and_stages_pocket_templates() {
+        let base = std::env::temp_dir().join("spocket_test_install_embedded");
+        let _ = fs::remove_dir_all(&base);
+        let config_dir = base.join("config");
+        let registry_root = base.join("registry");
+        fs::create_dir_all(&config_dir).unwrap();
+        fs::create_dir_all(&registry_root).unwrap();
+
+        install_embedded_templates(&config_dir, &registry_root).unwrap();
+
+        // INSTALL_DESTINATION: directory_structure.md is placed at the config
+        // root as directory_structure.yaml, with the INSTALL directive stripped
+        // (and no leading blank line) — and the raw .md is NOT mirrored.
+        let dir_struct = config_dir.join("directory_structure.yaml");
+        assert!(dir_struct.exists(), "directory_structure.yaml should be installed");
+        let ds = fs::read_to_string(&dir_struct).unwrap();
+        assert!(
+            !ds.contains("#SPOCKET_INSTALL_DESTINATION"),
+            "INSTALL directive must be stripped from the placed file"
+        );
+        assert!(
+            !ds.starts_with('\n'),
+            "placed config asset must not start with a blank line"
+        );
+        assert!(
+            !config_dir.join("templates/directory_structure.md").exists(),
+            "a file with INSTALL_DESTINATION must not be mirrored into templates/"
+        );
+
+        // feature_tags.yaml and the conversation tag are installed into the
+        // config tree (not templates/).
+        assert!(
+            config_dir.join("feature_tags.yaml").exists(),
+            "feature_tags.yaml should be installed to the config root"
+        );
+        assert!(
+            config_dir
+                .join("feature_tags/conversation.feature.tag.yaml")
+                .exists(),
+            "conversation feature tag should be installed under feature_tags/"
+        );
+
+        // Default mirror: AGENTS.md has no INSTALL_DESTINATION, so it is mirrored
+        // verbatim (TEMPLATE_DESTINATION preserved) for the runtime loader.
+        let staged_agents = config_dir.join("templates/AGENTS.md");
+        assert!(staged_agents.exists(), "AGENTS.md should be mirrored to templates/");
+        assert!(
+            fs::read_to_string(&staged_agents)
+                .unwrap()
+                .contains("#SPOCKET_TEMPLATE_DESTINATION"),
+            "mirrored template must keep its TEMPLATE_DESTINATION directive"
+        );
+
+        // Directive-less unified agents are mirrored under templates/agents/.
+        assert!(
+            config_dir.join("templates/agents/builder.md").exists(),
+            "agent definitions should be mirrored under templates/agents/"
+        );
+
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn test_install_is_idempotent_and_non_destructive() {
+        let base = std::env::temp_dir().join("spocket_test_install_idempotent");
+        let _ = fs::remove_dir_all(&base);
+        let config_dir = base.join("config");
+        let registry_root = base.join("registry");
+        fs::create_dir_all(&config_dir).unwrap();
+        fs::create_dir_all(&registry_root).unwrap();
+
+        // Pre-seed a user-customised file; it must never be overwritten.
+        fs::create_dir_all(config_dir.join("templates")).unwrap();
+        let user_agents = config_dir.join("templates/AGENTS.md");
+        fs::write(&user_agents, "MY CUSTOM AGENTS\n").unwrap();
+
+        install_embedded_templates(&config_dir, &registry_root).unwrap();
+        // Second run must succeed and remain a no-op.
+        install_embedded_templates(&config_dir, &registry_root).unwrap();
+
+        assert_eq!(
+            fs::read_to_string(&user_agents).unwrap(),
+            "MY CUSTOM AGENTS\n",
+            "existing user file must be preserved"
+        );
+
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn test_expand_install_roots_leaves_pocket_vars_literal() {
+        let out = expand_install_roots(
+            "cfg={{SPOCKET_CONFIG_ROOT}} reg={{SPOCKET_REGISTRY_ROOT}} pkt={{SPOCKET_ROOT}}",
+            Path::new("/cfg"),
+            Path::new("/reg"),
+        );
+        assert_eq!(out, "cfg=/cfg reg=/reg pkt={{SPOCKET_ROOT}}");
+    }
+
+    #[test]
+    fn test_parse_install_destination_directive() {
+        assert_eq!(
+            parse_install_destination_directive("#SPOCKET_INSTALL_DESTINATION: /a/b.yaml"),
+            Some("/a/b.yaml".to_string())
+        );
+        assert_eq!(
+            parse_install_destination_directive("#SPOCKET_INSTALL_DESTINATION /a/b.yaml"),
+            Some("/a/b.yaml".to_string())
+        );
+        // Must not match the runtime directive or arbitrary lines.
+        assert_eq!(
+            parse_install_destination_directive("#SPOCKET_TEMPLATE_DESTINATION: /x"),
+            None
+        );
+        assert_eq!(parse_install_destination_directive("plain text"), None);
+    }
+
+    #[test]
+    fn test_strip_install_directives_keeps_template_directive() {
+        let content = "#SPOCKET_INSTALL_DESTINATION: {{SPOCKET_CONFIG_ROOT}}/templates/x.md\n\
+                       #SPOCKET_TEMPLATE_DESTINATION: {{SPOCKET_ROOT}}/.github/x.md\n\
+                       body line\n";
+        let out = strip_install_directives(content);
+        assert!(
+            !out.contains("#SPOCKET_INSTALL_DESTINATION"),
+            "INSTALL directive must be removed"
+        );
+        assert!(
+            out.contains("#SPOCKET_TEMPLATE_DESTINATION"),
+            "TEMPLATE directive must be preserved"
+        );
+        assert!(out.contains("body line"));
+    }
+
+    #[test]
+    fn test_strip_install_directives_trims_leading_blank() {
+        let content = "#SPOCKET_INSTALL_DESTINATION: /a.yaml\n\nreal content\n";
+        let out = strip_install_directives(content);
+        assert_eq!(out, "real content\n");
     }
 }

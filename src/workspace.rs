@@ -229,6 +229,19 @@ impl Workspace {
             false, // non-interactive
         )?;
 
+        // Render the unified agent definitions into the pocket so OpenCode finds
+        // them per-project (`<pocket>/.opencode/agent`). Best-effort: never fail
+        // pocket creation over agent rendering.
+        if let Err(e) = crate::agents::sync_agents_into_pocket(&self.pocket_dir) {
+            if crate::verbose() {
+                eprintln!(
+                    "{} {}",
+                    "Warning: agent render failed:".bright_yellow(),
+                    e
+                );
+            }
+        }
+
         // ── Files not covered by templates ────────────────────────────────────
         // These are structural files that aren't meaningful as user-editable
         // templates but are still needed in every pocket.

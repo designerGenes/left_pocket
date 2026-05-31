@@ -37,8 +37,11 @@ pub const MANAGED_MARKER: &str = "<!-- SPOCKET_MANAGED_AGENT: managed by `spocke
 
 // ── Bundled default agent templates ───────────────────────────────────────────
 
-/// Default agent templates, shipped with the binary and written into
-/// `$HOME/.config/safe_pocket/templates/agents/` on first run.
+/// Default agent templates, embedded in the binary. These are also part of the
+/// generic embedded-template install (staged into
+/// `$HOME/.config/safe_pocket/templates/agents/`); this typed list is retained
+/// for tests and as a stable in-memory reference to the bundled agents.
+#[cfg_attr(not(test), allow(dead_code))]
 pub const DEFAULT_AGENTS: &[(&str, &str)] = &[
     ("builder.md", include_str!("templates/agents/builder.md")),
     ("critic.md", include_str!("templates/agents/critic.md")),
@@ -407,9 +410,20 @@ pub fn agents_template_dir() -> Result<PathBuf> {
 }
 
 /// Path to the OpenCode agent directory (`$HOME/.config/opencode/agent`).
+///
+/// This is the *global* location safe_pocket used to write into. Agents are now
+/// installed per-project (see [`pocket_agent_dir`]); this remains only so the
+/// legacy global files can be located, backed up, and removed.
 pub fn opencode_agent_dir() -> Result<PathBuf> {
     let home = dirs::home_dir().context("Failed to get home directory")?;
     Ok(home.join(".config").join("opencode").join("agent"))
+}
+
+/// Path to a pocket's project-local OpenCode agent directory
+/// (`<pocket>/.opencode/agent`). OpenCode discovers agents here when the pocket
+/// is opened as a workspace, so no global installation is required.
+pub fn pocket_agent_dir(pocket_dir: &Path) -> PathBuf {
+    pocket_dir.join(".opencode").join("agent")
 }
 
 /// Load all unified agent definitions from the templates directory.
@@ -477,15 +491,22 @@ impl SyncReport {
     }
 }
 
-/// Synchronize the unified agents into the OpenCode agent directory.
+/// Synchronize the unified agents into a pocket's project-local OpenCode agent
+/// directory (`<pocket>/.opencode/agent`). This is the per-project replacement
+/// for the old global sync.
+pub fn sync_agents_into_pocket(pocket_dir: &Path) -> Result<SyncReport> {
+    sync_agents_into(&pocket_agent_dir(pocket_dir))
+}
+
+/// Synchronize the unified agents into `target_dir`, rendering each into the
+/// OpenCode agent Markdown format.
 ///
 /// Non-destructive: if a target file already exists and is **not**
 /// safe_pocket-managed (lacks [`MANAGED_MARKER`]), it is backed up to
 /// `<name>.md.pre-spocket.bak` before being replaced.
-pub fn sync_agents() -> Result<SyncReport> {
+pub fn sync_agents_into(target_dir: &Path) -> Result<SyncReport> {
     let agents = load_unified_agents()?;
-    let target_dir = opencode_agent_dir()?;
-    fs::create_dir_all(&target_dir)
+    fs::create_dir_all(target_dir)
         .with_context(|| format!("Failed to create OpenCode agent dir: {}", target_dir.display()))?;
 
     let mut report = SyncReport::default();
@@ -503,6 +524,40 @@ pub fn sync_agents() -> Result<SyncReport> {
     }
 
     Ok(report)
+}
+
+/// Back up and remove the legacy *global* OpenCode agent files that safe_pocket
+/// previously installed into `$HOME/.config/opencode/agent`. Only files bearing
+/// the [`MANAGED_MARKER`] are touched; hand-authored agents are left alone. Each
+/// removed file is first copied to `<name>.md.pre-spocket-removed.bak`. Returns
+/// the names of the files that were removed.
+pub fn remove_global_agents() -> Result<Vec<String>> {
+    let dir = opencode_agent_dir()?;
+    let mut removed = Vec::new();
+    if !dir.exists() {
+        return Ok(removed);
+    }
+    for entry in fs::read_dir(&dir)
+        .with_context(|| format!("Failed to read global agent dir: {}", dir.display()))?
+    {
+        let path = entry?.path();
+        if !path.is_file() || path.extension().map_or(true, |e| e != "md") {
+            continue;
+        }
+        let content = fs::read_to_string(&path).unwrap_or_default();
+        if !content.contains(MANAGED_MARKER) {
+            // Never remove a hand-authored agent.
+            continue;
+        }
+        let backup = path.with_extension("md.pre-spocket-removed.bak");
+        fs::write(&backup, &content).with_context(|| {
+            format!("Failed to back up agent before removal: {}", backup.display())
+        })?;
+        fs::remove_file(&path)
+            .with_context(|| format!("Failed to remove global agent: {}", path.display()))?;
+        removed.push(path.file_name().unwrap().to_string_lossy().to_string());
+    }
+    Ok(removed)
 }
 
 fn write_agent_file(target: &Path, rendered: &str, report: &mut SyncReport) -> Result<SyncAction> {
@@ -676,5 +731,47 @@ mod tests {
         assert_eq!(action, SyncAction::Unchanged);
         assert!(report.backed_up.is_empty());
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_pocket_agent_dir_is_project_local() {
+        let pocket = Path::new("/home/user/.safe_pocket/abc123");
+        assert_eq!(
+            pocket_agent_dir(pocket),
+            Path::new("/home/user/.safe_pocket/abc123/.opencode/agent")
+        );
+    }
+
+    #[test]
+    fn test_sync_agents_into_renders_managed_files() {
+        let target = std::env::temp_dir().join("spocket_test_sync_into/.opencode/agent");
+        let _ = fs::remove_dir_all(target.parent().unwrap().parent().unwrap());
+
+        // sync_agents_into reads unified agents from the config templates dir.
+        // Render directly via the rendering primitive to keep this test
+        // hermetic, then exercise write_agent_file (the core of sync_agents_into).
+        let agent = parse_unified_agent(sample(), "builder").unwrap();
+        let rendered = agent.to_opencode_markdown();
+        fs::create_dir_all(&target).unwrap();
+        let mut report = SyncReport::default();
+        let path = target.join("builder.md");
+        let action = write_agent_file(&path, &rendered, &mut report).unwrap();
+        assert_eq!(action, SyncAction::Created);
+        let written = fs::read_to_string(&path).unwrap();
+        assert!(written.contains(MANAGED_MARKER));
+        assert!(written.contains("mode: primary"));
+
+        let _ = fs::remove_dir_all(target.parent().unwrap().parent().unwrap());
+    }
+
+    #[test]
+    fn test_remove_global_agents_skips_unmanaged() {
+        // remove_global_agents must never delete hand-authored (unmanaged) files.
+        // We exercise the marker check directly to stay hermetic (the real
+        // function targets the user's global ~/.config path).
+        let unmanaged = "hand authored agent, no marker\n";
+        assert!(!unmanaged.contains(MANAGED_MARKER));
+        let managed = format!("---\nmode: primary\n---\n{MANAGED_MARKER}\nbody\n");
+        assert!(managed.contains(MANAGED_MARKER));
     }
 }

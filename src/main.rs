@@ -1402,12 +1402,48 @@ fn handle_sync(target: Option<String>, pocket: Option<String>) -> Result<()> {
     Ok(())
 }
 
-/// Synchronize the unified agent definitions into the tools that consume them
-/// (currently OpenCode). Prints a human-readable summary.
+/// Synchronize the unified agent definitions into the pocket for the current
+/// working directory (rendered OpenCode agents under `<pocket>/.opencode/agent`).
 fn handle_sync_agents() -> Result<()> {
     template::ensure_default_assets()?;
-    let report = agents::sync_agents()?;
-    print_agents_sync_report(&report);
+
+    let cwd = std::env::current_dir().context("Failed to get current working directory")?;
+    let workspace = Workspace::find_workspace_for_cwd(&cwd)?.ok_or_else(|| {
+        anyhow!(
+            "No safe pocket found for the current directory: {}\n\
+             Agents are now installed per-project. Run this from inside a workspace \
+             directory (or its pocket) so the agents can be written to \
+             `<pocket>/.opencode/agent`.",
+            cwd.display()
+        )
+    })?;
+
+    let target = agents::pocket_agent_dir(&workspace.pocket_dir);
+    let report = agents::sync_agents_into(&target)?;
+    print_agents_sync_report(&report, &target);
+
+    // Agents are per-project now: retire any legacy global agent files we
+    // previously installed (backed up first). Best-effort.
+    match agents::remove_global_agents() {
+        Ok(removed) if !removed.is_empty() => {
+            println!(
+                "  {} retired {} legacy global agent file(s) (backed up): {}",
+                "note:".bright_blue(),
+                removed.len(),
+                removed.join(", ").dimmed()
+            );
+        }
+        Ok(_) => {}
+        Err(e) => {
+            if verbose() {
+                eprintln!(
+                    "{} {}",
+                    "Warning: could not clean global agents:".bright_yellow(),
+                    e
+                );
+            }
+        }
+    }
     Ok(())
 }
 
@@ -1418,10 +1454,8 @@ fn handle_sync_all() -> Result<()> {
     Ok(())
 }
 
-fn print_agents_sync_report(report: &agents::SyncReport) {
-    let target = agents::opencode_agent_dir()
-        .map(|d| d.display().to_string())
-        .unwrap_or_else(|_| "~/.config/opencode/agent".to_string());
+fn print_agents_sync_report(report: &agents::SyncReport, target_dir: &Path) {
+    let target = target_dir.display().to_string();
 
     if report.created.is_empty() && report.updated.is_empty() {
         println!(
@@ -1590,12 +1624,12 @@ fn handle_augment(add: Vec<String>, remove: Vec<String>, no_open: bool) -> Resul
 }
 
 fn open_with_merge(ws: &Workspace) -> Result<()> {
-    // Keep the unified agents in sync whenever a pocket is opened. Best-effort:
-    // a failure here must never block opening the workspace.
-    match agents::sync_agents() {
+    // Keep the unified agents in sync inside the pocket whenever it is opened.
+    // Best-effort: a failure here must never block opening the workspace.
+    match agents::sync_agents_into_pocket(&ws.pocket_dir) {
         Ok(report) if report.changed() => {
             if verbose() {
-                print_agents_sync_report(&report);
+                print_agents_sync_report(&report, &agents::pocket_agent_dir(&ws.pocket_dir));
             }
         }
         Ok(_) => {}
