@@ -26,9 +26,18 @@ use registry::RegistryEntry;
 use workspace::{DriftResult, Workspace};
 
 static VERBOSE: OnceLock<bool> = OnceLock::new();
+static SUPPRESS_OPEN: OnceLock<bool> = OnceLock::new();
 
 pub fn verbose() -> bool {
     *VERBOSE.get().unwrap_or(&false)
+}
+
+/// Whether VS Code should be suppressed at the end of a workspace command.
+///
+/// Set by `--silent` (skip opening) and `--simulate-runtime` (inject runtime
+/// content but do not launch the editor).
+pub fn suppress_open() -> bool {
+    *SUPPRESS_OPEN.get().unwrap_or(&false)
 }
 
 fn main() {
@@ -42,6 +51,7 @@ fn run() -> Result<()> {
     let cli = Cli::parse();
 
     let _ = VERBOSE.set(cli.verbose);
+    let _ = SUPPRESS_OPEN.set(cli.silent || cli.simulate_runtime);
 
     if cli.short_version {
         println!("{}", env!("CARGO_PKG_VERSION"));
@@ -1551,6 +1561,19 @@ fn open_with_merge(ws: &Workspace) -> Result<()> {
             );
         }
     }
+
+    // --silent / --simulate-runtime: every step has run (including runtime
+    // content injection above) but we intentionally do not launch VS Code.
+    if suppress_open() {
+        if verbose() {
+            println!(
+                "{}",
+                "Skipping VS Code launch (--silent/--simulate-runtime).".dimmed()
+            );
+        }
+        return Ok(());
+    }
+
     ws.open()
 }
 

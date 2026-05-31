@@ -1,0 +1,1 @@
+I own this software and you may copy it as much as you like.

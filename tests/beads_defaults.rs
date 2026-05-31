@@ -58,7 +58,11 @@ impl TestEnv {
         fs::create_dir_all(&bin_dir).expect("failed to create fake bin dir");
 
         let code_path = bin_dir.join("code");
-        fs::write(&code_path, "#!/bin/sh\nexit 0\n").expect("failed to write fake code command");
+        fs::write(
+            &code_path,
+            "#!/bin/sh\nif [ -n \"$CODE_LOG\" ]; then echo \"$@\" >> \"$CODE_LOG\"; fi\nexit 0\n",
+        )
+        .expect("failed to write fake code command");
         fs::set_permissions(&code_path, fs::Permissions::from_mode(0o755))
             .expect("failed to make fake code executable");
 
@@ -89,10 +93,24 @@ impl TestEnv {
             .current_dir(project)
             .env("HOME", &self.home)
             .env("PATH", &self.path)
+            .env("CODE_LOG", self.code_log())
             .env("GIT_CONFIG_GLOBAL", self.root.join("gitconfig"))
             .env("GIT_TERMINAL_PROMPT", "0")
             .output()
             .expect("failed to run safe_pocket")
+    }
+
+    /// Path to the file where the fake `code` binary records each invocation.
+    fn code_log(&self) -> PathBuf {
+        self.root.join("code_invocations.log")
+    }
+
+    /// Number of times the fake `code` (VS Code) binary was launched.
+    fn code_launch_count(&self) -> usize {
+        match fs::read_to_string(self.code_log()) {
+            Ok(contents) => contents.lines().filter(|l| !l.trim().is_empty()).count(),
+            Err(_) => 0,
+        }
     }
 
     fn safe_pockets(&self) -> Vec<PathBuf> {
@@ -566,5 +584,111 @@ fn clean_hard_removes_temporary_pocket_and_registry_entry() {
             .to_string(),
     );
 
+    summary.print();
+}
+
+#[test]
+fn normal_run_launches_vscode() {
+    let env = TestEnv::new("normal-open");
+    let project = env.project("project");
+    let mut summary = TestSummary::new(
+        "normal_run_launches_vscode",
+        "a default `spocket -i .` invocation launches VS Code at the end",
+        "the isolated HOME and temp root are deleted on drop; the fake `code` binary records invocations to a temp log",
+    );
+
+    let output = env.run_spocket(&project, &["-i", ".", "--temporary"]);
+    assert_success(&output);
+    summary.step("Ran `spocket -i . --temporary` with a fake `code` binary".to_string());
+
+    assert_eq!(
+        env.code_launch_count(),
+        1,
+        "expected VS Code to be launched exactly once on a normal run"
+    );
+    summary.step(
+        "Verified the fake VS Code binary was launched exactly once, anchoring the negative \
+         assertions made by the --silent / --simulate-runtime tests"
+            .to_string(),
+    );
+    summary.print();
+}
+
+#[test]
+fn silent_flag_skips_vscode_launch() {
+    let env = TestEnv::new("silent");
+    let project = env.project("project");
+    let mut summary = TestSummary::new(
+        "silent_flag_skips_vscode_launch",
+        "`--silent` performs all setup steps but never launches VS Code",
+        "the temporary HOME, project, and code-invocation log are removed when TestEnv drops",
+    );
+
+    let output = env.run_spocket(&project, &["-i", ".", "--temporary", "--silent"]);
+    assert_success(&output);
+    summary.step("Ran `spocket -i . --temporary --silent`".to_string());
+
+    // The pocket is still created (all steps ran)...
+    let pocket = env.only_pocket();
+    assert!(pocket.join("manifest.json").is_file());
+    summary.step("Confirmed the pocket and manifest were still created (all steps ran)".to_string());
+
+    // ...but VS Code was never opened.
+    assert_eq!(
+        env.code_launch_count(),
+        0,
+        "expected VS Code NOT to launch under --silent"
+    );
+    summary.step("Verified VS Code was never launched under --silent".to_string());
+    summary.print();
+}
+
+#[test]
+fn simulate_runtime_injects_content_without_launching_vscode() {
+    let env = TestEnv::new("simulate-runtime");
+    let project = env.project("project");
+    let mut summary = TestSummary::new(
+        "simulate_runtime_injects_content_without_launching_vscode",
+        "`--simulate-runtime` injects runtime content into destination files \
+         (between #SPOCKET_RUNTIME_CONTENT_START/END markers) without launching VS Code",
+        "the temporary HOME, project tree, and code log are deleted on drop",
+    );
+
+    let output = env.run_spocket(
+        &project,
+        &["-i", ".", "--temporary", "--simulate-runtime", "--silent"],
+    );
+    assert_success(&output);
+    summary.step("Ran `spocket -i . --temporary --simulate-runtime --silent`".to_string());
+
+    let pocket = env.only_pocket();
+
+    // At least one destination file should carry runtime markers even though
+    // VS Code was never opened.
+    let candidates = [
+        pocket.join("AGENTS.md"),
+        pocket.join(".github").join("copilot-instructions.md"),
+    ];
+    let injected = candidates.iter().filter(|p| p.is_file()).any(|p| {
+        let body = fs::read_to_string(p).unwrap_or_default();
+        body.contains("#SPOCKET_RUNTIME_CONTENT_START")
+            && body.contains("#SPOCKET_RUNTIME_CONTENT_END")
+    });
+    assert!(
+        injected,
+        "expected runtime markers to be injected into a destination file under --simulate-runtime"
+    );
+    summary.step(
+        "Verified runtime markers were injected into a destination file even though VS Code \
+         was never opened"
+            .to_string(),
+    );
+
+    assert_eq!(
+        env.code_launch_count(),
+        0,
+        "expected VS Code NOT to launch under --simulate-runtime"
+    );
+    summary.step("Verified VS Code was never launched under --simulate-runtime".to_string());
     summary.print();
 }

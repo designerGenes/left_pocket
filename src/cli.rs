@@ -146,6 +146,29 @@ pub struct Cli {
     #[arg(long = "verbose")]
     pub verbose: bool,
 
+    /// Inject runtime content into destination files without launching VS Code
+    ///
+    /// Simulates how files would look at VS Code runtime. Every file that would
+    /// normally gain inject-at-runtime content (wrapped in
+    /// #SPOCKET_RUNTIME_CONTENT_START / #SPOCKET_RUNTIME_CONTENT_END markers)
+    /// gains that content even though the runtime (VS Code) is never started.
+    /// Implies --silent: VS Code is not opened.
+    ///
+    ///   safe_pocket -i . --simulate-runtime --temporary --silent
+    #[arg(long = "simulate-runtime")]
+    pub simulate_runtime: bool,
+
+    /// Perform every step except opening VS Code at the end (debug)
+    ///
+    /// Useful for exercising safe_pocket setup without launching the editor. If
+    /// run inside a directory already associated with a safe pocket this is
+    /// effectively a no-op, since the normal action would simply have opened the
+    /// related project.
+    ///
+    ///   safe_pocket -i . --silent
+    #[arg(long = "silent")]
+    pub silent: bool,
+
     #[arg(short = 'v', hide = true)]
     pub short_version: bool,
 }

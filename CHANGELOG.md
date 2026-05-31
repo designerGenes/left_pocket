@@ -2,6 +2,21 @@
 
 All notable changes to Safe Pocket will be documented in this file.
 
+## [0.10.0] - 2026-05-31
+
+### Added
+- `--simulate-runtime` flag for `safe_pocket -i`: injects runtime content into
+  destination files (between `#SPOCKET_RUNTIME_CONTENT_START` /
+  `#SPOCKET_RUNTIME_CONTENT_END` markers) exactly as it would appear at VS Code
+  runtime, without launching the editor. Useful for testing inject-at-runtime
+  behaviour headlessly.
+- `--silent` flag for `safe_pocket -i`: performs every setup step but does not
+  open VS Code at the end (debug aid). Inside a directory already associated
+  with a safe pocket this is effectively a no-op.
+- Integration tests proving a normal run launches VS Code, while `--silent` and
+  `--simulate-runtime` skip the launch (and the latter still injects runtime
+  markers).
+
 ## [0.9.0] - 2026-05-31
 
 ### Added
