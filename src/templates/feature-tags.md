@@ -67,3 +67,17 @@ The "type" field determines when the rule is applied.
 - "done hook / done": the rule is applied when determining whether a feature is done.  If the rule is not satisfied, the feature is not done and you should not return until the rule is satisfied.  
 - "while hook / while":  the rule is applied during the whole process of working on the feature, and you should defer to it when making any related decisions. 
 - "start hook / start": the rule is applied at the start of working on the feature, and you should use it to inform your initial approach to the feature, as well as choices you intend to make relating to this feature.
+
+---
+A tag definition may also set `place_automatically: true`. When a tag is marked this way, that tag (with its leading `#`) is automatically written at the very top of any new feature file that safe_pocket creates (for example, the daily feature files opened via the VS Code hotkey).  For example:
+
+```yaml
+SPOCKET_MUST_TALK_LIKE_A_CAT:
+    description: "You must talk like a cat at least once while working on this feature."
+    place_automatically: true
+    type: "during hook"
+```
+
+would cause every newly created feature file to begin with `#SPOCKET_MUST_TALK_LIKE_A_CAT`.
+
+If the user later removes an auto-placed tag from a feature file, it must NOT be automatically re-added; `place_automatically` only governs placement at the moment a new feature file is created, not re-insertion afterward.

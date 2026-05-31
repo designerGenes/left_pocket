@@ -353,6 +353,29 @@ pub enum Commands {
         shell: ShellChoice,
     },
 
+    /// Resolve (and create) today's daily feature file for the VS Code hotkey
+    ///
+    /// Outputs JSON describing the file to open. When `--new` is passed, always
+    /// creates the next numbered file (YYYY_MM_DD_N.md); otherwise reuses any
+    /// existing feature file dated today, creating a base file if none exists.
+    ///
+    /// Newly created files are seeded with feature tags whose definition in
+    /// feature_tags.yaml sets `place_automatically: true`.
+    #[command(name = "daily-feature")]
+    DailyFeature {
+        /// Path to the pocket directory containing the FEATURES folder
+        #[arg(long = "pocket", value_name = "PATH")]
+        pocket: String,
+
+        /// Always create a new numbered daily feature file
+        #[arg(long = "new")]
+        new: bool,
+
+        /// Subfolder under FEATURES where new daily files are created
+        #[arg(long = "subpath", value_name = "PATH")]
+        subpath: Option<String>,
+    },
+
     /// Manage git worktrees that share this safe pocket
     ///
     /// Worktrees are additional project directories (typically git worktrees of

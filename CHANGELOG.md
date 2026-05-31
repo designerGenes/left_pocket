@@ -2,6 +2,24 @@
 
 All notable changes to Safe Pocket will be documented in this file.
 
+## [0.9.0] - 2026-05-31
+
+### Added
+- `safe_pocket daily-feature --pocket <dir> [--new] [--subpath <path>]` subcommand
+  that resolves (and creates) today's daily feature file, returning JSON for the
+  VS Code extension. New files default into `FEATURES/dailies/`.
+- Feature tags in `feature_tags.yaml` marked `place_automatically: true` are now
+  injected at the top of newly created feature files (removed tags are not
+  re-added).
+- Context-dependent hotkey in the VS Code extension: `ctrl+alt+t` opens/creates
+  today's daily feature when not already inside it, and opens
+  `feature_tags.yaml` when the active editor is today's feature file.
+- `ctrl+shift+alt+t` (while inside today's feature file) creates and opens a new
+  numbered daily feature file (`YYYY_MM_DD_1.md`, `YYYY_MM_DD_2.md`, ...).
+
+### Changed
+- The `spocket.dailyFeatureSubpath` extension setting now defaults to `dailies`.
+
 ## [0.8.0] - 2026-05-16
 
 ### Added

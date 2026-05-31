@@ -146,19 +146,6 @@ async function resolveActivePocketDir() {
     }
     return undefined;
 }
-function appendPocketEvent(pocketDir, action, details) {
-    const eventPath = path.join(pocketDir, "events.jsonl");
-    const event = {
-        timestamp: new Date().toISOString(),
-        action,
-        details,
-    };
-    fs.appendFile(eventPath, `${JSON.stringify(event)}\n`, (error) => {
-        if (error) {
-            console.error(`spocket event log failed: ${error.message}`);
-        }
-    });
-}
 function updateStatusBar(text, tooltip) {
     if (statusBarItem) {
         statusBarItem.text = text;
@@ -220,73 +207,125 @@ function parseDatedFilename(fileName) {
     }
     return undefined;
 }
-async function findDatedFeatureFiles(featuresDir) {
-    const results = [];
-    async function walk(dir) {
-        let entries;
-        try {
-            entries = await vscode.workspace.fs.readDirectory(dir);
+function runDailyFeature(pocketDir, isNew) {
+    return new Promise((resolve) => {
+        const binary = getBinaryPath();
+        const args = ["daily-feature", "--pocket", pocketDir];
+        if (isNew) {
+            args.push("--new");
         }
-        catch {
-            return;
+        const config = vscode.workspace.getConfiguration("spocket");
+        const subpath = config.get("dailyFeatureSubpath")?.trim();
+        if (subpath) {
+            args.push("--subpath", subpath);
         }
-        for (const [name, type] of entries) {
-            const uri = vscode.Uri.joinPath(dir, name);
-            if (type === vscode.FileType.Directory) {
-                await walk(uri);
-                continue;
+        (0, child_process_1.execFile)(binary, args, (error, stdout) => {
+            if (error) {
+                resolve({ status: "error", message: error.message });
+                return;
             }
-            if (type !== vscode.FileType.File || !name.toLowerCase().endsWith(".md")) {
-                continue;
+            try {
+                const result = JSON.parse(stdout.trim());
+                resolve(result);
             }
-            const dateKey = parseDatedFilename(name);
-            if (!dateKey) {
-                continue;
+            catch {
+                resolve({
+                    status: "error",
+                    message: `Failed to parse daily-feature output: ${stdout}`,
+                });
             }
-            const stat = await vscode.workspace.fs.stat(uri);
-            results.push({ uri, dateKey, mtimeMs: stat.mtime, ctimeMs: stat.ctime });
-        }
-    }
-    await walk(featuresDir);
-    return results;
+        });
+    });
 }
+function featureTagsYamlPath() {
+    return path.join(os.homedir(), ".config", "safe_pocket", "feature_tags.yaml");
+}
+/**
+ * Determine whether `fsPath` is "today's" feature file: a markdown file living
+ * under the pocket's FEATURES directory whose name parses to today's date.
+ */
+function isTodaysFeatureFile(pocketDir, fsPath) {
+    if (!fsPath) {
+        return false;
+    }
+    const featuresDir = path.join(pocketDir, "FEATURES");
+    if (fsPath !== featuresDir && !fsPath.startsWith(featuresDir + path.sep)) {
+        return false;
+    }
+    const name = path.basename(fsPath);
+    if (!name.toLowerCase().endsWith(".md")) {
+        return false;
+    }
+    return parseDatedFilename(name) === localDateKey(new Date());
+}
+async function openPath(target) {
+    const uri = vscode.Uri.file(target);
+    const doc = await vscode.workspace.openTextDocument(uri);
+    await vscode.window.showTextDocument(doc);
+}
+async function openFeatureTagsYaml() {
+    const tagsPath = featureTagsYamlPath();
+    if (!fs.existsSync(tagsPath)) {
+        await vscode.workspace.fs.createDirectory(vscode.Uri.file(path.dirname(tagsPath)));
+        await vscode.workspace.fs.writeFile(vscode.Uri.file(tagsPath), Buffer.from("", "utf8"));
+    }
+    const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(tagsPath));
+    await vscode.window.showTextDocument(doc, { preview: false });
+}
+/**
+ * Primary hotkey handler.
+ *
+ * - When the active editor is today's feature file, open feature_tags.yaml.
+ * - Otherwise, open (or create) today's daily feature file.
+ */
 async function openDailyFeature() {
     const pocketDir = await resolveActivePocketDir();
     if (!pocketDir) {
         vscode.window.showWarningMessage("Spocket: no active safe pocket workspace.");
         return;
     }
-    const config = vscode.workspace.getConfiguration("spocket");
-    const configuredSubpath = config.get("dailyFeatureSubpath")?.trim() ?? "";
-    const safeSubpath = configuredSubpath
-        .split(/[\\/]+/)
-        .filter((part) => part && part !== "." && part !== "..")
-        .join("/");
-    const featuresDir = vscode.Uri.file(path.join(pocketDir, "FEATURES"));
-    const today = localDateKey(new Date());
-    const candidates = (await findDatedFeatureFiles(featuresDir))
-        .filter((candidate) => candidate.dateKey === today)
-        .sort((a, b) => {
-        if (b.mtimeMs !== a.mtimeMs) {
-            return b.mtimeMs - a.mtimeMs;
-        }
-        if (b.ctimeMs !== a.ctimeMs) {
-            return b.ctimeMs - a.ctimeMs;
-        }
-        return path.basename(a.uri.fsPath).localeCompare(path.basename(b.uri.fsPath));
-    });
-    const existingTarget = candidates[0]?.uri;
-    const target = existingTarget ?? vscode.Uri.file(path.join(pocketDir, "FEATURES", safeSubpath, `${today.replace(/-/g, "_")}.md`));
-    if (!fs.existsSync(target.fsPath)) {
-        await vscode.workspace.fs.createDirectory(vscode.Uri.file(path.dirname(target.fsPath)));
-        await vscode.workspace.fs.writeFile(target, Buffer.from(`# ${today}\n\n`, "utf8"));
-        appendPocketEvent(pocketDir, "daily_feature.create", { path: target.fsPath });
+    const activePath = vscode.window.activeTextEditor?.document.uri.fsPath;
+    if (isTodaysFeatureFile(pocketDir, activePath)) {
+        await openFeatureTagsYaml();
+        return;
     }
-    else {
-        appendPocketEvent(pocketDir, "daily_feature.open", { path: target.fsPath });
+    const result = await runDailyFeature(pocketDir, false);
+    if (result.status !== "ok" || !result.path) {
+        vscode.window.showWarningMessage(`Spocket: failed to open daily feature: ${result.message ?? "unknown error"}`);
+        return;
     }
-    const doc = await vscode.workspace.openTextDocument(target);
-    await vscode.window.showTextDocument(doc);
+    await openPath(result.path);
+    await updateFeatureContext();
+}
+/**
+ * Shift+hotkey handler: always create and open a new numbered daily feature
+ * file for today.
+ */
+async function newDailyFeature() {
+    const pocketDir = await resolveActivePocketDir();
+    if (!pocketDir) {
+        vscode.window.showWarningMessage("Spocket: no active safe pocket workspace.");
+        return;
+    }
+    const result = await runDailyFeature(pocketDir, true);
+    if (result.status !== "ok" || !result.path) {
+        vscode.window.showWarningMessage(`Spocket: failed to create daily feature: ${result.message ?? "unknown error"}`);
+        return;
+    }
+    await openPath(result.path);
+    await updateFeatureContext();
+}
+/**
+ * Keep the `spocket.inTodaysFeature` context key in sync with the active editor
+ * so the shift+hotkey binding can be gated to today's feature file.
+ */
+async function updateFeatureContext() {
+    const pocketDir = activePocketDir ?? (await resolveActivePocketDir());
+    const activePath = vscode.window.activeTextEditor?.document.uri.fsPath;
+    const inTodaysFeature = pocketDir
+        ? isTodaysFeatureFile(pocketDir, activePath)
+        : false;
+    await vscode.commands.executeCommand("setContext", "spocket.inTodaysFeature", inTodaysFeature);
 }
 async function handleFolderChange(pocketDir) {
     if (syncInProgress) {
@@ -323,12 +362,15 @@ async function handleFolderChange(pocketDir) {
     }
 }
 async function activate(context) {
-    context.subscriptions.push(vscode.commands.registerCommand("spocket.openDailyFeature", openDailyFeature));
+    context.subscriptions.push(vscode.commands.registerCommand("spocket.openDailyFeature", openDailyFeature), vscode.commands.registerCommand("spocket.newDailyFeature", newDailyFeature), vscode.window.onDidChangeActiveTextEditor(() => {
+        updateFeatureContext().catch((err) => console.error("spocket updateFeatureContext failed:", err));
+    }));
     const pocketDir = await resolveActivePocketDir();
     if (!pocketDir) {
         return;
     }
     activePocketDir = pocketDir;
+    await updateFeatureContext();
     statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
     statusBarItem.text = "$(check) Spocket";
     statusBarItem.tooltip = `Pocket: ${path.basename(pocketDir)}`;

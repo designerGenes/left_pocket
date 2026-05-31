@@ -2,7 +2,7 @@
   "name": "spocket",
   "displayName": "Spocket - Safe Pocket Sync",
   "description": "Real-time sync between VS Code workspace folders and spocket manifests",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "publisher": "jadennation",
   "engines": {
     "vscode": "^1.85.0"
@@ -12,7 +12,8 @@
   ],
   "activationEvents": [
     "onStartupFinished",
-    "onCommand:spocket.openDailyFeature"
+    "onCommand:spocket.openDailyFeature",
+    "onCommand:spocket.newDailyFeature"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -26,8 +27,8 @@
         },
         "spocket.dailyFeatureSubpath": {
           "type": "string",
-          "default": "",
-          "description": "Optional subfolder under FEATURES where new daily feature files should be created"
+          "default": "dailies",
+          "description": "Subfolder under FEATURES where new daily feature files are created"
         }
       }
     },
@@ -35,6 +36,10 @@
       {
         "command": "spocket.openDailyFeature",
         "title": "Spocket: Open Daily Feature"
+      },
+      {
+        "command": "spocket.newDailyFeature",
+        "title": "Spocket: New Daily Feature File"
       }
     ],
     "keybindings": [
@@ -43,6 +48,12 @@
         "key": "ctrl+alt+t",
         "mac": "ctrl+alt+t",
         "when": "workspaceFolderCount > 0"
+      },
+      {
+        "command": "spocket.newDailyFeature",
+        "key": "ctrl+shift+alt+t",
+        "mac": "ctrl+shift+alt+t",
+        "when": "workspaceFolderCount > 0 && spocket.inTodaysFeature"
       }
     ]
   },

@@ -1,6 +1,7 @@
 mod cli;
 mod config;
 mod event;
+mod feature;
 mod hash;
 mod manifest;
 mod registry;
@@ -212,7 +213,68 @@ fn handle_command(command: Commands) -> Result<()> {
         }
 
         Commands::Worktree { action } => handle_worktree(action),
+
+        Commands::DailyFeature {
+            pocket,
+            new,
+            subpath,
+        } => handle_daily_feature(pocket, new, subpath),
     }
+}
+
+fn handle_daily_feature(pocket: String, new: bool, subpath: Option<String>) -> Result<()> {
+    let pocket_dir = PathBuf::from(&pocket);
+
+    if !pocket_dir.is_dir() {
+        let out = serde_json::json!({
+            "status": "error",
+            "message": format!("Pocket directory does not exist: {}", pocket)
+        });
+        println!("{}", serde_json::to_string(&out)?);
+        return Ok(());
+    }
+
+    let subpath = subpath
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| feature::DEFAULT_DAILY_SUBPATH.to_string());
+
+    let feature_tags_yaml = template::safe_pocket_config_dir()
+        .unwrap_or_else(|_| {
+            dirs::config_dir()
+                .unwrap_or_else(|| PathBuf::from("/"))
+                .join("safe_pocket")
+        })
+        .join("feature_tags.yaml");
+
+    match feature::resolve_daily_feature(&pocket_dir, &subpath, new, &feature_tags_yaml) {
+        Ok(outcome) => {
+            let _ = event::append_pocket_event(
+                &pocket_dir,
+                if outcome.created {
+                    "daily_feature.create"
+                } else {
+                    "daily_feature.open"
+                },
+                serde_json::json!({ "path": outcome.path, "new": new }),
+            );
+            let out = serde_json::json!({
+                "status": "ok",
+                "path": outcome.path,
+                "created": outcome.created,
+            });
+            println!("{}", serde_json::to_string(&out)?);
+        }
+        Err(e) => {
+            let out = serde_json::json!({
+                "status": "error",
+                "message": e.to_string(),
+            });
+            println!("{}", serde_json::to_string(&out)?);
+        }
+    }
+
+    Ok(())
 }
 
 fn handle_worktree(action: WorktreeAction) -> Result<()> {
