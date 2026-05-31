@@ -493,6 +493,24 @@ pub fn reprefix(conn: &Connection, old: &str, new: &str) -> Result<usize> {
     Ok(updated)
 }
 
+/// Reprefix tasks in the global database when a safe pocket's directory name
+/// changes (e.g. after `heal` renames the pocket). This is a no-op when the
+/// names match or when no database exists yet, so it is safe to call
+/// unconditionally from pocket-mutating commands. Returns the number of tasks
+/// migrated.
+pub fn reprefix_global(old: &str, new: &str) -> Result<usize> {
+    if old == new || old.is_empty() || new.is_empty() {
+        return Ok(0);
+    }
+    // Don't create the database just to migrate a pocket that has no tasks.
+    let path = database_path()?;
+    if !path.exists() {
+        return Ok(0);
+    }
+    let conn = open_db()?;
+    reprefix(&conn, old, new)
+}
+
 // ── CLI entry point ───────────────────────────────────────────────────────────
 
 /// Parse and dispatch the raw trailing args after `spocket task`.

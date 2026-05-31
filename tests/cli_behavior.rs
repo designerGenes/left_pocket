@@ -579,3 +579,106 @@ fn runtime_agents_md_advertises_task_tracker() {
     summary.step("Verified AGENTS.md mentions `spocket task` and not beads".to_string());
     summary.print();
 }
+
+/// When `heal` renames a safe pocket directory, the built-in task tracker must
+/// migrate that project's tasks from the old directory-name prefix to the new
+/// one so they remain discoverable from the project.
+#[test]
+fn heal_reprefixes_tracked_tasks() {
+    let env = TestEnv::new("heal-reprefix");
+    let source_project = env.project("source-project");
+    let target_project = env.project("target-project");
+    let mut summary = TestSummary::new(
+        "heal_reprefixes_tracked_tasks",
+        "`heal` migrates a project's tracked tasks to the renamed pocket's prefix",
+        "the temporary HOME (including the global tasks.db under it) is removed on drop",
+    );
+
+    // Create the source pocket and a task owned by its prefix.
+    assert_success(&env.run_spocket(&source_project, &["-i", "."]));
+    let source_pocket = env.only_pocket();
+    let source_prefix = source_pocket
+        .file_name()
+        .unwrap()
+        .to_string_lossy()
+        .to_string();
+    summary.step(format!(
+        "Created the source pocket with prefix `{source_prefix}`"
+    ));
+
+    let created = env.run_spocket(
+        &source_project,
+        &[
+            "task",
+            "create",
+            "--named",
+            "Carry me across the heal",
+            "--priority",
+            "1",
+        ],
+    );
+    assert_success(&created);
+    let created_out = String::from_utf8_lossy(&created.stdout);
+    assert!(
+        created_out.contains(&format!("{source_prefix}-")),
+        "new task id should carry the source prefix, got: {created_out}"
+    );
+    summary.step("Created a task whose id is prefixed by the source pocket name".to_string());
+
+    // Register an alias and create the deterministic target pocket.
+    assert_success(&env.run_spocket(
+        &target_project,
+        &["register", &format!("target={}", target_project.display())],
+    ));
+    assert_success(&env.run_spocket(&target_project, &["-i", "."]));
+    summary.step("Registered an alias and created the deterministic target pocket".to_string());
+
+    // Heal the source pocket into the target's deterministic location.
+    let heal = env.run_spocket(
+        &target_project,
+        &[
+            "heal",
+            "--alias",
+            "target",
+            "--pocket",
+            source_pocket.to_string_lossy().as_ref(),
+        ],
+    );
+    assert_success(&heal);
+    assert_contains(&heal, "Reprefixed");
+    summary.step("Ran heal and saw the reprefix notice in its output".to_string());
+
+    // The healed pocket's name is the new prefix.
+    let locate = env.run_spocket(&target_project, &["locate", "--path", "."]);
+    assert_success(&locate);
+    let value: serde_json::Value = serde_json::from_slice(&locate.stdout).unwrap();
+    let healed_pocket = PathBuf::from(value.get("pocket_dir").unwrap().as_str().unwrap());
+    let new_prefix = healed_pocket
+        .file_name()
+        .unwrap()
+        .to_string_lossy()
+        .to_string();
+    assert_ne!(source_prefix, new_prefix, "heal should change the prefix");
+
+    // Listing tasks from the target project should surface the migrated task,
+    // now carrying the new prefix.
+    let list = env.run_spocket(&target_project, &["task", "list", "--raw"]);
+    assert_success(&list);
+    let tasks: serde_json::Value = serde_json::from_slice(&list.stdout).unwrap();
+    let arr = tasks.as_array().expect("task list --raw should be an array");
+    assert_eq!(arr.len(), 1, "expected exactly one migrated task");
+    let id = arr[0].get("id").and_then(|v| v.as_str()).unwrap();
+    assert!(
+        id.starts_with(&format!("{new_prefix}-")),
+        "migrated task id should carry the new prefix `{new_prefix}`, got `{id}`"
+    );
+    assert_eq!(
+        arr[0].get("prefix").and_then(|v| v.as_str()),
+        Some(new_prefix.as_str())
+    );
+    summary.step(
+        "Verified the task survived the heal and now carries the new pocket prefix".to_string(),
+    );
+    summary.print();
+}
+

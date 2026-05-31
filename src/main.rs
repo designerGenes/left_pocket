@@ -1000,6 +1000,25 @@ fn handle_heal(
 
     registry::remove_pocket(&source.pocket_dir)?;
 
+    // The pocket directory name is the task prefix; migrate any tracked tasks
+    // from the old name to the new one so the built-in task tracker keeps
+    // working after the rename.
+    match task::reprefix_global(&source.hash, &target.hash) {
+        Ok(n) if n > 0 => {
+            println!(
+                "{} {} task(s): {} -> {}",
+                "Reprefixed".bright_green(),
+                n.to_string().bright_yellow(),
+                source.hash.bright_yellow(),
+                target.hash.bright_yellow()
+            );
+        }
+        Ok(_) => {}
+        Err(err) => {
+            eprintln!("Warning: failed to reprefix tasks after heal: {err}");
+        }
+    }
+
     let workspace_file = Workspace::find_workspace_file(&target.pocket_dir);
     if let Some(old_file) = workspace_file {
         let new_file = target.workspace_file_path();

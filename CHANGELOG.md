@@ -23,6 +23,8 @@ All notable changes to Safe Pocket will be documented in this file.
     emits JSON.
   - `spocket task <ID> reprefix <new-prefix>` — rewrite a project's task IDs when
     its safe pocket name changes.
+  - `heal` automatically migrates a project's tracked tasks to the renamed
+    pocket's prefix, so issues stay discoverable after the directory is renamed.
   - IDs may be referenced by full id, case-insensitively, or by the bare 6-char
     suffix when run from inside the owning project.
 - The runtime AGENTS.md block now advertises the `spocket task` workflow to
