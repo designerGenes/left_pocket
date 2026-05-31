@@ -2,6 +2,30 @@
 
 All notable changes to Safe Pocket will be documented in this file.
 
+## [0.11.0] - 2026-05-31
+
+### Added
+- Unified agent definitions: a single source of truth for safe_pocket's AI agents
+  lives in `~/.config/safe_pocket/templates/agents/`. Each agent is a Markdown
+  file with tool-agnostic YAML frontmatter (`agent_name`, `description`, `notes`,
+  `mode`, `model`, `can`, `cannot`). Six default agents ship with the binary:
+  **builder**, **critic**, **reporter**, **documenter**, **installer**, and
+  **safe_pocketer**.
+- `safe_pocket sync agents`: translate the unified agent definitions into the
+  places OpenCode looks for agents (`~/.config/opencode/agent/*.md`). Capabilities
+  map onto OpenCode permissions (`code`/`document` → edit+write, `test`/`execute`
+  → bash, `plan` → task); effective capabilities are `can` minus `cannot`.
+  Non-destructive: a pre-existing, hand-authored agent file is backed up to
+  `<name>.md.pre-spocket.bak` before being replaced.
+- `safe_pocket sync all`: run every system-wide sync (currently agents).
+- Agents are now auto-synced whenever a pocket is opened.
+
+### Changed
+- `#SPOCKET_TEMPLATE_DESTINATION` may now appear **multiple times** in a single
+  template file. Each directive applies to all content beneath it until the next
+  directive, letting one template file populate several destination files.
+  Blocks targeting the same destination are concatenated.
+
 ## [0.10.0] - 2026-05-31
 
 ### Added

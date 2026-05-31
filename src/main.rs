@@ -1,3 +1,4 @@
+mod agents;
 mod cli;
 mod config;
 mod event;
@@ -181,7 +182,7 @@ fn handle_command(command: Commands) -> Result<()> {
             Ok(())
         }
 
-        Commands::Sync { pocket } => handle_sync(pocket),
+        Commands::Sync { target, pocket } => handle_sync(target, pocket),
 
         Commands::RuntimeMergeStart { pocket } => handle_merge_start(pocket),
 
@@ -1328,7 +1329,26 @@ fn resolve_workspace_reference(reference: &str) -> Result<Workspace> {
     Err(anyhow!("No safe pocket found for reference: {}", reference))
 }
 
-fn handle_sync(pocket: String) -> Result<()> {
+fn handle_sync(target: Option<String>, pocket: Option<String>) -> Result<()> {
+    // Dispatch to system-wide sync targets when a TARGET is given.
+    if let Some(target) = target.as_deref() {
+        match target.to_ascii_lowercase().as_str() {
+            "agents" => return handle_sync_agents(),
+            "all" => return handle_sync_all(),
+            other => {
+                return Err(anyhow!(
+                    "Unknown sync target '{other}'. Valid targets: agents, all.\n\
+                     (Omit the target and pass --pocket for the manifest sync.)"
+                ));
+            }
+        }
+    }
+
+    let pocket = pocket.ok_or_else(|| {
+        anyhow!(
+            "`sync` requires either a TARGET (agents, all) or --pocket <PATH> for the manifest sync."
+        )
+    })?;
     let pocket_dir = PathBuf::from(&pocket);
 
     if !pocket_dir.is_dir() {
@@ -1412,6 +1432,56 @@ fn handle_sync(pocket: String) -> Result<()> {
     });
     println!("{}", serde_json::to_string(&out)?);
     Ok(())
+}
+
+/// Synchronize the unified agent definitions into the tools that consume them
+/// (currently OpenCode). Prints a human-readable summary.
+fn handle_sync_agents() -> Result<()> {
+    template::ensure_default_assets()?;
+    let report = agents::sync_agents()?;
+    print_agents_sync_report(&report);
+    Ok(())
+}
+
+/// Run every system-wide sync. Today this is just the agents.
+fn handle_sync_all() -> Result<()> {
+    println!("{}", "Syncing all system-wide safe_pocket assets…".bright_white().bold());
+    handle_sync_agents()?;
+    Ok(())
+}
+
+fn print_agents_sync_report(report: &agents::SyncReport) {
+    let target = agents::opencode_agent_dir()
+        .map(|d| d.display().to_string())
+        .unwrap_or_else(|_| "~/.config/opencode/agent".to_string());
+
+    if report.created.is_empty() && report.updated.is_empty() {
+        println!(
+            "{} {} ({})",
+            "Agents already up to date:".bright_green(),
+            report.unchanged.join(", ").dimmed(),
+            target.dimmed()
+        );
+        return;
+    }
+
+    println!("{} {}", "Synced agents →".bright_green(), target.dimmed());
+    for name in &report.created {
+        println!("  {} {}", "created".bright_green(), name);
+    }
+    for name in &report.updated {
+        println!("  {} {}", "updated".bright_yellow(), name);
+    }
+    if !report.unchanged.is_empty() {
+        println!("  {} {}", "unchanged".dimmed(), report.unchanged.join(", ").dimmed());
+    }
+    for backup in &report.backed_up {
+        println!(
+            "  {} backed up existing file to {}",
+            "note:".bright_blue(),
+            backup.dimmed()
+        );
+    }
 }
 
 fn handle_augment(add: Vec<String>, remove: Vec<String>, no_open: bool) -> Result<()> {
@@ -1552,6 +1622,26 @@ fn handle_augment(add: Vec<String>, remove: Vec<String>, no_open: bool) -> Resul
 }
 
 fn open_with_merge(ws: &Workspace) -> Result<()> {
+    // Keep the unified agents in sync whenever a pocket is opened. Best-effort:
+    // a failure here must never block opening the workspace.
+    match agents::sync_agents() {
+        Ok(report) if report.changed() => {
+            if verbose() {
+                print_agents_sync_report(&report);
+            }
+        }
+        Ok(_) => {}
+        Err(e) => {
+            if verbose() {
+                eprintln!(
+                    "{} {}",
+                    "Warning: agent sync failed:".bright_yellow(),
+                    e
+                );
+            }
+        }
+    }
+
     if let Ok(ctx) = build_template_context(&ws.pocket_dir) {
         if let Err(e) = template::apply_merge_at_runtime(&ws.pocket_dir, &ctx) {
             eprintln!(

@@ -209,19 +209,28 @@ pub enum Commands {
     #[command(name = "list-workspaces")]
     ListWorkspaces,
 
-    /// Sync the manifest after the workspace file is edited externally
+    /// Sync system-wide assets, or the manifest after the workspace file changes
     ///
-    /// Called automatically by the VS Code extension whenever the active
-    /// workspace changes. Updates manifest.json to reflect the current set of
-    /// folders in the .code-workspace file. Outputs JSON so the extension can
-    /// read the result.
+    /// With a TARGET, synchronizes system-wide safe_pocket assets that every
+    /// pocket draws from:
     ///
-    /// You rarely need to run this manually.
+    ///   safe_pocket sync agents   Write the unified agent definitions from
+    ///                             ~/.config/safe_pocket/templates/agents into the
+    ///                             places OpenCode looks for agents.
+    ///   safe_pocket sync all      Run every system-wide sync (currently agents).
+    ///
+    /// Without a TARGET (the legacy form used by the VS Code extension), updates
+    /// the pocket manifest to reflect the current .code-workspace folders and
+    /// prints JSON. Requires --pocket. You rarely need to run this manually.
     #[command(name = "sync")]
     Sync {
-        /// Path to the pocket directory containing the manifest and workspace file
+        /// What to sync: "agents" or "all". Omit for the manifest sync.
+        #[arg(value_name = "TARGET")]
+        target: Option<String>,
+
+        /// Path to the pocket directory (required for the manifest sync)
         #[arg(long = "pocket", value_name = "PATH")]
-        pocket: String,
+        pocket: Option<String>,
     },
 
     /// Add or remove project directories from the current workspace in-place

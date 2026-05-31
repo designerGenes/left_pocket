@@ -227,72 +227,114 @@ pub struct Template {
     pub source_path: PathBuf,
 }
 
-/// Parse a single template file.
+/// Parse a template file into one or more [`Template`] blocks.
 ///
-/// The first line **must** start with `#SPOCKET_TEMPLATE_DESTINATION` followed
-/// by a colon (optional) and the destination path. All subsequent lines that
-/// start with `#SPOCKET` are treated as metadata and stripped. Everything else
-/// becomes the template content.
+/// The first non-empty line **must** start with `#SPOCKET_TEMPLATE_DESTINATION`
+/// followed by a colon (optional) and the destination path. A file may contain
+/// **multiple** `#SPOCKET_TEMPLATE_DESTINATION` directives: each one begins a new
+/// block, and all content beneath it applies to that destination until the next
+/// `#SPOCKET_TEMPLATE_DESTINATION` directive (or end of file). Blocks that target
+/// the same destination are concatenated.
 ///
-/// Recognised metadata directives:
+/// All other lines that start with `#SPOCKET` are treated as metadata and
+/// stripped. Recognised per-block metadata directives:
 /// - `#SPOCKET_QUIET_MERGE` — merge with existing file instead of overwriting.
-pub fn parse_template(path: &Path) -> Result<Template> {
+/// - `#SPOCKET_MERGE_AT_RUNTIME` — inject content at runtime.
+pub fn parse_template(path: &Path) -> Result<Vec<Template>> {
     let raw = fs::read_to_string(path)
         .with_context(|| format!("Failed to read template file: {}", path.display()))?;
 
-    let mut lines = raw.lines();
+    let raw_ends_with_newline = raw.ends_with('\n');
 
-    // First line must be the destination directive
-    let first_line = lines
-        .next()
-        .ok_or_else(|| anyhow!("Template file is empty: {}", path.display()))?;
-
-    let destination = parse_destination_directive(first_line).ok_or_else(|| {
-        anyhow!(
-            "Template file '{}' is missing #SPOCKET_TEMPLATE_DESTINATION on line 1.\n\
-                 Found: {}",
-            path.display(),
-            first_line
-        )
-    })?;
-
-    // Collect remaining lines, detecting directives and stripping any that start with #SPOCKET
-    let mut quiet_merge = false;
-    let mut merge_at_runtime = false;
-    let content_lines: Vec<&str> = lines
-        .filter(|line| {
-            if line.trim() == "#SPOCKET_QUIET_MERGE" {
-                quiet_merge = true;
-                false
-            } else if line.trim() == "#SPOCKET_MERGE_AT_RUNTIME" {
-                merge_at_runtime = true;
-                false
-            } else {
-                !line.starts_with("#SPOCKET")
-            }
-        })
-        .collect();
-    let mut content = content_lines.join("\n");
-
-    // Preserve trailing newline if original file had one
-    if raw.ends_with('\n') && !content.ends_with('\n') {
-        content.push('\n');
+    // Accumulator for the block currently being built.
+    struct Block {
+        destination: String,
+        lines: Vec<String>,
+        quiet_merge: bool,
+        merge_at_runtime: bool,
     }
 
-    // Trim a single leading newline if present (common after the directive line)
-    let content = if content.starts_with('\n') {
-        content[1..].to_string()
-    } else {
-        content
-    };
+    let mut blocks: Vec<Block> = Vec::new();
 
-    Ok(Template {
-        destination,
-        content,
-        quiet_merge,
-        merge_at_runtime,
-        source_path: path.to_path_buf(),
-    })
+    for line in raw.lines() {
+        if let Some(dest) = parse_destination_directive(line) {
+            // Start a new block targeting `dest`.
+            blocks.push(Block {
+                destination: dest,
+                lines: Vec::new(),
+                quiet_merge: false,
+                merge_at_runtime: false,
+            });
+            continue;
+        }
+
+        // Content lines must belong to an already-opened block.
+        let Some(current) = blocks.last_mut() else {
+            // Allow leading blank lines before the first directive; anything else
+            // (non-whitespace before the first destination) is an error.
+            if line.trim().is_empty() {
+                continue;
+            }
+            return Err(anyhow!(
+                "Template file '{}' is missing #SPOCKET_TEMPLATE_DESTINATION before its content.\n\
+                     Found: {}",
+                path.display(),
+                line
+            ));
+        };
+
+        let trimmed = line.trim();
+        if trimmed == "#SPOCKET_QUIET_MERGE" {
+            current.quiet_merge = true;
+        } else if trimmed == "#SPOCKET_MERGE_AT_RUNTIME" {
+            current.merge_at_runtime = true;
+        } else if line.starts_with("#SPOCKET") {
+            // Strip unrecognised metadata directives.
+        } else {
+            current.lines.push(line.to_string());
+        }
+    }
+
+    if blocks.is_empty() {
+        return Err(anyhow!(
+            "Template file '{}' is missing #SPOCKET_TEMPLATE_DESTINATION.",
+            path.display()
+        ));
+    }
+
+    let num_blocks = blocks.len();
+    let mut templates = Vec::with_capacity(num_blocks);
+    for (idx, block) in blocks.into_iter().enumerate() {
+        let is_final = idx + 1 == num_blocks;
+        let content = if block.lines.is_empty() {
+            String::new()
+        } else {
+            let mut content = block.lines.join("\n");
+            // Interior blocks are always terminated by a newline in the source
+            // (the following directive sits on its own line), so a trailing blank
+            // line in the source is preserved. The final block mirrors the file.
+            let want_trailing = if is_final { raw_ends_with_newline } else { true };
+            if want_trailing {
+                content.push('\n');
+            }
+            // Trim a single leading newline (common when a blank line follows the
+            // destination directive or stripped metadata directives).
+            if let Some(stripped) = content.strip_prefix('\n') {
+                content = stripped.to_string();
+            }
+            content
+        };
+
+        templates.push(Template {
+            destination: block.destination,
+            content,
+            quiet_merge: block.quiet_merge,
+            merge_at_runtime: block.merge_at_runtime,
+            source_path: path.to_path_buf(),
+        });
+    }
+
+    Ok(templates)
 }
 
 /// Parse the `#SPOCKET_TEMPLATE_DESTINATION` directive from a line.
@@ -480,10 +522,27 @@ pub fn ensure_default_assets() -> Result<()> {
         }
     }
 
+    // Default unified agent definitions (synced to OpenCode / VS Code separately).
+    let agents_dir = tmpl_dir.join("agents");
+    fs::create_dir_all(&agents_dir).context("Failed to create templates/agents directory")?;
+    for (file_name, content) in crate::agents::DEFAULT_AGENTS {
+        let target = agents_dir.join(file_name);
+        if !target.exists() {
+            fs::write(&target, content).with_context(|| {
+                format!("Failed to write default agent template: {}", target.display())
+            })?;
+            if crate::verbose() {
+                println!(
+                    "{} {}",
+                    "Installed default agent template:".bright_green(),
+                    target.display().to_string().dimmed()
+                );
+            }
+        }
+    }
+
     Ok(())
 }
-
-/// Load all template files from the templates directory, walking subdirectories recursively.
 pub fn load_templates() -> Result<Vec<Template>> {
     let tmpl_dir = templates_dir()?;
 
@@ -502,6 +561,11 @@ pub fn load_templates() -> Result<Vec<Template>> {
             let path = entry.path();
 
             if path.is_dir() {
+                // The `agents/` subdirectory holds unified agent definitions
+                // (synced via `spocket sync agents`), not pocket templates.
+                if path.file_name().map_or(false, |n| n == "agents") {
+                    continue;
+                }
                 dirs_to_visit.push(path);
                 continue;
             }
@@ -511,7 +575,7 @@ pub fn load_templates() -> Result<Vec<Template>> {
             }
 
             match parse_template(&path) {
-                Ok(tmpl) => templates.push(tmpl),
+                Ok(mut parsed) => templates.append(&mut parsed),
                 Err(e) => {
                     eprintln!(
                         "{} skipping {}: {}",
@@ -1483,7 +1547,7 @@ mod tests {
         )
         .unwrap();
 
-        let tmpl = parse_template(&file).unwrap();
+        let tmpl = parse_template(&file).unwrap().remove(0);
         assert_eq!(tmpl.destination, ".github/test.md");
         assert_eq!(tmpl.content, "Hello world\nSecond line\n");
 
@@ -1506,7 +1570,7 @@ mod tests {
         )
         .unwrap();
 
-        let tmpl = parse_template(&file).unwrap();
+        let tmpl = parse_template(&file).unwrap().remove(0);
         assert_eq!(tmpl.destination, "test.md");
         assert_eq!(tmpl.content, "Content line 1\nContent line 2\n");
 
@@ -1537,6 +1601,76 @@ mod tests {
         fs::write(&file, "Just some content\nNo directive\n").unwrap();
 
         assert!(parse_template(&file).is_err());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_parse_template_midfile_destinations() {
+        let dir = std::env::temp_dir().join("spocket_test_parse_midfile");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        let file = dir.join("multi.md");
+        fs::write(
+            &file,
+            "#SPOCKET_TEMPLATE_DESTINATION file1.md\n\
+             bow wow wow\n\
+             \n\
+             more stuff\n\
+             \n\
+             #SPOCKET_TEMPLATE_DESTINATION file2.md\n\
+             meow meow meow\n\
+             \n\
+             #SPOCKET_TEMPLATE_DESTINATION file1.md\n\
+             oh wow this is more!\n",
+        )
+        .unwrap();
+
+        let templates = parse_template(&file).unwrap();
+        assert_eq!(templates.len(), 3);
+        assert_eq!(templates[0].destination, "file1.md");
+        assert_eq!(templates[1].destination, "file2.md");
+        assert_eq!(templates[2].destination, "file1.md");
+
+        // After merge, file1 concatenates both of its blocks; file2 stands alone.
+        let merged = merge_templates_by_destination(templates);
+        let by_dest: std::collections::HashMap<_, _> = merged
+            .into_iter()
+            .map(|t| (t.destination.clone(), t.content))
+            .collect();
+        assert_eq!(
+            by_dest.get("file1.md").unwrap(),
+            "bow wow wow\n\nmore stuff\n\noh wow this is more!\n"
+        );
+        assert_eq!(by_dest.get("file2.md").unwrap(), "meow meow meow\n\n");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_parse_template_midfile_per_block_flags() {
+        let dir = std::env::temp_dir().join("spocket_test_parse_midfile_flags");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        let file = dir.join("flags.md");
+        fs::write(
+            &file,
+            "#SPOCKET_TEMPLATE_DESTINATION a.md\n\
+             #SPOCKET_QUIET_MERGE\n\
+             alpha\n\
+             #SPOCKET_TEMPLATE_DESTINATION b.md\n\
+             beta\n",
+        )
+        .unwrap();
+
+        let templates = parse_template(&file).unwrap();
+        assert_eq!(templates.len(), 2);
+        assert!(templates[0].quiet_merge);
+        assert_eq!(templates[0].content, "alpha\n");
+        assert!(!templates[1].quiet_merge);
+        assert_eq!(templates[1].content, "beta\n");
 
         let _ = fs::remove_dir_all(&dir);
     }
@@ -1664,7 +1798,7 @@ mod tests {
         assert_eq!(dirs.len(), 2);
 
         // Verify template parsing
-        let tmpl = parse_template(&tmpl_dir.join("test.md")).unwrap();
+        let tmpl = parse_template(&tmpl_dir.join("test.md")).unwrap().remove(0);
         assert_eq!(tmpl.destination, "subdir/test.md");
 
         // Verify variable expansion
@@ -1733,7 +1867,7 @@ mod tests {
         )
         .unwrap();
 
-        let tmpl = parse_template(&file).unwrap();
+        let tmpl = parse_template(&file).unwrap().remove(0);
         assert!(tmpl.quiet_merge, "quiet_merge should be true");
         assert_eq!(tmpl.content, "MY_KEY=value\n");
 
@@ -1753,7 +1887,7 @@ mod tests {
         )
         .unwrap();
 
-        let tmpl = parse_template(&file).unwrap();
+        let tmpl = parse_template(&file).unwrap().remove(0);
         assert!(!tmpl.quiet_merge, "quiet_merge should be false");
 
         let _ = fs::remove_dir_all(&dir);
@@ -1773,7 +1907,7 @@ mod tests {
         )
         .unwrap();
 
-        let tmpl = parse_template(&file).unwrap();
+        let tmpl = parse_template(&file).unwrap().remove(0);
         assert!(tmpl.merge_at_runtime, "merge_at_runtime should be true");
         assert_eq!(tmpl.content, "Runtime content\n");
 
