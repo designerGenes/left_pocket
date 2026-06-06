@@ -1,3 +1,8 @@
 .env
 target/**/*
 ingest_templates.sh
+
+# Generated analysis and output
+graphify-out/
+*.graph
+.graph/
