@@ -848,7 +848,18 @@ fn apply_session_tools(names: &[String], workspace: &mut Workspace) -> Result<()
 
 fn apply_project_tools(names: &[String], workspace: &Workspace) -> Result<()> {
     for name in names {
-        match normalize_tool_name(name)?.as_str() {
+        let tool = normalize_tool_name(name)?;
+        if project_tool_installed(&tool, workspace) {
+            if verbose() {
+                println!(
+                    "{} {}",
+                    "Tool already installed:".dimmed(),
+                    tool.bright_yellow()
+                );
+            }
+            continue;
+        }
+        match tool.as_str() {
             "gitleaks" => install_gitleaks(workspace)?,
             "graphify" => install_graphify(workspace)?,
             "memgraph" => install_memgraph(workspace)?,
@@ -856,6 +867,36 @@ fn apply_project_tools(names: &[String], workspace: &Workspace) -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn project_tool_installed(tool: &str, workspace: &Workspace) -> bool {
+    match tool {
+        "gitleaks" => {
+            workspace
+                .pocket_dir
+                .join("tools/gitleaks/README.md")
+                .is_file()
+                && workspace
+                    .core_paths
+                    .iter()
+                    .all(|project| project.join(".gitleaks.toml").is_file())
+        }
+        "graphify" => {
+            workspace
+                .pocket_dir
+                .join("tools/graphify/README.md")
+                .is_file()
+                && workspace.pocket_dir.join("graphify-out").is_dir()
+        }
+        "memgraph" => {
+            let dir = workspace.pocket_dir.join("tools/memgraph");
+            dir.join("scan-config.json").is_file()
+                && dir.join("docker-compose.yml").is_file()
+                && dir.join("schema.cypher").is_file()
+                && dir.join("scan-safe-pocket.sh").is_file()
+        }
+        _ => false,
+    }
 }
 
 fn prepare_tool_dir(dir: &Path, tool: &str, workspace: &Workspace) -> Result<()> {
@@ -1713,7 +1754,7 @@ fn handle_sync(target: Option<String>, pocket: Option<String>) -> Result<()> {
         .unwrap_or("")
         .to_string();
     let migration_workspace = Workspace {
-        hash: workspace_hash,
+        hash: workspace_hash.clone(),
         core_paths: vec![],
         sidecar_paths: vec![],
         pocket_dir: pocket_dir.clone(),
@@ -1721,9 +1762,6 @@ fn handle_sync(target: Option<String>, pocket: Option<String>) -> Result<()> {
         temporary: pocket_dir.starts_with(Workspace::temporary_spocket_dir()?),
     };
     migration_workspace.migrate_storage_references()?;
-
-    // Read current paths from workspace file
-    let (_, file_paths) = Workspace::read_workspace_file(&workspace_file, &pocket_dir)?;
 
     // Load or backfill manifest
     let (mut manifest, manifest_paths) = match Workspace::load_manifest_or_backfill(&pocket_dir)? {
@@ -1737,6 +1775,36 @@ fn handle_sync(target: Option<String>, pocket: Option<String>) -> Result<()> {
             return Ok(());
         }
     };
+
+    // Read current paths from workspace file. If the editor reports a transient
+    // pocket-only workspace but the manifest still knows the project folders,
+    // repair the workspace file instead of attempting to erase the manifest.
+    let (existing_workspace, mut file_paths) =
+        Workspace::read_workspace_file(&workspace_file, &pocket_dir)?;
+    if file_paths.is_empty() && !manifest_paths.is_empty() {
+        let repair_workspace = Workspace {
+            hash: workspace_hash.clone(),
+            core_paths: manifest_paths.clone(),
+            sidecar_paths: vec![],
+            pocket_dir: pocket_dir.clone(),
+            create_readmes: false,
+            temporary: manifest.temporary,
+        };
+        repair_workspace.write_workspace_file_preserving(Some(&existing_workspace))?;
+        file_paths = manifest_paths.clone();
+    }
+
+    if file_paths.is_empty() {
+        let out = serde_json::json!({
+            "status": "error",
+            "message": "Refusing to sync workspace with zero project folders",
+            "hash": manifest.hash,
+            "birth_hash": manifest.birth_hash(),
+            "paths": manifest.core_paths,
+        });
+        println!("{}", serde_json::to_string(&out)?);
+        return Ok(());
+    }
 
     // Compare
     let file_set: std::collections::HashSet<_> = file_paths.iter().collect();

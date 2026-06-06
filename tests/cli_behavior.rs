@@ -904,6 +904,61 @@ fn add_memgraph_repairs_workspace_file_when_manifest_is_already_good() {
 }
 
 #[test]
+fn sync_pocket_repairs_workspace_file_from_manifest_paths() {
+    let env = TestEnv::new("sync-repair-workspace");
+    let project = env.project("project");
+
+    assert_success(&env.run_spocket(&project, &["-i", ".", "--temporary", "--silent"]));
+    let pocket = env.only_pocket();
+    let workspace_file = env.workspace_file();
+    let name = pocket.file_name().unwrap().to_string_lossy().to_string();
+
+    fs::write(
+        &workspace_file,
+        format!(
+            "{{\n  \"folders\": [\n    {{\n      \"path\": \"{}\",\n      \"name\": \"[Safe Pocket] {name}\"\n    }}\n  ]\n}}\n",
+            pocket.display()
+        ),
+    )
+    .unwrap();
+
+    let output = env.run_spocket(
+        &project,
+        &["sync", "--pocket", pocket.to_string_lossy().as_ref()],
+    );
+    assert_success(&output);
+    let result: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(
+        result.get("status").and_then(|v| v.as_str()),
+        Some("unchanged")
+    );
+
+    let workspace_text = fs::read_to_string(&workspace_file).unwrap();
+    assert!(workspace_text.contains(&project.display().to_string()));
+}
+
+#[test]
+fn add_memgraph_is_idempotent_when_already_installed() {
+    let env = TestEnv::new("memgraph-idempotent");
+    let project = env.project("project");
+
+    assert_success(&env.run_spocket(
+        &project,
+        &["-i", ".", "--temporary", "--add", "memgraph", "--silent"],
+    ));
+    let pocket = env.only_pocket();
+    let config_path = pocket.join("tools/memgraph/scan-config.json");
+    fs::write(&config_path, "sentinel").unwrap();
+
+    let second = env.run_spocket(
+        &project,
+        &["-i", ".", "--temporary", "--add", "memgraph", "--silent"],
+    );
+    assert_success(&second);
+    assert_eq!(fs::read_to_string(&config_path).unwrap(), "sentinel");
+}
+
+#[test]
 fn add_gitleaks_writes_project_guard_files() {
     let env = TestEnv::new("gitleaks-add");
     let project = env.project("project");
