@@ -785,6 +785,9 @@ fn add_memgraph_configures_safe_pocket_markdown_scan() {
     let pocket = env.only_pocket();
     let tool = pocket.join("tools/memgraph");
     assert!(tool.join("docker-compose.yml").is_file());
+    let compose = fs::read_to_string(tool.join("docker-compose.yml")).unwrap();
+    assert!(compose.contains("memgraph/memgraph-mage:latest"));
+    assert!(compose.contains("7444:7444"));
     assert!(tool.join("schema.cypher").is_file());
     assert!(tool.join("scan-safe-pocket.sh").is_file());
     assert!(tool.join("data").is_dir());
@@ -815,6 +818,29 @@ fn add_memgraph_configures_safe_pocket_markdown_scan() {
 
     let workspace_text = fs::read_to_string(env.workspace_file()).unwrap();
     assert!(workspace_text.contains("[Tool] memgraph"));
+}
+
+#[test]
+fn installed_memgraph_runs_scanner_when_opened() {
+    let env = TestEnv::new("memgraph-open-scan");
+    let project = env.project("project");
+
+    let first = env.run_spocket(
+        &project,
+        &["-i", ".", "--temporary", "--add", "memgraph", "--silent"],
+    );
+    assert_success(&first);
+    let pocket = env.only_pocket();
+    let import = pocket.join("tools/memgraph/import/markdown-files.jsonl");
+    assert!(import.is_file());
+    let initial = fs::read_to_string(&import).unwrap();
+    assert!(initial.contains("AGENTS.md") || initial.contains("00.md"));
+
+    fs::write(pocket.join("FEATURES/new-note.md"), "# New Note\n").unwrap();
+    let second = env.run_spocket(&project, &["-i", ".", "--temporary", "--silent"]);
+    assert_success(&second);
+    let updated = fs::read_to_string(&import).unwrap();
+    assert!(updated.contains("new-note.md"));
 }
 
 #[test]

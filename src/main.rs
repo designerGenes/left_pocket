@@ -1085,7 +1085,7 @@ fn memgraph_schema_cypher() -> &'static str {
 }
 
 fn memgraph_compose_yaml() -> &'static str {
-    "services:\n  memgraph:\n    image: memgraph/memgraph:latest\n    command: [\"--bolt-address=0.0.0.0\", \"--bolt-port=7687\"]\n    ports:\n      - \"7687:7687\"\n    volumes:\n      - ./data:/var/lib/memgraph\n      - ./logs:/var/log/memgraph\n      - ./import:/var/opt/memgraph/import\n"
+    "services:\n  memgraph:\n    image: memgraph/memgraph-mage:latest\n    command: [\"--bolt-address=0.0.0.0\", \"--bolt-port=7687\"]\n    ports:\n      - \"7687:7687\"\n      - \"7444:7444\"\n    volumes:\n      - ./data:/var/lib/memgraph\n      - ./logs:/var/log/memgraph\n      - ./import:/var/opt/memgraph/import\n"
 }
 
 fn memgraph_scanner_script() -> &'static str {
@@ -2130,6 +2130,8 @@ fn open_with_merge(ws: &Workspace) -> Result<()> {
         }
     }
 
+    run_memgraph_standard_operation(ws);
+
     // --silent / --simulate-runtime: every step has run (including runtime
     // content injection above) but we intentionally do not launch VS Code.
     if suppress_open() {
@@ -2143,6 +2145,59 @@ fn open_with_merge(ws: &Workspace) -> Result<()> {
     }
 
     ws.open()
+}
+
+fn run_memgraph_standard_operation(ws: &Workspace) {
+    let tool_dir = ws.pocket_dir.join("tools/memgraph");
+    if !tool_dir.is_dir() {
+        return;
+    }
+
+    let _ = fs::write(tool_dir.join("docker-compose.yml"), memgraph_compose_yaml());
+    let scanner = tool_dir.join("scan-safe-pocket.sh");
+    if scanner.is_file() {
+        if let Err(err) = Command::new("sh")
+            .arg(&scanner)
+            .current_dir(&tool_dir)
+            .output()
+        {
+            eprintln!(
+                "{} {}",
+                "Warning: Memgraph scan failed:".bright_yellow(),
+                err
+            );
+        }
+    }
+
+    if Command::new("docker")
+        .arg("--version")
+        .output()
+        .map(|out| out.status.success())
+        .unwrap_or(false)
+    {
+        let output = Command::new("docker")
+            .args(["compose", "up", "-d"])
+            .current_dir(&tool_dir)
+            .output();
+        match output {
+            Ok(out) if out.status.success() => {}
+            Ok(out) => eprintln!(
+                "{} {}",
+                "Warning: Memgraph Docker Compose did not start:".bright_yellow(),
+                String::from_utf8_lossy(&out.stderr).trim()
+            ),
+            Err(err) => eprintln!(
+                "{} {}",
+                "Warning: Memgraph Docker Compose could not run:".bright_yellow(),
+                err
+            ),
+        }
+    } else {
+        eprintln!(
+            "{} Docker is not available; Memgraph was not started automatically.",
+            "Warning:".bright_yellow()
+        );
+    }
 }
 
 fn build_template_context(pocket_dir: &std::path::Path) -> Result<template::TemplateContext> {

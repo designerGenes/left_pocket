@@ -1,6 +1,6 @@
 [package]
 name = "spocket"
-version = "1.2.5"
+version = "1.3.0"
 edition = "2021"
 description = "Safe Pocket — ad hoc VS Code workspace manager with AI copilot support"
 license = "MIT"
