@@ -332,6 +332,64 @@ fn locate_reports_project_pocket_for_editor_integrations() {
 }
 
 #[test]
+fn add_tool_does_not_rebind_project_when_overlapping_pocket_exists() {
+    let env = TestEnv::new("overlap-pocket-binding");
+    let project = env.project("project");
+    let extra = env.project("extra");
+
+    assert_success(&env.run_spocket(&project, &["-i", ".", "--silent"]));
+    let primary_pocket = env.only_pocket();
+
+    let overlap = env.run_spocket(
+        &project,
+        &[
+            "-i",
+            project.to_string_lossy().as_ref(),
+            "-i",
+            extra.to_string_lossy().as_ref(),
+            "--new",
+            "--silent",
+        ],
+    );
+    assert_success(&overlap);
+
+    let pockets = env.safe_pockets();
+    assert_eq!(pockets.len(), 2, "expected an exact and overlapping pocket");
+    let overlapping_pocket = pockets
+        .iter()
+        .find(|p| **p != primary_pocket)
+        .expect("overlapping pocket should exist")
+        .to_path_buf();
+
+    let locate_before = env.run_spocket(&project, &["locate", "--path", "."]);
+    assert_success(&locate_before);
+    let value_before: serde_json::Value = serde_json::from_slice(&locate_before.stdout).unwrap();
+    assert_eq!(
+        value_before.get("pocket_dir").and_then(|v| v.as_str()),
+        Some(primary_pocket.to_string_lossy().as_ref())
+    );
+
+    let add = env.run_spocket(&project, &["-i", ".", "--add", "memgraph", "--silent"]);
+    assert_success(&add);
+
+    let locate_after = env.run_spocket(&project, &["locate", "--path", "."]);
+    assert_success(&locate_after);
+    let value_after: serde_json::Value = serde_json::from_slice(&locate_after.stdout).unwrap();
+    assert_eq!(
+        value_after.get("pocket_dir").and_then(|v| v.as_str()),
+        Some(primary_pocket.to_string_lossy().as_ref())
+    );
+
+    assert!(primary_pocket
+        .join("tools/memgraph/scan-config.json")
+        .is_file());
+    assert!(
+        !overlapping_pocket.join("tools/memgraph").exists(),
+        "overlapping pocket should not be mutated by --add from the exact project pocket"
+    );
+}
+
+#[test]
 fn heal_alias_replaces_deterministic_target_with_selected_pocket() {
     let env = TestEnv::new("heal-alias");
     let source_project = env.project("source-project");

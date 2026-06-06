@@ -497,6 +497,12 @@ fn find_existing_workspace_for_paths(paths: &[PathBuf]) -> Result<Option<Workspa
     let spocket_dir = Workspace::spocket_dir()?;
     let temporary_spocket_dir = Workspace::temporary_spocket_dir()?;
 
+    if !paths.is_empty() {
+        if let Some(workspace) = Workspace::find_workspace_by_manifest_paths(paths)? {
+            return Ok(Some(workspace));
+        }
+    }
+
     for path in paths {
         if path.starts_with(&spocket_dir) {
             let relative = path.strip_prefix(&spocket_dir).unwrap();
@@ -1675,11 +1681,13 @@ fn prompt_heal_pocket(project_path: &Path) -> Result<String> {
 fn handle_locate(path: String) -> Result<()> {
     let config = Config::load()?;
     let resolved = config.resolve_path(&path)?;
-    let workspace = Workspace::find_workspace_for_cwd(&resolved)?.or_else(|| {
-        Workspace::find_workspace_containing(&resolved)
-            .ok()
-            .flatten()
-    });
+    let workspace = Workspace::find_workspace_by_manifest_paths(&[resolved.clone()])?
+        .or_else(|| Workspace::find_workspace_for_cwd(&resolved).ok().flatten())
+        .or_else(|| {
+            Workspace::find_workspace_containing(&resolved)
+                .ok()
+                .flatten()
+        });
 
     match workspace {
         Some(workspace) => {
