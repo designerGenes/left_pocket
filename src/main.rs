@@ -25,7 +25,7 @@ use cli::{CleanScope, Cli, Commands, MarkChoice, WorktreeAction};
 use config::Config;
 use manifest::Manifest;
 use registry::RegistryEntry;
-use workspace::{DriftResult, Workspace};
+use workspace::{DriftResult, VSCodeWorkspace, Workspace};
 
 static VERBOSE: OnceLock<bool> = OnceLock::new();
 static SUPPRESS_OPEN: OnceLock<bool> = OnceLock::new();
@@ -540,6 +540,37 @@ fn find_existing_workspace_for_paths(paths: &[PathBuf]) -> Result<Option<Workspa
     Ok(None)
 }
 
+fn repair_empty_workspace_paths(
+    workspace: &mut Workspace,
+    fallback_paths: &[PathBuf],
+) -> Result<()> {
+    if workspace.core_paths.is_empty() && !fallback_paths.is_empty() {
+        workspace.core_paths = fallback_paths.to_vec();
+    }
+
+    if workspace.core_paths.is_empty() {
+        return Ok(());
+    }
+
+    if let Some(mut manifest) = Manifest::load(&workspace.pocket_dir)? {
+        if manifest.core_paths.is_empty() {
+            manifest.update_paths(workspace.core_paths.clone(), &workspace.pocket_dir)?;
+        }
+    }
+
+    if let Some(workspace_file) = Workspace::find_workspace_file(&workspace.pocket_dir) {
+        let (existing, file_paths) =
+            Workspace::read_workspace_file(&workspace_file, &workspace.pocket_dir)
+                .map(|(ws, paths)| (Some(ws), paths))
+                .unwrap_or((None, Vec::new()));
+        if file_paths.is_empty() {
+            workspace.write_workspace_file_preserving(existing.as_ref())?;
+        }
+    }
+
+    Ok(())
+}
+
 fn handle_workspace(cli: Cli) -> Result<()> {
     let config = Config::load()?;
 
@@ -613,6 +644,7 @@ fn handle_workspace(cli: Cli) -> Result<()> {
                 );
             }
 
+            repair_empty_workspace_paths(&mut existing, &core_paths)?;
             existing.migrate_storage_references()?;
 
             // If the CLI paths differ from this pocket's core_paths, the user is
@@ -632,8 +664,21 @@ fn handle_workspace(cli: Cli) -> Result<()> {
             existing.sidecar_paths.extend(sidecar_paths.clone());
 
             apply_session_tools(&cli.with_tools, &mut existing)?;
-            apply_project_tools(&cli.add_tools, &existing)?;
 
+            let drift_result = existing.detect_and_resolve_drift()?;
+            if let DriftResult::AcceptFile { new_core_paths } = drift_result {
+                let mut manifest = Manifest::load(&existing.pocket_dir)?.unwrap_or_else(|| {
+                    Manifest::new_with_options(
+                        existing.hash.clone(),
+                        existing.core_paths.clone(),
+                        existing.temporary,
+                    )
+                });
+                manifest.update_paths(new_core_paths.clone(), &existing.pocket_dir)?;
+                existing.core_paths = new_core_paths;
+            }
+
+            apply_project_tools(&cli.add_tools, &existing)?;
             open_with_merge(&existing)?;
             return Ok(());
         }
@@ -740,11 +785,11 @@ fn handle_workspace(cli: Cli) -> Result<()> {
             println!("{}", "Using existing workspace".dimmed());
         }
 
+        let mut workspace = workspace;
+        repair_empty_workspace_paths(&mut workspace, &core_paths)?;
         workspace.migrate_storage_references()?;
 
-        let mut workspace = workspace;
         apply_session_tools(&cli.with_tools, &mut workspace)?;
-        apply_project_tools(&cli.add_tools, &workspace)?;
 
         // Drift detection
         let drift_result = workspace.detect_and_resolve_drift()?;
@@ -759,15 +804,18 @@ fn handle_workspace(cli: Cli) -> Result<()> {
                         workspace.temporary,
                     ),
                 };
-                manifest.update_paths(new_core_paths, &workspace.pocket_dir)?;
+                manifest.update_paths(new_core_paths.clone(), &workspace.pocket_dir)?;
+                workspace.core_paths = new_core_paths;
                 println!(
                     "{} {}",
                     "Manifest updated in place:".bright_green(),
                     manifest.hash.bright_yellow()
                 );
+                apply_project_tools(&cli.add_tools, &workspace)?;
                 open_with_merge(&workspace)?;
             }
             _ => {
+                apply_project_tools(&cli.add_tools, &workspace)?;
                 open_with_merge(&workspace)?;
             }
         }
@@ -1005,8 +1053,16 @@ fn add_persistent_workspace_folder(workspace: &Workspace, path: &Path, name: &st
     if !workspace_file.exists() {
         return Ok(());
     }
-    let text = fs::read_to_string(&workspace_file)
+    let mut text = fs::read_to_string(&workspace_file)
         .with_context(|| format!("Failed to read {}", workspace_file.display()))?;
+    let existing_workspace: VSCodeWorkspace = serde_json::from_str(&text)
+        .with_context(|| format!("Failed to parse {}", workspace_file.display()))?;
+    let (_, file_paths) = Workspace::read_workspace_file(&workspace_file, &workspace.pocket_dir)?;
+    if file_paths.is_empty() && !workspace.core_paths.is_empty() {
+        workspace.write_workspace_file_preserving(Some(&existing_workspace))?;
+        text = fs::read_to_string(&workspace_file)
+            .with_context(|| format!("Failed to read {}", workspace_file.display()))?;
+    }
     let mut doc: serde_json::Value = serde_json::from_str(&text)
         .with_context(|| format!("Failed to parse {}", workspace_file.display()))?;
     let folders = doc
@@ -1263,12 +1319,22 @@ fn handle_heal(
         Workspace::new_with_options(vec![project_path.clone()], vec![], false, source.temporary)?;
 
     if source.pocket_dir == target.pocket_dir {
+        let existing_ws =
+            Workspace::find_workspace_file(&source.pocket_dir).and_then(|workspace_file| {
+                Workspace::read_workspace_file(&workspace_file, &source.pocket_dir)
+                    .ok()
+                    .map(|(ws, _)| ws)
+            });
+        target.write_workspace_file_preserving(existing_ws.as_ref())?;
+
         let mut manifest = Manifest::load(&source.pocket_dir)?.ok_or_else(|| {
             anyhow!(
                 "No manifest found in safe pocket: {}",
                 source.pocket_dir.display()
             )
         })?;
+        manifest.hash = target.hash.clone();
+        manifest.temporary = target.temporary;
         manifest.update_paths(vec![project_path], &source.pocket_dir)?;
         let _ = event::append_pocket_event(
             &source.pocket_dir,

@@ -522,9 +522,22 @@ impl Workspace {
         // After option 1 updates the manifest, file_paths == manifest.core_paths and we return
         // InSync on the next invocation even though self.core_paths (CLI args) may differ.
         let reference_paths = match Manifest::load(&self.pocket_dir)? {
+            Some(m) if m.core_paths.is_empty() && !self.core_paths.is_empty() => {
+                self.core_paths.clone()
+            }
             Some(m) => m.core_paths,
             None => self.core_paths.clone(),
         };
+
+        if file_paths.is_empty() && !reference_paths.is_empty() {
+            self.write_workspace_file_preserving(Some(&workspace))?;
+            println!(
+                "{}",
+                "Workspace file had no project folders; restored it from the manifest/CLI paths."
+                    .bright_yellow()
+            );
+            return Ok(DriftResult::OverwrittenFile);
+        }
 
         let file_set: HashSet<_> = file_paths.iter().collect();
         let ref_set: HashSet<_> = reference_paths.iter().collect();

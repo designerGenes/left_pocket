@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -191,6 +191,10 @@ impl Manifest {
     /// Update paths in-place. Sets birth_hash on first change, updates hash and augmented_from.
     /// The pocket directory stays put — only the manifest is rewritten.
     pub fn update_paths(&mut self, new_core_paths: Vec<PathBuf>, pocket_dir: &Path) -> Result<()> {
+        if new_core_paths.is_empty() {
+            bail!("Refusing to update manifest with zero project paths");
+        }
+
         let old_hash = self.hash.clone();
         let new_hash = crate::hash::hash_paths(&new_core_paths);
 
@@ -429,6 +433,26 @@ mod tests {
         let loaded = Manifest::load(&tmp).unwrap().unwrap();
         assert_eq!(loaded.hash, m.hash);
         assert_eq!(loaded.birth_hash, Some("original_hash".to_string()));
+
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_manifest_update_paths_rejects_empty_paths() {
+        let tmp = std::env::temp_dir().join("spocket_update_paths_empty_test");
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(&tmp).unwrap();
+
+        let mut m = Manifest::new("original_hash".to_string(), vec![PathBuf::from("/test/a")]);
+        m.save(&tmp).unwrap();
+
+        let err = m.update_paths(Vec::new(), &tmp).unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("Refusing to update manifest with zero project paths"));
+
+        let loaded = Manifest::load(&tmp).unwrap().unwrap();
+        assert_eq!(loaded.core_paths, vec![PathBuf::from("/test/a")]);
 
         let _ = fs::remove_dir_all(&tmp);
     }

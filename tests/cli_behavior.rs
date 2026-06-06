@@ -392,6 +392,50 @@ fn heal_alias_replaces_deterministic_target_with_selected_pocket() {
 }
 
 #[test]
+fn heal_project_pocket_rewrites_in_place_workspace_file() {
+    let env = TestEnv::new("heal-in-place-rewrite");
+    let project = env.project("project");
+
+    assert_success(&env.run_spocket(&project, &["-i", ".", "--temporary", "--silent"]));
+    let pocket = env.only_pocket();
+    let workspace_file = env.workspace_file();
+    let name = pocket.file_name().unwrap().to_string_lossy().to_string();
+
+    fs::write(
+        &workspace_file,
+        format!(
+            "{{\n  \"folders\": [\n    {{\n      \"path\": \"{}\",\n      \"name\": \"[Safe Pocket] {name}\"\n    }}\n  ]\n}}\n",
+            pocket.display()
+        ),
+    )
+    .unwrap();
+
+    let output = env.run_spocket(
+        &project,
+        &[
+            "heal",
+            "--project",
+            project.to_string_lossy().as_ref(),
+            "--pocket",
+            pocket.to_string_lossy().as_ref(),
+        ],
+    );
+    assert_success(&output);
+
+    let workspace_text = fs::read_to_string(&workspace_file).unwrap();
+    assert!(workspace_text.contains(&project.display().to_string()));
+    assert!(workspace_text.contains("[Safe Pocket]"));
+
+    let locate = env.run_spocket(&project, &["locate", "--path", "."]);
+    assert_success(&locate);
+    let value: serde_json::Value = serde_json::from_slice(&locate.stdout).unwrap();
+    assert_eq!(
+        value.get("pocket_dir").and_then(|v| v.as_str()),
+        Some(pocket.to_string_lossy().as_ref())
+    );
+}
+
+#[test]
 fn clean_hard_removes_temporary_pocket_and_registry_entry() {
     let env = TestEnv::new("clean-hard");
     let project = env.project("project");
@@ -771,6 +815,92 @@ fn add_memgraph_configures_safe_pocket_markdown_scan() {
 
     let workspace_text = fs::read_to_string(env.workspace_file()).unwrap();
     assert!(workspace_text.contains("[Tool] memgraph"));
+}
+
+#[test]
+fn add_memgraph_repairs_safe_pocket_only_workspace_file() {
+    let env = TestEnv::new("memgraph-repair");
+    let project = env.project("project");
+
+    assert_success(&env.run_spocket(&project, &["-i", ".", "--temporary", "--silent"]));
+    let pocket = env.only_pocket();
+    let workspace_file = env.workspace_file();
+    let name = pocket.file_name().unwrap().to_string_lossy().to_string();
+
+    fs::write(
+        &workspace_file,
+        format!(
+            "{{\n  \"folders\": [\n    {{\n      \"path\": \"{}\",\n      \"name\": \"[Safe Pocket] {name}\"\n    }}\n  ]\n}}\n",
+            pocket.display()
+        ),
+    )
+    .unwrap();
+    fs::write(
+        pocket.join("manifest.json"),
+        format!(
+            "{{\n  \"hash\": \"e3b0c44298fc\",\n  \"core_paths\": [],\n  \"created_at\": \"2026-06-06T16:17:52.221616Z\",\n  \"temporary\": true,\n  \"children\": [],\n  \"augmented_from\": \"{name}\",\n  \"version\": 1,\n  \"birth_hash\": \"{name}\"\n}}\n"
+        ),
+    )
+    .unwrap();
+
+    let output = env.run_spocket(
+        &project,
+        &["-i", ".", "--temporary", "--add", "memgraph", "--silent"],
+    );
+    assert_success(&output);
+
+    let workspace_text = fs::read_to_string(&workspace_file).unwrap();
+    assert!(
+        workspace_text.contains(&project.display().to_string()),
+        "workspace file should recover the project folder"
+    );
+    assert!(workspace_text.contains("[Safe Pocket]"));
+    assert!(pocket.join("tools/memgraph/scan-config.json").is_file());
+
+    let manifest: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(pocket.join("manifest.json")).unwrap()).unwrap();
+    let core_paths = manifest
+        .get("core_paths")
+        .and_then(|v| v.as_array())
+        .unwrap();
+    assert_eq!(core_paths.len(), 1);
+    let restored = PathBuf::from(core_paths[0].as_str().unwrap())
+        .canonicalize()
+        .unwrap();
+    assert_eq!(restored, project.canonicalize().unwrap());
+}
+
+#[test]
+fn add_memgraph_repairs_workspace_file_when_manifest_is_already_good() {
+    let env = TestEnv::new("memgraph-repair-workspace-only");
+    let project = env.project("project");
+
+    assert_success(&env.run_spocket(&project, &["-i", ".", "--temporary", "--silent"]));
+    let pocket = env.only_pocket();
+    let workspace_file = env.workspace_file();
+    let name = pocket.file_name().unwrap().to_string_lossy().to_string();
+
+    fs::write(
+        &workspace_file,
+        format!(
+            "{{\n  \"folders\": [\n    {{\n      \"path\": \"{}\",\n      \"name\": \"[Safe Pocket] {name}\"\n    }}\n  ]\n}}\n",
+            pocket.display()
+        ),
+    )
+    .unwrap();
+
+    let output = env.run_spocket(
+        &project,
+        &["-i", ".", "--temporary", "--add", "memgraph", "--silent"],
+    );
+    assert_success(&output);
+
+    let workspace_text = fs::read_to_string(&workspace_file).unwrap();
+    assert!(
+        workspace_text.contains(&project.display().to_string()),
+        "workspace file should recover the project folder even when manifest is already correct"
+    );
+    assert!(pocket.join("tools/memgraph/scan-config.json").is_file());
 }
 
 #[test]
