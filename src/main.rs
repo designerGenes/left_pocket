@@ -1102,7 +1102,7 @@ fn memgraph_schema_cypher() -> &'static str {
 
 fn memgraph_compose_yaml(workspace: &Workspace) -> String {
     format!(
-        "services:\n  memgraph:\n    image: memgraph/memgraph-mage:latest\n    command: [\"--bolt-address=0.0.0.0\", \"--bolt-port=7687\"]\n    ports:\n      - \"{}:7687\"\n    volumes:\n      - ./data:/var/lib/memgraph\n      - ./logs:/var/log/memgraph\n      - ./import:/var/opt/memgraph/import\n  lab:\n    image: memgraph/lab:latest\n    depends_on:\n      - memgraph\n    ports:\n      - \"{}:3000\"\n",
+        "services:\n  memgraph:\n    image: memgraph/memgraph-mage:latest\n    command: [\"--bolt-address=0.0.0.0\", \"--bolt-port=7687\"]\n    ports:\n      - \"{}:7687\"\n    volumes:\n      - ./data:/var/lib/memgraph\n      - ./logs:/var/log/memgraph\n      - ./import:/var/opt/memgraph/import\n  lab:\n    image: memgraph/lab:latest\n    depends_on:\n      - memgraph\n    environment:\n      - QUICK_CONNECT_MG_HOST=memgraph\n      - QUICK_CONNECT_MG_PORT=7687\n      - QUICK_CONNECT_MG_IS_ENCRYPTED=false\n    ports:\n      - \"{}:3000\"\n",
         memgraph_bolt_port(workspace),
         memgraph_lab_port(workspace)
     )

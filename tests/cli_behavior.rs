@@ -788,6 +788,8 @@ fn add_memgraph_configures_safe_pocket_markdown_scan() {
     let compose = fs::read_to_string(tool.join("docker-compose.yml")).unwrap();
     assert!(compose.contains("memgraph/memgraph-mage:latest"));
     assert!(compose.contains("image: memgraph/lab:latest"));
+    assert!(compose.contains("QUICK_CONNECT_MG_HOST=memgraph"));
+    assert!(compose.contains("QUICK_CONNECT_MG_PORT=7687"));
     assert!(compose.contains(":3000\""));
     assert!(tool.join("import-into-memgraph.sh").is_file());
     assert!(tool.join("schema.cypher").is_file());
