@@ -1,6 +1,6 @@
 # How to install
 
-1. Compile VS Code extension at {{PROJECT_ROOT}}/vscode_extension
+1. Compile VS Code extension at {{PROJECT_ROOT}}/vscode-extension
 2. Install VS Code extension that this generates
 3. run {{PROJECT_ROOT}}/install.sh
 

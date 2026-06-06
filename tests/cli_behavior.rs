@@ -259,6 +259,25 @@ fn cli_help_surface_is_reachable() {
 }
 
 #[test]
+fn install_instructions_reference_real_vscode_extension_dir() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let install = fs::read_to_string(root.join("Install.md")).unwrap();
+
+    assert!(
+        !install.contains("vscode_extension"),
+        "Install.md should not reference the old underscore directory name"
+    );
+    assert!(
+        install.contains("{{PROJECT_ROOT}}/vscode-extension"),
+        "Install.md should point to the checked-in vscode-extension directory"
+    );
+    assert!(
+        root.join("vscode-extension/package.json").is_file(),
+        "documented VS Code extension directory should exist and contain package.json"
+    );
+}
+
+#[test]
 fn outdated_commands_are_rejected() {
     let env = TestEnv::new("outdated-commands");
     let project = env.project("project");
