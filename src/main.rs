@@ -19,6 +19,7 @@ use std::fs;
 use std::io::{self, Write as IoWrite};
 use std::path::Path;
 use std::path::PathBuf;
+use std::process::Command;
 use std::sync::OnceLock;
 
 use cli::{CleanScope, Cli, Commands, MarkChoice, WorktreeAction};
@@ -944,10 +945,14 @@ fn install_gitleaks(workspace: &Workspace) -> Result<()> {
             .with_context(|| format!("Failed to write {}", config_path.display()))?;
         }
 
-        let git_hooks = project.join(".git").join("hooks");
-        if git_hooks.is_dir() {
+        if let Some(git_hooks) = git_hooks_dir(project) {
             let hook = git_hooks.join("pre-commit");
-            let body = format!("#!/bin/sh\nexec \"{}\"\n", helper.display());
+            let body = format!(
+                "#!/bin/sh\nexec \"{}\" \"{}\" \"{}\"\n",
+                helper.display(),
+                project.display(),
+                config_path.display()
+            );
             fs::write(&hook, body)
                 .with_context(|| format!("Failed to write {}", hook.display()))?;
             set_executable(&hook)?;
@@ -958,7 +963,34 @@ fn install_gitleaks(workspace: &Workspace) -> Result<()> {
 }
 
 fn gitleaks_pre_commit_helper() -> &'static str {
-    "#!/bin/sh\nset -eu\nSELF_DIR=$(CDPATH= cd -- \"$(dirname -- \"$0\")\" && pwd)\nLOCAL_GITLEAKS=\"$SELF_DIR/bin/gitleaks\"\nif [ -x \"$LOCAL_GITLEAKS\" ]; then\n  exec \"$LOCAL_GITLEAKS\" protect --staged --redact --config .gitleaks.toml\nfi\nif command -v gitleaks >/dev/null 2>&1; then\n  exec gitleaks protect --staged --redact --config .gitleaks.toml\nfi\nprintf '%s\\n' 'safe_pocket: gitleaks is required but was not found.' >&2\nprintf '%s\\n' 'Install gitleaks on PATH, or place the binary at:' >&2\nprintf '  %s\\n' \"$LOCAL_GITLEAKS\" >&2\nexit 1\n"
+    "#!/bin/sh\nset -eu\nSELF_DIR=$(CDPATH= cd -- \"$(dirname -- \"$0\")\" && pwd)\nPROJECT_DIR=${1:-$(pwd)}\nCONFIG_PATH=${2:-$PROJECT_DIR/.gitleaks.toml}\nLOCAL_GITLEAKS=\"$SELF_DIR/bin/gitleaks\"\ncd \"$PROJECT_DIR\"\nif [ -x \"$LOCAL_GITLEAKS\" ]; then\n  exec \"$LOCAL_GITLEAKS\" protect --staged --redact --config \"$CONFIG_PATH\"\nfi\nif command -v gitleaks >/dev/null 2>&1; then\n  exec gitleaks protect --staged --redact --config \"$CONFIG_PATH\"\nfi\nprintf '%s\\n' 'safe_pocket: gitleaks is required but was not found.' >&2\nprintf '%s\\n' 'Install gitleaks on PATH, or place the binary at:' >&2\nprintf '  %s\\n' \"$LOCAL_GITLEAKS\" >&2\nexit 1\n"
+}
+
+fn git_hooks_dir(project: &Path) -> Option<PathBuf> {
+    let output = Command::new("git")
+        .args(["rev-parse", "--git-common-dir"])
+        .current_dir(project)
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let raw = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if raw.is_empty() {
+        return None;
+    }
+    let git_dir = PathBuf::from(raw);
+    let git_dir = if git_dir.is_absolute() {
+        git_dir
+    } else {
+        project.join(git_dir)
+    };
+    let hooks = git_dir.join("hooks");
+    if hooks.is_dir() {
+        Some(hooks)
+    } else {
+        None
+    }
 }
 
 fn install_graphify(workspace: &Workspace) -> Result<()> {

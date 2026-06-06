@@ -980,6 +980,7 @@ fn add_gitleaks_writes_project_guard_files() {
     assert!(hook.is_file());
     let hook_text = fs::read_to_string(&hook).unwrap();
     assert!(hook_text.contains("tools/gitleaks/pre-commit-hook.sh"));
+    assert!(hook_text.contains(&project.display().to_string()));
     let helper = env.only_pocket().join("tools/gitleaks/pre-commit-hook.sh");
     assert!(helper.is_file());
     assert!(!fs::read_to_string(&helper)
@@ -996,6 +997,34 @@ fn add_gitleaks_writes_project_guard_files() {
 
     let workspace_text = fs::read_to_string(env.workspace_file()).unwrap();
     assert!(workspace_text.contains("[Tool] gitleaks"));
+}
+
+#[test]
+fn add_gitleaks_installs_hook_for_nested_git_project() {
+    let env = TestEnv::new("gitleaks-nested");
+    let repo = env.project("repo");
+    let nested = repo.join("nested");
+    fs::create_dir_all(&nested).unwrap();
+    let git_init = Command::new("git")
+        .arg("init")
+        .current_dir(&repo)
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .output()
+        .expect("git init should run");
+    assert_success(&git_init);
+
+    let output = env.run_spocket(
+        &nested,
+        &["-i", ".", "--temporary", "--add", "gitleaks", "--silent"],
+    );
+    assert_success(&output);
+
+    let hook = repo.join(".git/hooks/pre-commit");
+    assert!(hook.is_file());
+    let hook_text = fs::read_to_string(&hook).unwrap();
+    assert!(hook_text.contains("tools/gitleaks/pre-commit-hook.sh"));
+    assert!(hook_text.contains(&nested.display().to_string()));
+    assert!(nested.join(".gitleaks.toml").is_file());
 }
 
 #[test]
