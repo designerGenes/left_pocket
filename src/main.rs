@@ -874,12 +874,12 @@ fn project_tool_installed(tool: &str, workspace: &Workspace) -> bool {
         "gitleaks" => {
             workspace
                 .pocket_dir
-                .join("tools/gitleaks/README.md")
+                .join("tools/gitleaks/pre-commit-hook.sh")
                 .is_file()
-                && workspace
-                    .core_paths
-                    .iter()
-                    .all(|project| project.join(".gitleaks.toml").is_file())
+                && workspace.core_paths.iter().all(|project| {
+                    project.join(".gitleaks.toml").is_file()
+                        && project.join(".git/hooks/pre-commit").is_file()
+                })
         }
         "graphify" => {
             workspace
@@ -930,6 +930,9 @@ fn install_gitleaks(workspace: &Workspace) -> Result<()> {
     if !readme.exists() {
         fs::write(&readme, tool_readme("gitleaks"))?;
     }
+    let helper = tool_dir.join("pre-commit-hook.sh");
+    fs::write(&helper, gitleaks_pre_commit_helper())?;
+    set_executable(&helper)?;
 
     for project in &workspace.core_paths {
         let config_path = project.join(".gitleaks.toml");
@@ -944,16 +947,18 @@ fn install_gitleaks(workspace: &Workspace) -> Result<()> {
         let git_hooks = project.join(".git").join("hooks");
         if git_hooks.is_dir() {
             let hook = git_hooks.join("pre-commit");
-            let body = "#!/bin/sh\nif command -v gitleaks >/dev/null 2>&1; then\n  gitleaks protect --staged --redact --config .gitleaks.toml\nelse\n  echo \"safe_pocket: gitleaks is not installed; skipping secret scan\" >&2\nfi\n";
-            if !hook.exists() {
-                fs::write(&hook, body)
-                    .with_context(|| format!("Failed to write {}", hook.display()))?;
-                set_executable(&hook)?;
-            }
+            let body = format!("#!/bin/sh\nexec \"{}\"\n", helper.display());
+            fs::write(&hook, body)
+                .with_context(|| format!("Failed to write {}", hook.display()))?;
+            set_executable(&hook)?;
         }
     }
 
     add_persistent_workspace_folder(workspace, &tool_dir, "[Tool] gitleaks")
+}
+
+fn gitleaks_pre_commit_helper() -> &'static str {
+    "#!/bin/sh\nset -eu\nSELF_DIR=$(CDPATH= cd -- \"$(dirname -- \"$0\")\" && pwd)\nLOCAL_GITLEAKS=\"$SELF_DIR/bin/gitleaks\"\nif [ -x \"$LOCAL_GITLEAKS\" ]; then\n  exec \"$LOCAL_GITLEAKS\" protect --staged --redact --config .gitleaks.toml\nfi\nif command -v gitleaks >/dev/null 2>&1; then\n  exec gitleaks protect --staged --redact --config .gitleaks.toml\nfi\nprintf '%s\\n' 'safe_pocket: gitleaks is required but was not found.' >&2\nprintf '%s\\n' 'Install gitleaks on PATH, or place the binary at:' >&2\nprintf '  %s\\n' \"$LOCAL_GITLEAKS\" >&2\nexit 1\n"
 }
 
 fn install_graphify(workspace: &Workspace) -> Result<()> {

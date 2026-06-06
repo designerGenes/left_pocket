@@ -976,7 +976,24 @@ fn add_gitleaks_writes_project_guard_files() {
     );
     assert_success(&output);
     assert!(project.join(".gitleaks.toml").is_file());
-    assert!(project.join(".git/hooks/pre-commit").is_file());
+    let hook = project.join(".git/hooks/pre-commit");
+    assert!(hook.is_file());
+    let hook_text = fs::read_to_string(&hook).unwrap();
+    assert!(hook_text.contains("tools/gitleaks/pre-commit-hook.sh"));
+    let helper = env.only_pocket().join("tools/gitleaks/pre-commit-hook.sh");
+    assert!(helper.is_file());
+    assert!(!fs::read_to_string(&helper)
+        .unwrap()
+        .contains("skipping secret scan"));
+
+    let hook_run = Command::new(&hook)
+        .current_dir(&project)
+        .env("PATH", "")
+        .output()
+        .expect("pre-commit hook should run");
+    assert_failure(&hook_run);
+    assert_contains(&hook_run, "gitleaks is required but was not found");
+
     let workspace_text = fs::read_to_string(env.workspace_file()).unwrap();
     assert!(workspace_text.contains("[Tool] gitleaks"));
 }
