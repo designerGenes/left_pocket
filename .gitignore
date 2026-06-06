@@ -2,7 +2,8 @@
 target/**/*
 ingest_templates.sh
 
-# Generated analysis and output
+# Generated analysis and output (stored in safe pocket, linked here)
 graphify-out/
+graphify-out
 *.graph
 .graph/
