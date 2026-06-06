@@ -841,6 +841,34 @@ fn installed_memgraph_runs_scanner_when_opened() {
     assert_success(&second);
     let updated = fs::read_to_string(&import).unwrap();
     assert!(updated.contains("new-note.md"));
+
+    let state = pocket.join("tools/memgraph/.safe_pocket_state.json");
+    assert!(state.is_file());
+    let before = fs::read_to_string(&state).unwrap();
+    let third = env.run_spocket(&project, &["-i", ".", "--temporary", "--silent"]);
+    assert_success(&third);
+    assert_eq!(fs::read_to_string(&state).unwrap(), before);
+}
+
+#[test]
+fn runtime_merge_stop_handles_installed_memgraph() {
+    let env = TestEnv::new("memgraph-stop");
+    let project = env.project("project");
+
+    assert_success(&env.run_spocket(
+        &project,
+        &["-i", ".", "--temporary", "--add", "memgraph", "--silent"],
+    ));
+    let pocket = env.only_pocket();
+    let output = env.run_spocket(
+        &project,
+        &[
+            "runtime-merge-stop",
+            "--pocket",
+            pocket.to_string_lossy().as_ref(),
+        ],
+    );
+    assert_success(&output);
 }
 
 #[test]

@@ -21,6 +21,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::OnceLock;
+use std::time::UNIX_EPOCH;
 
 use cli::{CleanScope, Cli, Commands, MarkChoice, WorktreeAction};
 use config::Config;
@@ -2130,11 +2131,10 @@ fn open_with_merge(ws: &Workspace) -> Result<()> {
         }
     }
 
-    run_memgraph_standard_operation(ws);
-
     // --silent / --simulate-runtime: every step has run (including runtime
     // content injection above) but we intentionally do not launch VS Code.
     if suppress_open() {
+        run_memgraph_standard_operation(ws);
         if verbose() {
             println!(
                 "{}",
@@ -2144,7 +2144,9 @@ fn open_with_merge(ws: &Workspace) -> Result<()> {
         return Ok(());
     }
 
-    ws.open()
+    ws.open()?;
+    run_memgraph_standard_operation(ws);
+    Ok(())
 }
 
 fn run_memgraph_standard_operation(ws: &Workspace) {
@@ -2154,18 +2156,31 @@ fn run_memgraph_standard_operation(ws: &Workspace) {
     }
 
     let _ = fs::write(tool_dir.join("docker-compose.yml"), memgraph_compose_yaml());
+
+    let inputs_changed = memgraph_inputs_changed(&tool_dir, &ws.pocket_dir);
     let scanner = tool_dir.join("scan-safe-pocket.sh");
-    if scanner.is_file() {
-        if let Err(err) = Command::new("sh")
+    if inputs_changed && scanner.is_file() {
+        match Command::new("sh")
             .arg(&scanner)
             .current_dir(&tool_dir)
             .output()
         {
-            eprintln!(
+            Ok(out) if out.status.success() => {
+                let _ = fs::write(
+                    tool_dir.join(".safe_pocket_state.json"),
+                    serde_json::json!({ "last_input_mtime_ns": memgraph_latest_input_mtime(&ws.pocket_dir) }).to_string(),
+                );
+            }
+            Ok(out) => eprintln!(
+                "{} {}",
+                "Warning: Memgraph scan failed:".bright_yellow(),
+                String::from_utf8_lossy(&out.stderr).trim()
+            ),
+            Err(err) => eprintln!(
                 "{} {}",
                 "Warning: Memgraph scan failed:".bright_yellow(),
                 err
-            );
+            ),
         }
     }
 
@@ -2175,8 +2190,9 @@ fn run_memgraph_standard_operation(ws: &Workspace) {
         .map(|out| out.status.success())
         .unwrap_or(false)
     {
+        stop_legacy_memgraph_compose_project(&tool_dir);
         let output = Command::new("docker")
-            .args(["compose", "up", "-d"])
+            .args(["compose", "-p", &memgraph_compose_project(ws), "up", "-d"])
             .current_dir(&tool_dir)
             .output();
         match output {
@@ -2197,6 +2213,83 @@ fn run_memgraph_standard_operation(ws: &Workspace) {
             "{} Docker is not available; Memgraph was not started automatically.",
             "Warning:".bright_yellow()
         );
+    }
+}
+
+fn stop_legacy_memgraph_compose_project(tool_dir: &Path) {
+    let _ = Command::new("docker")
+        .args(["compose", "down"])
+        .current_dir(tool_dir)
+        .output();
+}
+
+fn stop_memgraph_standard_operation(pocket_dir: &Path) {
+    let tool_dir = pocket_dir.join("tools/memgraph");
+    if !tool_dir.join("docker-compose.yml").is_file() {
+        return;
+    }
+    let hash = pocket_dir
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("safe-pocket");
+    let _ = Command::new("docker")
+        .args(["compose", "-p", &format!("spocket-{hash}"), "down"])
+        .current_dir(&tool_dir)
+        .output();
+}
+
+fn memgraph_compose_project(ws: &Workspace) -> String {
+    format!("spocket-{}", ws.hash)
+}
+
+fn memgraph_inputs_changed(tool_dir: &Path, pocket_dir: &Path) -> bool {
+    let latest = memgraph_latest_input_mtime(pocket_dir);
+    let state_path = tool_dir.join(".safe_pocket_state.json");
+    let previous = fs::read_to_string(state_path)
+        .ok()
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+        .and_then(|v| {
+            v.get("last_input_mtime_ns")
+                .and_then(|mtime| mtime.as_u64())
+        });
+    previous != Some(latest)
+}
+
+fn memgraph_latest_input_mtime(pocket_dir: &Path) -> u64 {
+    let mut latest = 0;
+    for path in memgraph_scan_paths_for_pocket(pocket_dir) {
+        collect_latest_markdown_mtime(&path, &mut latest);
+    }
+    latest
+}
+
+fn memgraph_scan_paths_for_pocket(pocket_dir: &Path) -> Vec<PathBuf> {
+    let mut paths = vec![pocket_dir.join("FEATURES")];
+    for name in ["AGENTS.md", "GEMINI.md", "README.md", "Install.md"] {
+        let candidate = pocket_dir.join(name);
+        if candidate.exists() || name == "AGENTS.md" {
+            paths.push(candidate);
+        }
+    }
+    paths
+}
+
+fn collect_latest_markdown_mtime(path: &Path, latest: &mut u64) {
+    if path.is_dir() {
+        if let Ok(entries) = fs::read_dir(path) {
+            for entry in entries.flatten() {
+                collect_latest_markdown_mtime(&entry.path(), latest);
+            }
+        }
+        return;
+    }
+    if path.extension().and_then(|e| e.to_str()) != Some("md") {
+        return;
+    }
+    if let Ok(modified) = path.metadata().and_then(|m| m.modified()) {
+        if let Ok(duration) = modified.duration_since(UNIX_EPOCH) {
+            *latest = (*latest).max(duration.as_nanos() as u64);
+        }
     }
 }
 
@@ -2275,6 +2368,7 @@ fn handle_merge_stop(pocket: String) -> Result<()> {
 
     let ctx = build_template_context(&pocket_dir)?;
     let count = template::strip_merge_at_runtime(&pocket_dir, &ctx)?;
+    stop_memgraph_standard_operation(&pocket_dir);
     let _ = event::append_pocket_event(
         &pocket_dir,
         "merge.stop",
