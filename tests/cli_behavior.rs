@@ -565,6 +565,26 @@ fn normal_run_launches_vscode() {
 }
 
 #[test]
+fn normal_run_prints_memgraph_connection_details_when_installed() {
+    let env = TestEnv::new("memgraph-connection-details");
+    let project = env.project("project");
+
+    let install = env.run_spocket(
+        &project,
+        &["-i", ".", "--temporary", "--add", "memgraph", "--silent"],
+    );
+    assert_success(&install);
+
+    let output = env.run_spocket(&project, &["-i", ".", "--temporary"]);
+    assert_success(&output);
+    assert_contains(&output, "Memgraph");
+    assert_contains(&output, "Lab:");
+    assert_contains(&output, "Bolt:");
+    assert_contains(&output, "http://127.0.0.1:");
+    assert_contains(&output, "bolt://127.0.0.1:");
+}
+
+#[test]
 fn silent_flag_skips_vscode_launch() {
     let env = TestEnv::new("silent");
     let project = env.project("project");

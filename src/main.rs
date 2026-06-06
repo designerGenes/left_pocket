@@ -2262,8 +2262,29 @@ fn open_with_merge(ws: &Workspace) -> Result<()> {
     }
 
     ws.open()?;
+    print_memgraph_connection_details(ws);
     run_memgraph_standard_operation(ws);
     Ok(())
+}
+
+fn print_memgraph_connection_details(ws: &Workspace) {
+    let tool_dir = ws.pocket_dir.join("tools/memgraph");
+    if !tool_dir.join("scan-config.json").is_file() {
+        return;
+    }
+
+    println!();
+    println!("{}", "Memgraph".bright_white().bold());
+    println!(
+        "  {} {}",
+        "Lab:".dimmed(),
+        memgraph_lab_url(ws).bright_blue()
+    );
+    println!(
+        "  {} {}",
+        "Bolt:".dimmed(),
+        memgraph_bolt_url(ws).bright_blue()
+    );
 }
 
 fn run_memgraph_standard_operation(ws: &Workspace) {
