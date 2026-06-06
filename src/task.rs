@@ -148,12 +148,12 @@ fn row_to_task(row: &rusqlite::Row) -> rusqlite::Result<Task> {
 /// Resolution order:
 /// 1. If `start` lives inside `~/.safe_pocket/<hash>/…` (or
 ///    `~/.safe_pocket/temporary/<hash>/…`), the `<hash>` is the prefix.
-/// 2. Otherwise walk up from `start` looking for a `.env` file containing
+/// 2. Otherwise ask the workspace registry which pocket owns `start`, covering
+///    both project directories and safe pocket directories.
+/// 3. Finally walk up from `start` looking for a `.env` file containing
 ///    `SPOCKET_ROOT=<path>`; the basename of that path is the prefix.
 pub fn detect_prefix(start: &Path) -> Result<String> {
-    let start = start
-        .canonicalize()
-        .unwrap_or_else(|_| start.to_path_buf());
+    let start = start.canonicalize().unwrap_or_else(|_| start.to_path_buf());
 
     // 1. Inside the registry root.
     if let Ok(root) = crate::registry::registry_root() {
@@ -176,7 +176,15 @@ pub fn detect_prefix(start: &Path) -> Result<String> {
         }
     }
 
-    // 2. Walk up looking for a project .env with SPOCKET_ROOT.
+    // 2. Bridge through the safe_pocket registry/cache. This lets `spocket task`
+    // work the same from either the project folder or its safe pocket folder.
+    if let Ok(Some(workspace)) = crate::workspace::Workspace::find_workspace_for_cwd(&start) {
+        if !workspace.hash.is_empty() {
+            return Ok(workspace.hash);
+        }
+    }
+
+    // 3. Walk up looking for a project .env with SPOCKET_ROOT.
     let mut dir: Option<&Path> = Some(start.as_path());
     while let Some(d) = dir {
         let env = d.join(".env");
@@ -205,12 +213,7 @@ pub fn detect_prefix(start: &Path) -> Result<String> {
 fn is_reserved_dir(name: &str) -> bool {
     matches!(
         name,
-        "observations"
-            | "registry"
-            | "unhoused"
-            | "snapshots"
-            | "global_data"
-            | ".git"
+        "observations" | "registry" | "unhoused" | "snapshots" | "global_data" | ".git"
     )
 }
 
@@ -315,7 +318,11 @@ pub fn create_task(
 
 pub fn get_task(conn: &Connection, id: &str) -> Result<Option<Task>> {
     let task = conn
-        .query_row("SELECT * FROM tasks WHERE id = ?1", params![id], row_to_task)
+        .query_row(
+            "SELECT * FROM tasks WHERE id = ?1",
+            params![id],
+            row_to_task,
+        )
         .optional()?;
     Ok(task)
 }
@@ -360,19 +367,13 @@ pub fn resolve_task(conn: &Connection, reference: &str, cwd: &Path) -> Result<Ta
     bail!("No task found matching id '{reference}'")
 }
 
-pub fn list_tasks(
-    conn: &Connection,
-    prefix: &str,
-    max_priority: Option<i64>,
-) -> Result<Vec<Task>> {
+pub fn list_tasks(conn: &Connection, prefix: &str, max_priority: Option<i64>) -> Result<Vec<Task>> {
     let active = ACTIVE_STATUSES
         .iter()
         .map(|s| format!("'{s}'"))
         .collect::<Vec<_>>()
         .join(", ");
-    let mut sql = format!(
-        "SELECT * FROM tasks WHERE prefix = ?1 AND status IN ({active})"
-    );
+    let mut sql = format!("SELECT * FROM tasks WHERE prefix = ?1 AND status IN ({active})");
     if max_priority.is_some() {
         sql.push_str(" AND priority <= ?2");
     }
@@ -607,7 +608,14 @@ fn cmd_list(args: &[String]) -> Result<()> {
 fn cmd_create(args: &[String]) -> Result<()> {
     let flags = Flags::parse(
         args,
-        &["named", "name", "description", "desc", "priority", "project"],
+        &[
+            "named",
+            "name",
+            "description",
+            "desc",
+            "priority",
+            "project",
+        ],
         &["raw", "json"],
     )?;
     let name = flags
@@ -700,7 +708,11 @@ fn cmd_task_action(id_ref: &str, action: &str, args: &[String]) -> Result<()> {
                 .ok_or_else(|| anyhow!("`task <ID> log` requires --notes \"<message>\""))?;
             let task = resolve_task(&conn, id_ref, &cwd())?;
             log_task(&conn, &task.id, notes)?;
-            println!("{} {}", "Logged note on".bright_green(), task.id.bright_cyan());
+            println!(
+                "{} {}",
+                "Logged note on".bright_green(),
+                task.id.bright_cyan()
+            );
         }
         "close" | "done" => {
             let flags = Flags::parse(args, &["notes", "note"], &[])?;
@@ -746,7 +758,11 @@ fn cmd_task_action(id_ref: &str, action: &str, args: &[String]) -> Result<()> {
 }
 
 fn print_describe(conn: &Connection, task: &Task) -> Result<()> {
-    println!("{} {}", "Task".bright_white().bold(), task.id.bright_cyan().bold());
+    println!(
+        "{} {}",
+        "Task".bright_white().bold(),
+        task.id.bright_cyan().bold()
+    );
     println!("  {:<12} {}", "Name:".dimmed(), task.name);
     if !task.description.is_empty() {
         println!("  {:<12} {}", "Description:".dimmed(), task.description);
@@ -756,14 +772,26 @@ fn print_describe(conn: &Connection, task: &Task) -> Result<()> {
         "Priority:".dimmed(),
         color_priority(task.priority, &format!("P{}", task.priority))
     );
-    println!("  {:<12} {}", "Status:".dimmed(), color_status(&task.status));
+    println!(
+        "  {:<12} {}",
+        "Status:".dimmed(),
+        color_status(&task.status)
+    );
     println!(
         "  {:<12} {}",
         "Assignee:".dimmed(),
         task.assignee.as_deref().unwrap_or("(unassigned)")
     );
-    println!("  {:<12} {}", "Created:".dimmed(), friendly_time(&task.created_at));
-    println!("  {:<12} {}", "Updated:".dimmed(), friendly_time(&task.updated_at));
+    println!(
+        "  {:<12} {}",
+        "Created:".dimmed(),
+        friendly_time(&task.created_at)
+    );
+    println!(
+        "  {:<12} {}",
+        "Updated:".dimmed(),
+        friendly_time(&task.updated_at)
+    );
     if let Some(s) = &task.started_at {
         println!("  {:<12} {}", "Started:".dimmed(), friendly_time(s));
     }
@@ -790,7 +818,11 @@ fn print_describe(conn: &Connection, task: &Task) -> Result<()> {
 
 fn friendly_time(rfc3339: &str) -> String {
     DateTime::parse_from_rfc3339(rfc3339)
-        .map(|dt| dt.with_timezone(&Utc).format("%Y-%m-%d %H:%M UTC").to_string())
+        .map(|dt| {
+            dt.with_timezone(&Utc)
+                .format("%Y-%m-%d %H:%M UTC")
+                .to_string()
+        })
         .unwrap_or_else(|_| rfc3339.to_string())
 }
 
@@ -842,9 +874,9 @@ impl Flags {
                         bail!("Unknown flag --{key}");
                     }
                 } else if value_set.contains(stripped) {
-                    let val = args.get(i + 1).ok_or_else(|| {
-                        anyhow!("Flag --{stripped} expects a value")
-                    })?;
+                    let val = args
+                        .get(i + 1)
+                        .ok_or_else(|| anyhow!("Flag --{stripped} expects a value"))?;
                     values.insert(stripped.to_string(), val.clone());
                     i += 1;
                 } else if bool_set.contains(stripped) {
@@ -913,7 +945,9 @@ mod tests {
             let t = create_task(&conn, "abc123", "n", "", 2).unwrap();
             let suffix = t.id.strip_prefix("abc123-").unwrap();
             assert_eq!(suffix.len(), ID_SUFFIX_LEN);
-            assert!(suffix.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit()));
+            assert!(suffix
+                .chars()
+                .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit()));
             assert!(ids.insert(t.id), "ids must be unique");
         }
     }
@@ -951,7 +985,10 @@ mod tests {
         let t = create_task(&conn, "p", "task", "", 2).unwrap();
 
         assign_task(&conn, &t.id, "Builder").unwrap();
-        assert_eq!(get_task(&conn, &t.id).unwrap().unwrap().assignee.as_deref(), Some("Builder"));
+        assert_eq!(
+            get_task(&conn, &t.id).unwrap().unwrap().assignee.as_deref(),
+            Some("Builder")
+        );
 
         start_task(&conn, &t.id, Some("starting")).unwrap();
         let started = get_task(&conn, &t.id).unwrap().unwrap();
@@ -961,7 +998,10 @@ mod tests {
         log_task(&conn, &t.id, "progress note").unwrap();
 
         discard_task(&conn, &t.id, None).unwrap();
-        assert_eq!(get_task(&conn, &t.id).unwrap().unwrap().status, STATUS_DISCARDED);
+        assert_eq!(
+            get_task(&conn, &t.id).unwrap().unwrap().status,
+            STATUS_DISCARDED
+        );
 
         // History records every action.
         let logs = task_logs(&conn, &t.id).unwrap();
@@ -1023,7 +1063,10 @@ mod tests {
     #[test]
     fn test_parse_env_value() {
         let c = "FOO=bar\nSPOCKET_ROOT=\"/a/b/hashhash\"\n";
-        assert_eq!(parse_env_value(c, "SPOCKET_ROOT").as_deref(), Some("/a/b/hashhash"));
+        assert_eq!(
+            parse_env_value(c, "SPOCKET_ROOT").as_deref(),
+            Some("/a/b/hashhash")
+        );
         assert_eq!(parse_env_value(c, "MISSING"), None);
     }
 

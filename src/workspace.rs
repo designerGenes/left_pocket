@@ -234,11 +234,7 @@ impl Workspace {
         // pocket creation over agent rendering.
         if let Err(e) = crate::agents::sync_agents_into_pocket(&self.pocket_dir) {
             if crate::verbose() {
-                eprintln!(
-                    "{} {}",
-                    "Warning: agent render failed:".bright_yellow(),
-                    e
-                );
+                eprintln!("{} {}", "Warning: agent render failed:".bright_yellow(), e);
             }
         }
 
@@ -606,6 +602,8 @@ impl Workspace {
             return Err(anyhow!("Workspace file does not exist"));
         }
 
+        let mut original_workspace_json: Option<String> = None;
+
         // If there are sidecars, we need to temporarily add them
         if !self.sidecar_paths.is_empty() {
             if crate::verbose() {
@@ -615,6 +613,8 @@ impl Workspace {
                 );
             }
 
+            original_workspace_json =
+                Some(fs::read_to_string(&workspace_path).context("Failed to read workspace file")?);
             let (mut workspace, _) = Self::read_workspace_file(&workspace_path, &self.pocket_dir)?;
 
             // Add sidecars
@@ -652,6 +652,10 @@ impl Workspace {
             .arg(&workspace_path)
             .output()
             .context("Failed to open VS Code")?;
+
+        if let Some(original) = original_workspace_json {
+            fs::write(&workspace_path, original).context("Failed to restore workspace file")?;
+        }
 
         if !output.status.success() {
             return Err(anyhow!(

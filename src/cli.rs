@@ -69,6 +69,26 @@ pub struct Cli {
     #[arg(short = 's', long = "sidecar", value_name = "PATH")]
     pub sidecar: Vec<String>,
 
+    /// Add a tool for this safe_pocket session only
+    ///
+    /// Tools are exposed as managed sidecar folders when the workspace opens, but
+    /// are not installed into the project for future sessions.
+    ///
+    ///   spocket -i . --with gitleaks
+    ///   spocket -i . --with graphify
+    #[arg(long = "with", value_name = "TOOL")]
+    pub with_tools: Vec<String>,
+
+    /// Install a tool into the project and safe pocket for future sessions
+    ///
+    /// If the tool is already installed this is a no-op. Supported tools:
+    /// gitleaks, graphify.
+    ///
+    ///   spocket -i . --add gitleaks
+    ///   spocket -i . --add graphify
+    #[arg(long = "add", value_name = "TOOL")]
+    pub add_tools: Vec<String>,
+
     /// Clone the pocket from the workspace that contains this path
     ///
     /// Copies all meta files (copilot instructions, prompts, observations, etc.)
@@ -370,6 +390,13 @@ pub enum Commands {
         #[arg(value_name = "SHELL")]
         shell: ShellChoice,
     },
+
+    /// Print a concise machine-readable completion model
+    ///
+    /// This JSON is intended for editor and shell integrations that want richer
+    /// nested command data than a single shell script can comfortably expose.
+    #[command(name = "completion-spec")]
+    CompletionSpec,
 
     /// Resolve (and create) today's daily feature file for the VS Code hotkey
     ///

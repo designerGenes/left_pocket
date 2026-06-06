@@ -302,7 +302,11 @@ pub fn parse_template_content(raw: &str, source: &Path) -> Result<Vec<Template>>
             // Interior blocks are always terminated by a newline in the source
             // (the following directive sits on its own line), so a trailing blank
             // line in the source is preserved. The final block mirrors the file.
-            let want_trailing = if is_final { raw_ends_with_newline } else { true };
+            let want_trailing = if is_final {
+                raw_ends_with_newline
+            } else {
+                true
+            };
             if want_trailing {
                 content.push('\n');
             }
@@ -605,12 +609,14 @@ pub fn load_templates() -> Result<Vec<Template>> {
             match parse_template(&path) {
                 Ok(mut parsed) => templates.append(&mut parsed),
                 Err(e) => {
-                    eprintln!(
-                        "{} skipping {}: {}",
-                        "Warning:".bright_yellow(),
-                        path.display(),
-                        e
-                    );
+                    if crate::verbose() {
+                        eprintln!(
+                            "{} skipping {}: {}",
+                            "Warning:".bright_yellow(),
+                            path.display(),
+                            e
+                        );
+                    }
                 }
             }
         }
@@ -2351,7 +2357,10 @@ mod tests {
         // root as directory_structure.yaml, with the INSTALL directive stripped
         // (and no leading blank line) — and the raw .md is NOT mirrored.
         let dir_struct = config_dir.join("directory_structure.yaml");
-        assert!(dir_struct.exists(), "directory_structure.yaml should be installed");
+        assert!(
+            dir_struct.exists(),
+            "directory_structure.yaml should be installed"
+        );
         let ds = fs::read_to_string(&dir_struct).unwrap();
         assert!(
             !ds.contains("#SPOCKET_INSTALL_DESTINATION"),
@@ -2382,7 +2391,10 @@ mod tests {
         // Default mirror: AGENTS.md has no INSTALL_DESTINATION, so it is mirrored
         // verbatim (TEMPLATE_DESTINATION preserved) for the runtime loader.
         let staged_agents = config_dir.join("templates/AGENTS.md");
-        assert!(staged_agents.exists(), "AGENTS.md should be mirrored to templates/");
+        assert!(
+            staged_agents.exists(),
+            "AGENTS.md should be mirrored to templates/"
+        );
         assert!(
             fs::read_to_string(&staged_agents)
                 .unwrap()

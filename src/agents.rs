@@ -33,7 +33,8 @@ use std::path::{Path, PathBuf};
 
 /// Marker written into every safe_pocket-managed agent file so we can recognise
 /// (and safely overwrite) files we own without clobbering hand-authored ones.
-pub const MANAGED_MARKER: &str = "<!-- SPOCKET_MANAGED_AGENT: managed by `spocket sync agents` — edits are overwritten -->";
+pub const MANAGED_MARKER: &str =
+    "<!-- SPOCKET_MANAGED_AGENT: managed by `spocket sync agents` — edits are overwritten -->";
 
 // ── Bundled default agent templates ───────────────────────────────────────────
 
@@ -46,8 +47,14 @@ pub const DEFAULT_AGENTS: &[(&str, &str)] = &[
     ("builder.md", include_str!("templates/agents/builder.md")),
     ("critic.md", include_str!("templates/agents/critic.md")),
     ("reporter.md", include_str!("templates/agents/reporter.md")),
-    ("documenter.md", include_str!("templates/agents/documenter.md")),
-    ("installer.md", include_str!("templates/agents/installer.md")),
+    (
+        "documenter.md",
+        include_str!("templates/agents/documenter.md"),
+    ),
+    (
+        "installer.md",
+        include_str!("templates/agents/installer.md"),
+    ),
     (
         "safe_pocketer.md",
         include_str!("templates/agents/safe_pocketer.md"),
@@ -154,7 +161,10 @@ impl UnifiedAgent {
         let perms = self.permissions();
         let mut out = String::new();
         out.push_str("---\n");
-        out.push_str(&format!("description: {}\n", yaml_scalar(&self.description)));
+        out.push_str(&format!(
+            "description: {}\n",
+            yaml_scalar(&self.description)
+        ));
         out.push_str(&format!("mode: {}\n", self.mode));
         out.push_str("temperature: 0.1\n");
         if let Some(model) = self.model.as_deref().filter(|m| !m.trim().is_empty()) {
@@ -189,7 +199,10 @@ fn yaml_scalar(value: &str) -> String {
         || collapsed.contains('#')
         || collapsed.starts_with(['>', '|', '\'', '"', '[', '{', '*', '&', '!', '%', '@', '`']);
     if needs_quote {
-        format!("\"{}\"", collapsed.replace('\\', "\\\\").replace('"', "\\\""))
+        format!(
+            "\"{}\"",
+            collapsed.replace('\\', "\\\\").replace('"', "\\\"")
+        )
     } else {
         collapsed
     }
@@ -219,21 +232,24 @@ pub fn parse_unified_agent(content: &str, fallback_name: &str) -> Result<Unified
     let mut folded_key: Option<&'static str> = None;
     let mut folded_buf: Vec<String> = Vec::new();
 
-    let flush_folded =
-        |key: Option<&'static str>,
-         buf: &mut Vec<String>,
-         description: &mut String,
-         notes: &mut Option<String>| {
-            if let Some(k) = key {
-                let joined = buf.join(" ").split_whitespace().collect::<Vec<_>>().join(" ");
-                match k {
-                    "description" => *description = joined,
-                    "notes" => *notes = Some(joined),
-                    _ => {}
-                }
+    let flush_folded = |key: Option<&'static str>,
+                        buf: &mut Vec<String>,
+                        description: &mut String,
+                        notes: &mut Option<String>| {
+        if let Some(k) = key {
+            let joined = buf
+                .join(" ")
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ");
+            match k {
+                "description" => *description = joined,
+                "notes" => *notes = Some(joined),
+                _ => {}
             }
-            buf.clear();
-        };
+        }
+        buf.clear();
+    };
 
     for raw_line in frontmatter.lines() {
         let line = raw_line.trim_end();
@@ -292,7 +308,11 @@ pub fn parse_unified_agent(content: &str, fallback_name: &str) -> Result<Unified
                 }
             }
             "description" => {
-                if value == ">-" || value == ">" || value == "|" || value == "|-" || value.is_empty()
+                if value == ">-"
+                    || value == ">"
+                    || value == "|"
+                    || value == "|-"
+                    || value.is_empty()
                 {
                     folded_key = Some("description");
                     folded_buf.clear();
@@ -506,8 +526,12 @@ pub fn sync_agents_into_pocket(pocket_dir: &Path) -> Result<SyncReport> {
 /// `<name>.md.pre-spocket.bak` before being replaced.
 pub fn sync_agents_into(target_dir: &Path) -> Result<SyncReport> {
     let agents = load_unified_agents()?;
-    fs::create_dir_all(target_dir)
-        .with_context(|| format!("Failed to create OpenCode agent dir: {}", target_dir.display()))?;
+    fs::create_dir_all(target_dir).with_context(|| {
+        format!(
+            "Failed to create OpenCode agent dir: {}",
+            target_dir.display()
+        )
+    })?;
 
     let mut report = SyncReport::default();
 
@@ -551,7 +575,10 @@ pub fn remove_global_agents() -> Result<Vec<String>> {
         }
         let backup = path.with_extension("md.pre-spocket-removed.bak");
         fs::write(&backup, &content).with_context(|| {
-            format!("Failed to back up agent before removal: {}", backup.display())
+            format!(
+                "Failed to back up agent before removal: {}",
+                backup.display()
+            )
         })?;
         fs::remove_file(&path)
             .with_context(|| format!("Failed to remove global agent: {}", path.display()))?;
@@ -618,7 +645,10 @@ mod tests {
     fn test_parse_unified_agent_basic() {
         let a = parse_unified_agent(sample(), "fallback").unwrap();
         assert_eq!(a.name, "builder");
-        assert_eq!(a.description, "Primary implementer that does the bulk of the work.");
+        assert_eq!(
+            a.description,
+            "Primary implementer that does the bulk of the work."
+        );
         assert_eq!(a.notes.as_deref(), Some("A short note."));
         assert_eq!(a.mode, "primary");
         assert_eq!(a.model, None);
@@ -676,12 +706,15 @@ mod tests {
         let content = "---\nagent_name: critic\ndescription: d\nmode: subagent\nmodel: github-copilot/claude-haiku\ncan: []\ncannot: []\n---\nbody\n";
         let a = parse_unified_agent(content, "critic").unwrap();
         assert_eq!(a.model.as_deref(), Some("github-copilot/claude-haiku"));
-        assert!(a.to_opencode_markdown().contains("model: github-copilot/claude-haiku"));
+        assert!(a
+            .to_opencode_markdown()
+            .contains("model: github-copilot/claude-haiku"));
     }
 
     #[test]
     fn test_inline_list_parsing() {
-        let content = "---\nagent_name: x\ndescription: d\ncan: [code, document]\ncannot: [plan]\n---\nb\n";
+        let content =
+            "---\nagent_name: x\ndescription: d\ncan: [code, document]\ncannot: [plan]\n---\nb\n";
         let a = parse_unified_agent(content, "x").unwrap();
         assert_eq!(a.can, vec!["code", "document"]);
         assert_eq!(a.cannot, vec!["plan"]);
@@ -693,7 +726,10 @@ mod tests {
             let stem = file.trim_end_matches(".md");
             let a = parse_unified_agent(content, stem)
                 .unwrap_or_else(|e| panic!("default agent {file} failed to parse: {e}"));
-            assert_eq!(&a.name, stem, "agent_name should match file stem for {file}");
+            assert_eq!(
+                &a.name, stem,
+                "agent_name should match file stem for {file}"
+            );
             assert!(!a.description.is_empty(), "{file} has empty description");
             // Rendering must not panic and must contain the managed marker.
             assert!(a.to_opencode_markdown().contains(MANAGED_MARKER));
@@ -713,8 +749,14 @@ mod tests {
         assert_eq!(action, SyncAction::Updated);
         assert_eq!(report.backed_up.len(), 1);
         let backup = target.with_extension("md.pre-spocket.bak");
-        assert_eq!(fs::read_to_string(&backup).unwrap(), "hand authored agent\n");
-        assert_eq!(fs::read_to_string(&target).unwrap(), "new managed content\n");
+        assert_eq!(
+            fs::read_to_string(&backup).unwrap(),
+            "hand authored agent\n"
+        );
+        assert_eq!(
+            fs::read_to_string(&target).unwrap(),
+            "new managed content\n"
+        );
 
         let _ = fs::remove_dir_all(&dir);
     }

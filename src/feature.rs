@@ -513,7 +513,8 @@ TAG_A:
 
     #[test]
     fn build_content_prepends_tags() {
-        let content = build_feature_content("2026-05-31", &["TAG_A".to_string(), "TAG_B".to_string()]);
+        let content =
+            build_feature_content("2026-05-31", &["TAG_A".to_string(), "TAG_B".to_string()]);
         assert_eq!(content, "#TAG_A\n#TAG_B\n\n# 2026-05-31\n\n");
     }
 
@@ -530,11 +531,7 @@ TAG_A:
         fs::create_dir_all(&tmp).unwrap();
 
         let tags_yaml = tmp.join("feature_tags.yaml");
-        fs::write(
-            &tags_yaml,
-            "AUTO_TAG:\n  place_automatically: true\n",
-        )
-        .unwrap();
+        fs::write(&tags_yaml, "AUTO_TAG:\n  place_automatically: true\n").unwrap();
 
         // First call creates the base file with the auto tag.
         let first = resolve_daily_feature(&tmp, "dailies", false, &tags_yaml).unwrap();
@@ -553,7 +550,12 @@ TAG_A:
         let third = resolve_daily_feature(&tmp, "dailies", true, &tags_yaml).unwrap();
         assert!(third.created);
         assert_ne!(third.path, first.path);
-        let name = third.path.file_name().unwrap().to_string_lossy().to_string();
+        let name = third
+            .path
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .to_string();
         assert!(name.ends_with("_1.md"), "unexpected name: {name}");
 
         let _ = fs::remove_dir_all(&tmp);

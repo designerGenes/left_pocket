@@ -146,7 +146,6 @@ impl Manifest {
         Ok(Some(manifest))
     }
 
-
     /// Atomic write: write to tmp file then update the registry cache.
     pub fn save(&self, pocket_dir: &Path) -> Result<()> {
         self.save_manifest_file(pocket_dir)?;

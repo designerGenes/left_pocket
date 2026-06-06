@@ -138,6 +138,12 @@ impl TestEnv {
             .expect("safe pocket should exist")
     }
 
+    fn workspace_file(&self) -> PathBuf {
+        let pocket = self.only_pocket();
+        let name = pocket.file_name().unwrap().to_string_lossy().to_string();
+        pocket.join(format!("{name}.code-workspace"))
+    }
+
     fn registry_file(&self, name: &str) -> PathBuf {
         self.home.join(".safe_pocket").join(name)
     }
@@ -454,7 +460,8 @@ fn silent_flag_skips_vscode_launch() {
     // The pocket is still created (all steps ran)...
     let pocket = env.only_pocket();
     assert!(pocket.join("manifest.json").is_file());
-    summary.step("Confirmed the pocket and manifest were still created (all steps ran)".to_string());
+    summary
+        .step("Confirmed the pocket and manifest were still created (all steps ran)".to_string());
 
     // ...but VS Code was never opened.
     assert_eq!(
@@ -541,7 +548,8 @@ fn new_pocket_has_no_beads_artifacts() {
         !manifest.contains("uses_beads"),
         "manifest should not carry the legacy uses_beads field"
     );
-    summary.step("Confirmed no `.beads` directories and no `uses_beads` manifest field".to_string());
+    summary
+        .step("Confirmed no `.beads` directories and no `uses_beads` manifest field".to_string());
 
     // The project .env should still be written, just without a BEADS_DIR line.
     let project_env = fs::read_to_string(project.join(".env")).unwrap();
@@ -575,9 +583,154 @@ fn runtime_agents_md_advertises_task_tracker() {
         agents.contains("spocket task"),
         "AGENTS.md should mention the built-in task tracker"
     );
-    assert!(!agents.contains("bd ready"), "AGENTS.md should not mention beads");
+    assert!(
+        !agents.contains("bd ready"),
+        "AGENTS.md should not mention beads"
+    );
     summary.step("Verified AGENTS.md mentions `spocket task` and not beads".to_string());
     summary.print();
+}
+
+#[test]
+fn missing_template_destination_warning_is_verbose_only() {
+    let env = TestEnv::new("verbose-template-warning");
+    let project = env.project("project");
+    let template_dir = env.home.join(".config/safe_pocket/templates/feature_tags");
+    fs::create_dir_all(&template_dir).unwrap();
+    fs::write(
+        template_dir.join("conversation.feature.tag.yaml"),
+        "description: this is referenced by feature_tags.yaml, not a pocket template\n",
+    )
+    .unwrap();
+
+    let quiet = env.run_spocket(&project, &["-i", ".", "--temporary", "--silent"]);
+    assert_success(&quiet);
+    assert!(
+        !String::from_utf8_lossy(&quiet.stderr).contains("missing #SPOCKET_TEMPLATE_DESTINATION"),
+        "non-verbose run should not warn about referenced feature tag files"
+    );
+
+    let other = env.project("other-project");
+    let verbose = env.run_spocket(&other, &["-i", ".", "--temporary", "--silent", "--verbose"]);
+    assert_success(&verbose);
+    assert!(
+        String::from_utf8_lossy(&verbose.stderr).contains("missing #SPOCKET_TEMPLATE_DESTINATION"),
+        "verbose run should surface skipped template diagnostics"
+    );
+}
+
+#[test]
+fn daily_feature_loads_auto_tags_from_feature_tags_yaml() {
+    let env = TestEnv::new("feature-tags-yaml");
+    let project = env.project("project");
+    fs::create_dir_all(env.home.join(".config/safe_pocket")).unwrap();
+    fs::write(
+        env.home.join(".config/safe_pocket/feature_tags.yaml"),
+        "SPOCKET_COUNT_JELLYBEANS:\n  description: /tmp/count.jellybeans.feature.tag.yaml\n  place_automatically: true\n  type: done hook\n",
+    )
+    .unwrap();
+
+    assert_success(&env.run_spocket(&project, &["-i", ".", "--temporary", "--silent"]));
+    let pocket = env.only_pocket();
+    let daily = env.run_spocket(
+        &project,
+        &[
+            "daily-feature",
+            "--pocket",
+            pocket.to_string_lossy().as_ref(),
+            "--new",
+        ],
+    );
+    assert_success(&daily);
+    let value: serde_json::Value = serde_json::from_slice(&daily.stdout).unwrap();
+    let path = PathBuf::from(value.get("path").unwrap().as_str().unwrap());
+    let content = fs::read_to_string(path).unwrap();
+    assert!(
+        content.starts_with("#SPOCKET_COUNT_JELLYBEANS\n"),
+        "daily feature should use auto tags from feature_tags.yaml"
+    );
+}
+
+#[test]
+fn with_tool_is_session_sidecar_only_and_add_tool_persists() {
+    let env = TestEnv::new("tool-flags");
+    let project = env.project("project");
+
+    let with_output = env.run_spocket(
+        &project,
+        &["-i", ".", "--temporary", "--with", "graphify", "--silent"],
+    );
+    assert_success(&with_output);
+    let workspace_file = env.workspace_file();
+    let workspace_text = fs::read_to_string(&workspace_file).unwrap();
+    assert!(
+        !workspace_text.contains("[Tool] graphify"),
+        "--with should not persist tool folders into the workspace file"
+    );
+
+    let add_output = env.run_spocket(
+        &project,
+        &["-i", ".", "--temporary", "--add", "graphify", "--silent"],
+    );
+    assert_success(&add_output);
+    let pocket = env.only_pocket();
+    assert!(pocket.join("graphify-out").is_dir());
+    assert!(project.join("graphify-out").exists());
+    let workspace_text = fs::read_to_string(&workspace_file).unwrap();
+    assert!(workspace_text.contains("[Tool] graphify"));
+}
+
+#[test]
+fn add_gitleaks_writes_project_guard_files() {
+    let env = TestEnv::new("gitleaks-add");
+    let project = env.project("project");
+    let git_init = Command::new("git")
+        .arg("init")
+        .current_dir(&project)
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .output()
+        .expect("git init should run");
+    assert_success(&git_init);
+
+    let output = env.run_spocket(
+        &project,
+        &["-i", ".", "--temporary", "--add", "gitleaks", "--silent"],
+    );
+    assert_success(&output);
+    assert!(project.join(".gitleaks.toml").is_file());
+    assert!(project.join(".git/hooks/pre-commit").is_file());
+    let workspace_text = fs::read_to_string(env.workspace_file()).unwrap();
+    assert!(workspace_text.contains("[Tool] gitleaks"));
+}
+
+#[test]
+fn task_list_bridges_project_and_safe_pocket_directories() {
+    let env = TestEnv::new("task-bridge");
+    let project = env.project("project");
+    assert_success(&env.run_spocket(&project, &["-i", ".", "--temporary", "--silent"]));
+    let pocket = env.only_pocket();
+    assert_success(&env.run_spocket(
+        &project,
+        &["task", "create", "--named", "Bridge me", "--priority", "1"],
+    ));
+
+    let from_project = env.run_spocket(&project, &["task", "list", "--raw"]);
+    let from_pocket = env.run_spocket(&pocket, &["task", "list", "--raw"]);
+    assert_success(&from_project);
+    assert_success(&from_pocket);
+    assert_eq!(from_project.stdout, from_pocket.stdout);
+}
+
+#[test]
+fn completion_spec_exposes_nested_commands_and_tools() {
+    let env = TestEnv::new("completion-spec");
+    let project = env.project("project");
+    let output = env.run_spocket(&project, &["completion-spec"]);
+    assert_success(&output);
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(value.to_string().contains("--with"));
+    assert!(value.to_string().contains("graphify"));
+    assert!(value.to_string().contains("worktree"));
 }
 
 /// When `heal` renames a safe pocket directory, the built-in task tracker must
@@ -665,7 +818,9 @@ fn heal_reprefixes_tracked_tasks() {
     let list = env.run_spocket(&target_project, &["task", "list", "--raw"]);
     assert_success(&list);
     let tasks: serde_json::Value = serde_json::from_slice(&list.stdout).unwrap();
-    let arr = tasks.as_array().expect("task list --raw should be an array");
+    let arr = tasks
+        .as_array()
+        .expect("task list --raw should be an array");
     assert_eq!(arr.len(), 1, "expected exactly one migrated task");
     let id = arr[0].get("id").and_then(|v| v.as_str()).unwrap();
     assert!(
@@ -681,4 +836,3 @@ fn heal_reprefixes_tracked_tasks() {
     );
     summary.print();
 }
-

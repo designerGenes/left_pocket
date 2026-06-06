@@ -94,6 +94,32 @@ safe_pocket -i myproject -i backend --sidecar ~/dev/tools
 
 Sidecars are useful for directories you need occasionally but don't want permanently in the workspace. They're added when opening but not saved to the `.code-workspace` file.
 
+### Session And Project Tools
+
+Use `--with` to make a managed tool available only for the current safe_pocket session:
+
+```bash
+safe_pocket -i myproject --with graphify
+safe_pocket -i myproject --with gitleaks
+```
+
+Use `--add` to install a managed tool into the project and safe pocket for future sessions:
+
+```bash
+safe_pocket -i myproject --add graphify
+safe_pocket -i myproject --add gitleaks
+```
+
+`graphify` stores graph output in the safe pocket at `graphify-out/` and bridges `graphify-out` into the project. `gitleaks` writes a default `.gitleaks.toml` and, when the project has a Git repository, a pre-commit hook that runs `gitleaks protect --staged --redact` when gitleaks is installed.
+
+### Completion Spec
+
+Shell completions are still available through `safe_pocket completions <shell>`. Integrations that need nested command and tool metadata can read a concise JSON model:
+
+```bash
+safe_pocket completion-spec
+```
+
 ### Clone Safe Pockets
 
 Copy safe pocket contents (copilot instructions, features, etc.) from one workspace to another:

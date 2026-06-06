@@ -224,6 +224,8 @@ fn handle_command(command: Commands) -> Result<()> {
             Ok(())
         }
 
+        Commands::CompletionSpec => handle_completion_spec(),
+
         Commands::Worktree { action } => handle_worktree(action),
 
         Commands::DailyFeature {
@@ -568,6 +570,13 @@ fn handle_workspace(cli: Cli) -> Result<()> {
         sidecar_paths.push(resolved);
     }
 
+    for tool in &cli.with_tools {
+        let tool_path = prepare_session_tool(tool)?;
+        if !sidecar_paths.contains(&tool_path) {
+            sidecar_paths.push(tool_path);
+        }
+    }
+
     // Handle clone-from
     if let Some(clone_from) = cli.clone_from {
         let source_path = config.resolve_path(&clone_from)?;
@@ -575,6 +584,8 @@ fn handle_workspace(cli: Cli) -> Result<()> {
         let workspace = Workspace::clone_from(&source_path, &core_paths, cli.temporary)?;
 
         workspace.create_pocket_structure()?;
+
+        apply_project_tools(&cli.add_tools, &workspace)?;
 
         open_with_merge(&workspace)?;
 
@@ -624,6 +635,9 @@ fn handle_workspace(cli: Cli) -> Result<()> {
             if !extra_paths.is_empty() {
                 existing.sidecar_paths.extend(extra_paths);
             }
+            existing.sidecar_paths.extend(sidecar_paths.clone());
+
+            apply_project_tools(&cli.add_tools, &existing)?;
 
             open_with_merge(&existing)?;
             return Ok(());
@@ -634,7 +648,7 @@ fn handle_workspace(cli: Cli) -> Result<()> {
     let create_readmes = !cli.no_readme;
     let workspace = Workspace::new_with_options(
         core_paths.clone(),
-        sidecar_paths,
+        sidecar_paths.clone(),
         create_readmes,
         cli.temporary,
     )?;
@@ -642,7 +656,7 @@ fn handle_workspace(cli: Cli) -> Result<()> {
     if !workspace.exists() {
         // Secondary lookup: check if any existing pocket's manifest matches these paths
         // (handles pockets that evolved in-place via sync/augment)
-        if let Some(existing) = Workspace::find_workspace_by_manifest_paths(&core_paths)? {
+        if let Some(mut existing) = Workspace::find_workspace_by_manifest_paths(&core_paths)? {
             if existing.temporary == cli.temporary {
                 if verbose() {
                     println!(
@@ -652,6 +666,8 @@ fn handle_workspace(cli: Cli) -> Result<()> {
                     );
                 }
 
+                existing.sidecar_paths.extend(sidecar_paths.clone());
+                apply_project_tools(&cli.add_tools, &existing)?;
                 open_with_merge(&existing)?;
                 return Ok(());
             }
@@ -700,13 +716,16 @@ fn handle_workspace(cli: Cli) -> Result<()> {
                     "Cloned to:".bright_green(),
                     workspace.hash.bright_yellow()
                 );
+                apply_project_tools(&cli.add_tools, &workspace)?;
             } else {
                 // User chose not to clone
                 workspace.create()?;
+                apply_project_tools(&cli.add_tools, &workspace)?;
             }
         } else {
             // No similar workspaces found
             workspace.create()?;
+            apply_project_tools(&cli.add_tools, &workspace)?;
         }
 
         open_with_merge(&workspace)?;
@@ -716,6 +735,8 @@ fn handle_workspace(cli: Cli) -> Result<()> {
         }
 
         workspace.migrate_storage_references()?;
+
+        apply_project_tools(&cli.add_tools, &workspace)?;
 
         // Drift detection
         let drift_result = workspace.detect_and_resolve_drift()?;
@@ -744,6 +765,196 @@ fn handle_workspace(cli: Cli) -> Result<()> {
         }
     }
 
+    Ok(())
+}
+
+fn normalize_tool_name(name: &str) -> Result<String> {
+    let normalized = name.trim().to_ascii_lowercase();
+    match normalized.as_str() {
+        "gitleaks" | "graphify" => Ok(normalized),
+        _ => Err(anyhow!(
+            "Unsupported tool '{name}'. Supported tools: gitleaks, graphify."
+        )),
+    }
+}
+
+fn prepare_session_tool(name: &str) -> Result<PathBuf> {
+    let tool = normalize_tool_name(name)?;
+    let dir = template::safe_pocket_config_dir()?
+        .join("tools")
+        .join(&tool);
+    fs::create_dir_all(&dir)
+        .with_context(|| format!("Failed to create session tool directory: {}", dir.display()))?;
+    let readme = dir.join("README.md");
+    if !readme.exists() {
+        fs::write(&readme, tool_readme(&tool))
+            .with_context(|| format!("Failed to write tool README: {}", readme.display()))?;
+    }
+    Ok(dir)
+}
+
+fn apply_project_tools(names: &[String], workspace: &Workspace) -> Result<()> {
+    for name in names {
+        match normalize_tool_name(name)?.as_str() {
+            "gitleaks" => install_gitleaks(workspace)?,
+            "graphify" => install_graphify(workspace)?,
+            _ => unreachable!(),
+        }
+    }
+    Ok(())
+}
+
+fn tool_readme(tool: &str) -> String {
+    match tool {
+        "gitleaks" => "# gitleaks\n\nManaged by safe_pocket. Use `gitleaks detect --source <project>` to scan for secrets.\n".to_string(),
+        "graphify" => "# graphify\n\nManaged by safe_pocket. Graph output is stored in the safe pocket and may be bridged into the project.\n".to_string(),
+        _ => format!("# {tool}\n\nManaged by safe_pocket.\n"),
+    }
+}
+
+fn install_gitleaks(workspace: &Workspace) -> Result<()> {
+    let tool_dir = workspace.pocket_dir.join("tools").join("gitleaks");
+    fs::create_dir_all(&tool_dir)
+        .with_context(|| format!("Failed to create gitleaks tool dir: {}", tool_dir.display()))?;
+    let readme = tool_dir.join("README.md");
+    if !readme.exists() {
+        fs::write(&readme, tool_readme("gitleaks"))?;
+    }
+
+    for project in &workspace.core_paths {
+        let config_path = project.join(".gitleaks.toml");
+        if !config_path.exists() {
+            fs::write(
+                &config_path,
+                "title = \"safe_pocket gitleaks guard\"\n\n[extend]\nuseDefault = true\n",
+            )
+            .with_context(|| format!("Failed to write {}", config_path.display()))?;
+        }
+
+        let git_hooks = project.join(".git").join("hooks");
+        if git_hooks.is_dir() {
+            let hook = git_hooks.join("pre-commit");
+            let body = "#!/bin/sh\nif command -v gitleaks >/dev/null 2>&1; then\n  gitleaks protect --staged --redact --config .gitleaks.toml\nelse\n  echo \"safe_pocket: gitleaks is not installed; skipping secret scan\" >&2\nfi\n";
+            if !hook.exists() {
+                fs::write(&hook, body)
+                    .with_context(|| format!("Failed to write {}", hook.display()))?;
+                set_executable(&hook)?;
+            }
+        }
+    }
+
+    add_persistent_workspace_folder(workspace, &tool_dir, "[Tool] gitleaks")
+}
+
+fn install_graphify(workspace: &Workspace) -> Result<()> {
+    let tool_dir = workspace.pocket_dir.join("tools").join("graphify");
+    let graph_dir = workspace.pocket_dir.join("graphify-out");
+    fs::create_dir_all(&tool_dir)
+        .with_context(|| format!("Failed to create graphify tool dir: {}", tool_dir.display()))?;
+    fs::create_dir_all(&graph_dir).with_context(|| {
+        format!(
+            "Failed to create graphify output dir: {}",
+            graph_dir.display()
+        )
+    })?;
+    let readme = tool_dir.join("README.md");
+    if !readme.exists() {
+        fs::write(&readme, tool_readme("graphify"))?;
+    }
+    fs::write(
+        graph_dir.join(".graphify_root"),
+        workspace
+            .core_paths
+            .first()
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_default(),
+    )?;
+
+    for project in &workspace.core_paths {
+        bridge_graphify_dir(project, &graph_dir)?;
+    }
+
+    add_persistent_workspace_folder(workspace, &tool_dir, "[Tool] graphify")
+}
+
+fn bridge_graphify_dir(project: &Path, graph_dir: &Path) -> Result<()> {
+    let link = project.join("graphify-out");
+    if link.exists() {
+        return Ok(());
+    }
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(graph_dir, &link).with_context(|| {
+            format!(
+                "Failed to link {} -> {}",
+                link.display(),
+                graph_dir.display()
+            )
+        })?;
+    }
+    #[cfg(not(unix))]
+    {
+        fs::create_dir_all(&link)
+            .with_context(|| format!("Failed to create graphify bridge dir: {}", link.display()))?;
+    }
+    Ok(())
+}
+
+fn set_executable(path: &Path) -> Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(path)?.permissions();
+        perms.set_mode(perms.mode() | 0o755);
+        fs::set_permissions(path, perms)?;
+    }
+    Ok(())
+}
+
+fn add_persistent_workspace_folder(workspace: &Workspace, path: &Path, name: &str) -> Result<()> {
+    let workspace_file = workspace.workspace_file_path();
+    if !workspace_file.exists() {
+        return Ok(());
+    }
+    let text = fs::read_to_string(&workspace_file)
+        .with_context(|| format!("Failed to read {}", workspace_file.display()))?;
+    let mut doc: serde_json::Value = serde_json::from_str(&text)
+        .with_context(|| format!("Failed to parse {}", workspace_file.display()))?;
+    let folders = doc
+        .get_mut("folders")
+        .and_then(|v| v.as_array_mut())
+        .ok_or_else(|| {
+            anyhow!(
+                "Workspace file has no folders array: {}",
+                workspace_file.display()
+            )
+        })?;
+    let path_text = path.to_string_lossy().to_string();
+    if folders
+        .iter()
+        .any(|f| f.get("path").and_then(|p| p.as_str()) == Some(path_text.as_str()))
+    {
+        return Ok(());
+    }
+    folders.push(serde_json::json!({ "path": path_text, "name": name }));
+    fs::write(&workspace_file, serde_json::to_string_pretty(&doc)?)
+        .with_context(|| format!("Failed to write {}", workspace_file.display()))?;
+    Ok(())
+}
+
+fn handle_completion_spec() -> Result<()> {
+    let spec = serde_json::json!({
+        "commands": {
+            "top_level_flags": ["--include", "--sidecar", "--with", "--add", "--clone-from", "--temporary", "--no-readme", "--upgrade", "--new", "--verbose", "--simulate-runtime", "--silent"],
+            "tools": ["gitleaks", "graphify"],
+            "subcommands": {
+                "task": ["list", "create", "assign", "start", "log", "close", "discard", "describe", "reprefix"],
+                "worktree": ["add", "remove", "list"],
+                "completions": ["bash", "zsh", "fish", "powershell", "elvish"]
+            }
+        }
+    });
+    println!("{}", serde_json::to_string_pretty(&spec)?);
     Ok(())
 }
 
@@ -1449,7 +1660,12 @@ fn handle_sync_agents() -> Result<()> {
 
 /// Run every system-wide sync. Today this is just the agents.
 fn handle_sync_all() -> Result<()> {
-    println!("{}", "Syncing all system-wide safe_pocket assets…".bright_white().bold());
+    println!(
+        "{}",
+        "Syncing all system-wide safe_pocket assets…"
+            .bright_white()
+            .bold()
+    );
     handle_sync_agents()?;
     Ok(())
 }
@@ -1475,7 +1691,11 @@ fn print_agents_sync_report(report: &agents::SyncReport, target_dir: &Path) {
         println!("  {} {}", "updated".bright_yellow(), name);
     }
     if !report.unchanged.is_empty() {
-        println!("  {} {}", "unchanged".dimmed(), report.unchanged.join(", ").dimmed());
+        println!(
+            "  {} {}",
+            "unchanged".dimmed(),
+            report.unchanged.join(", ").dimmed()
+        );
     }
     for backup in &report.backed_up {
         println!(
@@ -1635,11 +1855,7 @@ fn open_with_merge(ws: &Workspace) -> Result<()> {
         Ok(_) => {}
         Err(e) => {
             if verbose() {
-                eprintln!(
-                    "{} {}",
-                    "Warning: agent sync failed:".bright_yellow(),
-                    e
-                );
+                eprintln!("{} {}", "Warning: agent sync failed:".bright_yellow(), e);
             }
         }
     }
