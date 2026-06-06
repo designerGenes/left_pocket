@@ -570,21 +570,15 @@ fn handle_workspace(cli: Cli) -> Result<()> {
         sidecar_paths.push(resolved);
     }
 
-    for tool in &cli.with_tools {
-        let tool_path = prepare_session_tool(tool)?;
-        if !sidecar_paths.contains(&tool_path) {
-            sidecar_paths.push(tool_path);
-        }
-    }
-
     // Handle clone-from
     if let Some(clone_from) = cli.clone_from {
         let source_path = config.resolve_path(&clone_from)?;
 
-        let workspace = Workspace::clone_from(&source_path, &core_paths, cli.temporary)?;
+        let mut workspace = Workspace::clone_from(&source_path, &core_paths, cli.temporary)?;
 
         workspace.create_pocket_structure()?;
 
+        apply_session_tools(&cli.with_tools, &mut workspace)?;
         apply_project_tools(&cli.add_tools, &workspace)?;
 
         open_with_merge(&workspace)?;
@@ -637,6 +631,7 @@ fn handle_workspace(cli: Cli) -> Result<()> {
             }
             existing.sidecar_paths.extend(sidecar_paths.clone());
 
+            apply_session_tools(&cli.with_tools, &mut existing)?;
             apply_project_tools(&cli.add_tools, &existing)?;
 
             open_with_merge(&existing)?;
@@ -667,6 +662,7 @@ fn handle_workspace(cli: Cli) -> Result<()> {
                 }
 
                 existing.sidecar_paths.extend(sidecar_paths.clone());
+                apply_session_tools(&cli.with_tools, &mut existing)?;
                 apply_project_tools(&cli.add_tools, &existing)?;
                 open_with_merge(&existing)?;
                 return Ok(());
@@ -716,19 +712,29 @@ fn handle_workspace(cli: Cli) -> Result<()> {
                     "Cloned to:".bright_green(),
                     workspace.hash.bright_yellow()
                 );
+                let mut workspace = workspace;
+                apply_session_tools(&cli.with_tools, &mut workspace)?;
                 apply_project_tools(&cli.add_tools, &workspace)?;
+                open_with_merge(&workspace)?;
+                return Ok(());
             } else {
                 // User chose not to clone
                 workspace.create()?;
+                let mut workspace = workspace;
+                apply_session_tools(&cli.with_tools, &mut workspace)?;
                 apply_project_tools(&cli.add_tools, &workspace)?;
+                open_with_merge(&workspace)?;
+                return Ok(());
             }
         } else {
             // No similar workspaces found
             workspace.create()?;
+            let mut workspace = workspace;
+            apply_session_tools(&cli.with_tools, &mut workspace)?;
             apply_project_tools(&cli.add_tools, &workspace)?;
+            open_with_merge(&workspace)?;
+            return Ok(());
         }
-
-        open_with_merge(&workspace)?;
     } else {
         if verbose() {
             println!("{}", "Using existing workspace".dimmed());
@@ -736,6 +742,8 @@ fn handle_workspace(cli: Cli) -> Result<()> {
 
         workspace.migrate_storage_references()?;
 
+        let mut workspace = workspace;
+        apply_session_tools(&cli.with_tools, &mut workspace)?;
         apply_project_tools(&cli.add_tools, &workspace)?;
 
         // Drift detection
@@ -771,26 +779,23 @@ fn handle_workspace(cli: Cli) -> Result<()> {
 fn normalize_tool_name(name: &str) -> Result<String> {
     let normalized = name.trim().to_ascii_lowercase();
     match normalized.as_str() {
-        "gitleaks" | "graphify" => Ok(normalized),
+        "gitleaks" | "graphify" | "memgraph" => Ok(normalized),
         _ => Err(anyhow!(
-            "Unsupported tool '{name}'. Supported tools: gitleaks, graphify."
+            "Unsupported tool '{name}'. Supported tools: gitleaks, graphify, memgraph."
         )),
     }
 }
 
-fn prepare_session_tool(name: &str) -> Result<PathBuf> {
-    let tool = normalize_tool_name(name)?;
-    let dir = template::safe_pocket_config_dir()?
-        .join("tools")
-        .join(&tool);
-    fs::create_dir_all(&dir)
-        .with_context(|| format!("Failed to create session tool directory: {}", dir.display()))?;
-    let readme = dir.join("README.md");
-    if !readme.exists() {
-        fs::write(&readme, tool_readme(&tool))
-            .with_context(|| format!("Failed to write tool README: {}", readme.display()))?;
+fn apply_session_tools(names: &[String], workspace: &mut Workspace) -> Result<()> {
+    for name in names {
+        let tool = normalize_tool_name(name)?;
+        let dir = workspace.pocket_dir.join(".session-tools").join(&tool);
+        prepare_tool_dir(&dir, &tool, workspace)?;
+        if !workspace.sidecar_paths.contains(&dir) {
+            workspace.sidecar_paths.push(dir);
+        }
     }
-    Ok(dir)
+    Ok(())
 }
 
 fn apply_project_tools(names: &[String], workspace: &Workspace) -> Result<()> {
@@ -798,8 +803,23 @@ fn apply_project_tools(names: &[String], workspace: &Workspace) -> Result<()> {
         match normalize_tool_name(name)?.as_str() {
             "gitleaks" => install_gitleaks(workspace)?,
             "graphify" => install_graphify(workspace)?,
+            "memgraph" => install_memgraph(workspace)?,
             _ => unreachable!(),
         }
+    }
+    Ok(())
+}
+
+fn prepare_tool_dir(dir: &Path, tool: &str, workspace: &Workspace) -> Result<()> {
+    fs::create_dir_all(dir)
+        .with_context(|| format!("Failed to create {tool} tool dir: {}", dir.display()))?;
+    let readme = dir.join("README.md");
+    if !readme.exists() {
+        fs::write(&readme, tool_readme(tool))
+            .with_context(|| format!("Failed to write tool README: {}", readme.display()))?;
+    }
+    if tool == "memgraph" {
+        write_memgraph_config(dir, workspace)?;
     }
     Ok(())
 }
@@ -808,6 +828,7 @@ fn tool_readme(tool: &str) -> String {
     match tool {
         "gitleaks" => "# gitleaks\n\nManaged by safe_pocket. Use `gitleaks detect --source <project>` to scan for secrets.\n".to_string(),
         "graphify" => "# graphify\n\nManaged by safe_pocket. Graph output is stored in the safe pocket and may be bridged into the project.\n".to_string(),
+        "memgraph" => "# Memgraph relational memory\n\nManaged by safe_pocket. This directory contains a Memgraph configuration, Docker Compose file, Cypher schema, and a scanner for the safe pocket's FEATURES tree and relevant markdown context files.\n".to_string(),
         _ => format!("# {tool}\n\nManaged by safe_pocket.\n"),
     }
 }
@@ -875,6 +896,74 @@ fn install_graphify(workspace: &Workspace) -> Result<()> {
     }
 
     add_persistent_workspace_folder(workspace, &tool_dir, "[Tool] graphify")
+}
+
+fn install_memgraph(workspace: &Workspace) -> Result<()> {
+    let tool_dir = workspace.pocket_dir.join("tools").join("memgraph");
+    prepare_tool_dir(&tool_dir, "memgraph", workspace)?;
+    add_persistent_workspace_folder(workspace, &tool_dir, "[Tool] memgraph")
+}
+
+fn write_memgraph_config(tool_dir: &Path, workspace: &Workspace) -> Result<()> {
+    fs::create_dir_all(tool_dir.join("data"))?;
+    fs::create_dir_all(tool_dir.join("logs"))?;
+    fs::create_dir_all(tool_dir.join("import"))?;
+
+    let scan_paths = memgraph_scan_paths(workspace);
+    let scan_values = scan_paths
+        .iter()
+        .map(|p| serde_json::json!(p.to_string_lossy().to_string()))
+        .collect::<Vec<_>>();
+    let config = serde_json::json!({
+        "engine": "memgraph",
+        "protocol": "bolt",
+        "bolt_url": "bolt://127.0.0.1:7687",
+        "query_language": "cypher",
+        "ontology": {
+            "nodes": ["Observation", "Feature", "File", "Concept"],
+            "edges": ["MODIFIES", "RESOLVES_ISSUE_IN", "REQUIRES", "IMPLEMENTS"]
+        },
+        "scan": {
+            "mode": "markdown",
+            "recursive": true,
+            "paths": scan_values,
+            "output_jsonl": tool_dir.join("import/markdown-files.jsonl").to_string_lossy().to_string()
+        }
+    });
+    fs::write(
+        tool_dir.join("scan-config.json"),
+        serde_json::to_string_pretty(&config)?,
+    )?;
+
+    fs::write(tool_dir.join("schema.cypher"), memgraph_schema_cypher())?;
+    fs::write(tool_dir.join("docker-compose.yml"), memgraph_compose_yaml())?;
+    let scanner = tool_dir.join("scan-safe-pocket.sh");
+    fs::write(&scanner, memgraph_scanner_script())?;
+    set_executable(&scanner)?;
+    Ok(())
+}
+
+fn memgraph_scan_paths(workspace: &Workspace) -> Vec<PathBuf> {
+    let mut paths = vec![workspace.pocket_dir.join("FEATURES")];
+    for name in ["AGENTS.md", "GEMINI.md", "README.md", "Install.md"] {
+        let candidate = workspace.pocket_dir.join(name);
+        if candidate.exists() || name == "AGENTS.md" {
+            paths.push(candidate);
+        }
+    }
+    paths
+}
+
+fn memgraph_schema_cypher() -> &'static str {
+    "CREATE INDEX ON :Observation(id);\nCREATE INDEX ON :Feature(name);\nCREATE INDEX ON :File(path);\nCREATE INDEX ON :Concept(name);\n"
+}
+
+fn memgraph_compose_yaml() -> &'static str {
+    "services:\n  memgraph:\n    image: memgraph/memgraph:latest\n    command: [\"--bolt-address=0.0.0.0\", \"--bolt-port=7687\"]\n    ports:\n      - \"7687:7687\"\n    volumes:\n      - ./data:/var/lib/memgraph\n      - ./logs:/var/log/memgraph\n      - ./import:/var/opt/memgraph/import\n"
+}
+
+fn memgraph_scanner_script() -> &'static str {
+    "#!/bin/sh\nset -eu\nCONFIG_DIR=$(CDPATH= cd -- \"$(dirname -- \"$0\")\" && pwd)\nOUT=\"$CONFIG_DIR/import/markdown-files.jsonl\"\n: > \"$OUT\"\npython3 - \"$CONFIG_DIR/scan-config.json\" \"$OUT\" <<'PY'\nimport json, sys\nfrom pathlib import Path\nconfig = json.loads(Path(sys.argv[1]).read_text())\nout = Path(sys.argv[2])\nwith out.open('a', encoding='utf-8') as fh:\n    for raw in config['scan']['paths']:\n        p = Path(raw).expanduser()\n        files = sorted(p.rglob('*.md')) if p.is_dir() else ([p] if p.is_file() and p.suffix.lower() == '.md' else [])\n        for md in files:\n            text = md.read_text(encoding='utf-8', errors='replace')\n            title = next((line.lstrip('#').strip() for line in text.splitlines() if line.startswith('#')), md.stem)\n            fh.write(json.dumps({'path': str(md), 'title': title, 'bytes': len(text.encode('utf-8'))}) + '\\n')\nPY\nprintf 'Wrote %s\\n' \"$OUT\"\n"
 }
 
 fn bridge_graphify_dir(project: &Path, graph_dir: &Path) -> Result<()> {
@@ -946,7 +1035,7 @@ fn handle_completion_spec() -> Result<()> {
     let spec = serde_json::json!({
         "commands": {
             "top_level_flags": ["--include", "--sidecar", "--with", "--add", "--clone-from", "--temporary", "--no-readme", "--upgrade", "--new", "--verbose", "--simulate-runtime", "--silent"],
-            "tools": ["gitleaks", "graphify"],
+            "tools": ["gitleaks", "graphify", "memgraph"],
             "subcommands": {
                 "task": ["list", "create", "assign", "start", "log", "close", "discard", "describe", "reprefix"],
                 "worktree": ["add", "remove", "list"],

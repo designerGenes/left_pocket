@@ -76,16 +76,18 @@ pub struct Cli {
     ///
     ///   spocket -i . --with gitleaks
     ///   spocket -i . --with graphify
+    ///   spocket -i . --with memgraph
     #[arg(long = "with", value_name = "TOOL")]
     pub with_tools: Vec<String>,
 
     /// Install a tool into the project and safe pocket for future sessions
     ///
     /// If the tool is already installed this is a no-op. Supported tools:
-    /// gitleaks, graphify.
+    /// gitleaks, graphify, memgraph.
     ///
     ///   spocket -i . --add gitleaks
     ///   spocket -i . --add graphify
+    ///   spocket -i . --add memgraph
     #[arg(long = "add", value_name = "TOOL")]
     pub add_tools: Vec<String>,
 

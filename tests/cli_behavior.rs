@@ -700,6 +700,80 @@ fn with_tool_is_session_sidecar_only_and_add_tool_persists() {
 }
 
 #[test]
+fn with_memgraph_lives_in_safe_pocket_session_tools_only() {
+    let env = TestEnv::new("memgraph-with");
+    let project = env.project("project");
+
+    let output = env.run_spocket(
+        &project,
+        &["-i", ".", "--temporary", "--with", "memgraph", "--silent"],
+    );
+    assert_success(&output);
+
+    let pocket = env.only_pocket();
+    let session_tool = pocket.join(".session-tools/memgraph");
+    assert!(session_tool.join("scan-config.json").is_file());
+    assert!(session_tool.join("docker-compose.yml").is_file());
+    assert!(session_tool.join("schema.cypher").is_file());
+    assert!(session_tool.join("scan-safe-pocket.sh").is_file());
+    assert!(
+        !pocket.join("tools/memgraph").exists(),
+        "--with memgraph should not persist into tools/"
+    );
+    let workspace_text = fs::read_to_string(env.workspace_file()).unwrap();
+    assert!(
+        !workspace_text.contains("[Tool] memgraph"),
+        "--with memgraph should not persist in the workspace file"
+    );
+}
+
+#[test]
+fn add_memgraph_configures_safe_pocket_markdown_scan() {
+    let env = TestEnv::new("memgraph-add");
+    let project = env.project("project");
+
+    let output = env.run_spocket(
+        &project,
+        &["-i", ".", "--temporary", "--add", "memgraph", "--silent"],
+    );
+    assert_success(&output);
+
+    let pocket = env.only_pocket();
+    let tool = pocket.join("tools/memgraph");
+    assert!(tool.join("docker-compose.yml").is_file());
+    assert!(tool.join("schema.cypher").is_file());
+    assert!(tool.join("scan-safe-pocket.sh").is_file());
+    assert!(tool.join("data").is_dir());
+    assert!(tool.join("logs").is_dir());
+    assert!(tool.join("import").is_dir());
+
+    let config: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(tool.join("scan-config.json")).unwrap()).unwrap();
+    let paths = config
+        .get("scan")
+        .and_then(|s| s.get("paths"))
+        .and_then(|p| p.as_array())
+        .expect("scan paths should be an array");
+    assert!(paths
+        .iter()
+        .any(|p| p.as_str().unwrap().ends_with("/FEATURES")));
+    assert!(paths
+        .iter()
+        .any(|p| p.as_str().unwrap().ends_with("/AGENTS.md")));
+    assert_eq!(
+        config.get("protocol").and_then(|v| v.as_str()),
+        Some("bolt")
+    );
+    assert_eq!(
+        config.get("bolt_url").and_then(|v| v.as_str()),
+        Some("bolt://127.0.0.1:7687")
+    );
+
+    let workspace_text = fs::read_to_string(env.workspace_file()).unwrap();
+    assert!(workspace_text.contains("[Tool] memgraph"));
+}
+
+#[test]
 fn add_gitleaks_writes_project_guard_files() {
     let env = TestEnv::new("gitleaks-add");
     let project = env.project("project");
@@ -749,6 +823,7 @@ fn completion_spec_exposes_nested_commands_and_tools() {
     let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert!(value.to_string().contains("--with"));
     assert!(value.to_string().contains("graphify"));
+    assert!(value.to_string().contains("memgraph"));
     assert!(value.to_string().contains("worktree"));
 }
 

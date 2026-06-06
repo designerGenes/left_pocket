@@ -101,6 +101,7 @@ Use `--with` to make a managed tool available only for the current safe_pocket s
 ```bash
 safe_pocket -i myproject --with graphify
 safe_pocket -i myproject --with gitleaks
+safe_pocket -i myproject --with memgraph
 ```
 
 Use `--add` to install a managed tool into the project and safe pocket for future sessions:
@@ -108,9 +109,12 @@ Use `--add` to install a managed tool into the project and safe pocket for futur
 ```bash
 safe_pocket -i myproject --add graphify
 safe_pocket -i myproject --add gitleaks
+safe_pocket -i myproject --add memgraph
 ```
 
 `graphify` stores graph output in the safe pocket at `graphify-out/` and bridges `graphify-out` into the project. `gitleaks` writes a default `.gitleaks.toml` and, when the project has a Git repository, a pre-commit hook that runs `gitleaks protect --staged --redact` when gitleaks is installed.
+
+`memgraph` creates a safe-pocket-local relational memory workspace. `--with memgraph` writes session-only assets under `.session-tools/memgraph/`; `--add memgraph` writes persistent assets under `tools/memgraph/`, including `docker-compose.yml`, `schema.cypher`, `scan-config.json`, and `scan-safe-pocket.sh`. The scanner is configured for the safe pocket's `FEATURES/` tree and relevant markdown context files such as `AGENTS.md`.
 
 ### Completion Spec
 
