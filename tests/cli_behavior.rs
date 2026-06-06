@@ -787,7 +787,9 @@ fn add_memgraph_configures_safe_pocket_markdown_scan() {
     assert!(tool.join("docker-compose.yml").is_file());
     let compose = fs::read_to_string(tool.join("docker-compose.yml")).unwrap();
     assert!(compose.contains("memgraph/memgraph-mage:latest"));
-    assert!(compose.contains("7444:7444"));
+    assert!(compose.contains("image: memgraph/lab:latest"));
+    assert!(compose.contains(":3000\""));
+    assert!(tool.join("import-into-memgraph.sh").is_file());
     assert!(tool.join("schema.cypher").is_file());
     assert!(tool.join("scan-safe-pocket.sh").is_file());
     assert!(tool.join("data").is_dir());
@@ -812,8 +814,26 @@ fn add_memgraph_configures_safe_pocket_markdown_scan() {
         Some("bolt")
     );
     assert_eq!(
-        config.get("bolt_url").and_then(|v| v.as_str()),
-        Some("bolt://127.0.0.1:7687")
+        config
+            .get("bolt_url")
+            .and_then(|v| v.as_str())
+            .map(|s| s.starts_with("bolt://127.0.0.1:")),
+        Some(true)
+    );
+    assert_eq!(
+        config
+            .get("lab_url")
+            .and_then(|v| v.as_str())
+            .map(|s| s.starts_with("http://127.0.0.1:")),
+        Some(true)
+    );
+    assert_eq!(
+        config
+            .get("runtime")
+            .and_then(|v| v.get("compose_project"))
+            .and_then(|v| v.as_str())
+            .map(|s| s.starts_with("spocket-")),
+        Some(true)
     );
 
     let workspace_text = fs::read_to_string(env.workspace_file()).unwrap();
@@ -842,7 +862,7 @@ fn installed_memgraph_runs_scanner_when_opened() {
     let updated = fs::read_to_string(&import).unwrap();
     assert!(updated.contains("new-note.md"));
 
-    let state = pocket.join("tools/memgraph/.safe_pocket_state.json");
+    let state = pocket.join("tools/memgraph/.safe_pocket_scan_state.json");
     assert!(state.is_file());
     let before = fs::read_to_string(&state).unwrap();
     let third = env.run_spocket(&project, &["-i", ".", "--temporary", "--silent"]);
@@ -1000,16 +1020,20 @@ fn add_memgraph_is_idempotent_when_already_installed() {
         &project,
         &["-i", ".", "--temporary", "--add", "memgraph", "--silent"],
     ));
-    let pocket = env.only_pocket();
-    let config_path = pocket.join("tools/memgraph/scan-config.json");
-    fs::write(&config_path, "sentinel").unwrap();
-
     let second = env.run_spocket(
         &project,
-        &["-i", ".", "--temporary", "--add", "memgraph", "--silent"],
+        &[
+            "-i",
+            ".",
+            "--temporary",
+            "--add",
+            "memgraph",
+            "--silent",
+            "--verbose",
+        ],
     );
     assert_success(&second);
-    assert_eq!(fs::read_to_string(&config_path).unwrap(), "sentinel");
+    assert_contains(&second, "Tool already installed:");
 }
 
 #[test]

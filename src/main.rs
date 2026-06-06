@@ -1044,11 +1044,20 @@ fn write_memgraph_config(tool_dir: &Path, workspace: &Workspace) -> Result<()> {
     let config = serde_json::json!({
         "engine": "memgraph",
         "protocol": "bolt",
-        "bolt_url": "bolt://127.0.0.1:7687",
+        "bolt_url": memgraph_bolt_url(workspace),
+        "lab_url": memgraph_lab_url(workspace),
         "query_language": "cypher",
         "ontology": {
             "nodes": ["Observation", "Feature", "File", "Concept"],
             "edges": ["MODIFIES", "RESOLVES_ISSUE_IN", "REQUIRES", "IMPLEMENTS"]
+        },
+        "runtime": {
+            "compose_project": memgraph_compose_project(workspace),
+            "pocket_hash": workspace.hash,
+            "pocket_path": workspace.pocket_dir.to_string_lossy().to_string(),
+            "bolt_port": memgraph_bolt_port(workspace),
+            "lab_port": memgraph_lab_port(workspace),
+            "import_cypher": tool_dir.join("import/load-markdown.cypher").to_string_lossy().to_string()
         },
         "scan": {
             "mode": "markdown",
@@ -1063,10 +1072,16 @@ fn write_memgraph_config(tool_dir: &Path, workspace: &Workspace) -> Result<()> {
     )?;
 
     fs::write(tool_dir.join("schema.cypher"), memgraph_schema_cypher())?;
-    fs::write(tool_dir.join("docker-compose.yml"), memgraph_compose_yaml())?;
+    fs::write(
+        tool_dir.join("docker-compose.yml"),
+        memgraph_compose_yaml(workspace),
+    )?;
     let scanner = tool_dir.join("scan-safe-pocket.sh");
     fs::write(&scanner, memgraph_scanner_script())?;
     set_executable(&scanner)?;
+    let importer = tool_dir.join("import-into-memgraph.sh");
+    fs::write(&importer, memgraph_importer_script())?;
+    set_executable(&importer)?;
     Ok(())
 }
 
@@ -1085,12 +1100,106 @@ fn memgraph_schema_cypher() -> &'static str {
     "CREATE INDEX ON :Observation(id);\nCREATE INDEX ON :Feature(name);\nCREATE INDEX ON :File(path);\nCREATE INDEX ON :Concept(name);\n"
 }
 
-fn memgraph_compose_yaml() -> &'static str {
-    "services:\n  memgraph:\n    image: memgraph/memgraph-mage:latest\n    command: [\"--bolt-address=0.0.0.0\", \"--bolt-port=7687\"]\n    ports:\n      - \"7687:7687\"\n      - \"7444:7444\"\n    volumes:\n      - ./data:/var/lib/memgraph\n      - ./logs:/var/log/memgraph\n      - ./import:/var/opt/memgraph/import\n"
+fn memgraph_compose_yaml(workspace: &Workspace) -> String {
+    format!(
+        "services:\n  memgraph:\n    image: memgraph/memgraph-mage:latest\n    command: [\"--bolt-address=0.0.0.0\", \"--bolt-port=7687\"]\n    ports:\n      - \"{}:7687\"\n    volumes:\n      - ./data:/var/lib/memgraph\n      - ./logs:/var/log/memgraph\n      - ./import:/var/opt/memgraph/import\n  lab:\n    image: memgraph/lab:latest\n    depends_on:\n      - memgraph\n    ports:\n      - \"{}:3000\"\n",
+        memgraph_bolt_port(workspace),
+        memgraph_lab_port(workspace)
+    )
 }
 
 fn memgraph_scanner_script() -> &'static str {
     "#!/bin/sh\nset -eu\nCONFIG_DIR=$(CDPATH= cd -- \"$(dirname -- \"$0\")\" && pwd)\nOUT=\"$CONFIG_DIR/import/markdown-files.jsonl\"\n: > \"$OUT\"\npython3 - \"$CONFIG_DIR/scan-config.json\" \"$OUT\" <<'PY'\nimport json, sys\nfrom pathlib import Path\nconfig = json.loads(Path(sys.argv[1]).read_text())\nout = Path(sys.argv[2])\nwith out.open('a', encoding='utf-8') as fh:\n    for raw in config['scan']['paths']:\n        p = Path(raw).expanduser()\n        files = sorted(p.rglob('*.md')) if p.is_dir() else ([p] if p.is_file() and p.suffix.lower() == '.md' else [])\n        for md in files:\n            text = md.read_text(encoding='utf-8', errors='replace')\n            title = next((line.lstrip('#').strip() for line in text.splitlines() if line.startswith('#')), md.stem)\n            fh.write(json.dumps({'path': str(md), 'title': title, 'bytes': len(text.encode('utf-8'))}) + '\\n')\nPY\nprintf 'Wrote %s\\n' \"$OUT\"\n"
+}
+
+fn memgraph_importer_script() -> &'static str {
+    r#"#!/bin/sh
+set -eu
+CONFIG_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+CONFIG="$CONFIG_DIR/scan-config.json"
+JSONL="$CONFIG_DIR/import/markdown-files.jsonl"
+CYPHER="$CONFIG_DIR/import/load-markdown.cypher"
+python3 - "$CONFIG" "$JSONL" "$CYPHER" <<'PY'
+import json, re, sys
+from pathlib import Path
+
+config = json.loads(Path(sys.argv[1]).read_text())
+jsonl = Path(sys.argv[2])
+cypher = Path(sys.argv[3])
+runtime = config['runtime']
+pocket_hash = runtime['pocket_hash']
+pocket_path = runtime['pocket_path']
+bolt_url = config['bolt_url']
+lab_url = config['lab_url']
+stopwords = {'about','after','again','before','being','better','feature','features','graph','graphs','memgraph','project','safe','pocket','using','with','from','this','that','into'}
+
+def q(value):
+    return "'" + str(value).replace("\\", "\\\\").replace("'", "\\'") + "'"
+
+def concepts(title):
+    tokens = re.findall(r"[A-Za-z][A-Za-z0-9_-]+", title)
+    return sorted({token.capitalize() for token in tokens if len(token) > 4 and token.lower() not in stopwords})
+
+lines = [f"MATCH (n {{pocket_hash: {q(pocket_hash)}}}) DETACH DELETE n;"]
+lines.append(f"MERGE (p:Pocket {{hash: {q(pocket_hash)}}}) SET p.path = {q(pocket_path)}, p.pocket_hash = {q(pocket_hash)}, p.bolt_url = {q(bolt_url)}, p.lab_url = {q(lab_url)};")
+
+if jsonl.exists():
+    for raw in jsonl.read_text(encoding='utf-8').splitlines():
+        if not raw.strip():
+            continue
+        item = json.loads(raw)
+        path = item['path']
+        title = item.get('title') or Path(path).stem
+        rel = str(Path(path).relative_to(pocket_path)) if path.startswith(pocket_path) else path
+        lines.append(f"MERGE (f:File {{path: {q(path)}}}) SET f.language = 'markdown', f.title = {q(title)}, f.relative_path = {q(rel)}, f.bytes = {item.get('bytes', 0)}, f.pocket_hash = {q(pocket_hash)};")
+        lines.append(f"MATCH (p:Pocket {{hash: {q(pocket_hash)}}}), (f:File {{path: {q(path)}}}) MERGE (p)-[:CONTAINS]->(f);")
+        if rel.startswith('FEATURES/'):
+            lines.append(f"MERGE (feat:Feature {{name: {q(title)}, pocket_hash: {q(pocket_hash)}}}) SET feat.status = 'tracked', feat.description = {q(rel)}, feat.source_path = {q(path)};")
+            lines.append(f"MATCH (f:File {{path: {q(path)}}}), (feat:Feature {{name: {q(title)}, pocket_hash: {q(pocket_hash)}}}) MERGE (f)-[:IMPLEMENTS]->(feat);")
+            for concept in concepts(title):
+                lines.append(f"MERGE (c:Concept {{name: {q(concept)}, pocket_hash: {q(pocket_hash)}}});")
+                lines.append(f"MATCH (feat:Feature {{name: {q(title)}, pocket_hash: {q(pocket_hash)}}}), (c:Concept {{name: {q(concept)}, pocket_hash: {q(pocket_hash)}}}) MERGE (feat)-[:REQUIRES]->(c);")
+
+cypher.write_text('\n'.join(lines) + '\n', encoding='utf-8')
+PY
+PROJECT=$(python3 - "$CONFIG" <<'PY'
+import json, sys
+from pathlib import Path
+print(json.loads(Path(sys.argv[1]).read_text())['runtime']['compose_project'])
+PY
+)
+ATTEMPT=0
+while [ "$ATTEMPT" -lt 15 ]; do
+  if docker compose -p "$PROJECT" exec -T memgraph mgconsole < "$CYPHER"; then
+    exit 0
+  fi
+  ATTEMPT=$((ATTEMPT + 1))
+  sleep 1
+done
+printf '%s\n' 'safe_pocket: Memgraph import did not become ready in time.' >&2
+exit 1
+"#
+}
+
+fn memgraph_port_seed(hash: &str) -> u16 {
+    let seed = u64::from_str_radix(&hash.chars().take(8).collect::<String>(), 16).unwrap_or(0);
+    (seed % 10000) as u16
+}
+
+fn memgraph_bolt_port(workspace: &Workspace) -> u16 {
+    20000 + memgraph_port_seed(&workspace.hash)
+}
+
+fn memgraph_lab_port(workspace: &Workspace) -> u16 {
+    30000 + memgraph_port_seed(&workspace.hash)
+}
+
+fn memgraph_bolt_url(workspace: &Workspace) -> String {
+    format!("bolt://127.0.0.1:{}", memgraph_bolt_port(workspace))
+}
+
+fn memgraph_lab_url(workspace: &Workspace) -> String {
+    format!("http://127.0.0.1:{}", memgraph_lab_port(workspace))
 }
 
 fn bridge_graphify_dir(project: &Path, graph_dir: &Path) -> Result<()> {
@@ -2155,21 +2264,23 @@ fn run_memgraph_standard_operation(ws: &Workspace) {
         return;
     }
 
-    let _ = fs::write(tool_dir.join("docker-compose.yml"), memgraph_compose_yaml());
+    let _ = write_memgraph_config(&tool_dir, ws);
 
-    let inputs_changed = memgraph_inputs_changed(&tool_dir, &ws.pocket_dir);
+    let scan_changed =
+        memgraph_state_outdated(&tool_dir, &ws.pocket_dir, ".safe_pocket_scan_state.json");
+    let import_needed =
+        memgraph_state_outdated(&tool_dir, &ws.pocket_dir, ".safe_pocket_import_state.json");
     let scanner = tool_dir.join("scan-safe-pocket.sh");
-    if inputs_changed && scanner.is_file() {
+    let mut scanner_ok = !scan_changed;
+    if scan_changed && scanner.is_file() {
         match Command::new("sh")
             .arg(&scanner)
             .current_dir(&tool_dir)
             .output()
         {
             Ok(out) if out.status.success() => {
-                let _ = fs::write(
-                    tool_dir.join(".safe_pocket_state.json"),
-                    serde_json::json!({ "last_input_mtime_ns": memgraph_latest_input_mtime(&ws.pocket_dir) }).to_string(),
-                );
+                scanner_ok = true;
+                write_memgraph_state(&tool_dir, ".safe_pocket_scan_state.json", &ws.pocket_dir);
             }
             Ok(out) => eprintln!(
                 "{} {}",
@@ -2196,7 +2307,36 @@ fn run_memgraph_standard_operation(ws: &Workspace) {
             .current_dir(&tool_dir)
             .output();
         match output {
-            Ok(out) if out.status.success() => {}
+            Ok(out) if out.status.success() => {
+                if import_needed && scanner_ok {
+                    let importer = tool_dir.join("import-into-memgraph.sh");
+                    if importer.is_file() {
+                        match Command::new("sh")
+                            .arg(&importer)
+                            .current_dir(&tool_dir)
+                            .output()
+                        {
+                            Ok(import_out) if import_out.status.success() => {
+                                write_memgraph_state(
+                                    &tool_dir,
+                                    ".safe_pocket_import_state.json",
+                                    &ws.pocket_dir,
+                                );
+                            }
+                            Ok(import_out) => eprintln!(
+                                "{} {}",
+                                "Warning: Memgraph import failed:".bright_yellow(),
+                                String::from_utf8_lossy(&import_out.stderr).trim()
+                            ),
+                            Err(err) => eprintln!(
+                                "{} {}",
+                                "Warning: Memgraph import failed:".bright_yellow(),
+                                err
+                            ),
+                        }
+                    }
+                }
+            }
             Ok(out) => eprintln!(
                 "{} {}",
                 "Warning: Memgraph Docker Compose did not start:".bright_yellow(),
@@ -2242,9 +2382,9 @@ fn memgraph_compose_project(ws: &Workspace) -> String {
     format!("spocket-{}", ws.hash)
 }
 
-fn memgraph_inputs_changed(tool_dir: &Path, pocket_dir: &Path) -> bool {
+fn memgraph_state_outdated(tool_dir: &Path, pocket_dir: &Path, state_name: &str) -> bool {
     let latest = memgraph_latest_input_mtime(pocket_dir);
-    let state_path = tool_dir.join(".safe_pocket_state.json");
+    let state_path = tool_dir.join(state_name);
     let previous = fs::read_to_string(state_path)
         .ok()
         .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
@@ -2253,6 +2393,14 @@ fn memgraph_inputs_changed(tool_dir: &Path, pocket_dir: &Path) -> bool {
                 .and_then(|mtime| mtime.as_u64())
         });
     previous != Some(latest)
+}
+
+fn write_memgraph_state(tool_dir: &Path, state_name: &str, pocket_dir: &Path) {
+    let _ = fs::write(
+        tool_dir.join(state_name),
+        serde_json::json!({ "last_input_mtime_ns": memgraph_latest_input_mtime(pocket_dir) })
+            .to_string(),
+    );
 }
 
 fn memgraph_latest_input_mtime(pocket_dir: &Path) -> u64 {
