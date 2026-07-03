@@ -69,8 +69,19 @@ fn run() -> Result<()> {
     }
 
     // Ensure default template assets exist for normal commands. This is a no-op
-    // after first run and is intentionally skipped for upgrade.
-    let _ = template::ensure_default_assets();
+    // after first run and is intentionally skipped for upgrade. It is also
+    // skipped for the runtime-merge commands: those are hot paths invoked by
+    // the VS Code extension on every editor open/close and must be read-only
+    // with respect to the templates directory. Re-seeding missing templates
+    // there would silently resurrect template source files the user deleted,
+    // violating the unidirectional templates -> pocket flow.
+    let is_merge_cmd = matches!(
+        cli.command,
+        Some(Commands::RuntimeMergeStart { .. } | Commands::RuntimeMergeStop { .. })
+    );
+    if !is_merge_cmd {
+        let _ = template::ensure_default_assets();
+    }
 
     // Handle subcommands first
     if let Some(command) = cli.command {
