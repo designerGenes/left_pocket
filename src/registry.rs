@@ -1,6 +1,7 @@
 use anyhow::{bail, Context, Result};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -18,7 +19,7 @@ const SNAPSHOT_CHUNK_SIZE: usize = 45 * 1024 * 1024;
 const REGISTRY_GITIGNORE: &str =
     ".DS_Store\n/*/\n!/observations/\n!/snapshots/\n!/snapshots/**\n/temporary/\n";
 const PRE_COMMIT_HOOK: &str =
-    "#!/bin/sh\nset -eu\nsafe_pocket sync-registry-git >/dev/null\ngit add -A .\n";
+    "#!/bin/sh\nset -eu\ncorner sync-registry-git >/dev/null\ngit add -A .\n";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RegistryCache {
@@ -85,8 +86,7 @@ fn now() -> DateTime<Utc> {
 }
 
 pub fn registry_root() -> Result<PathBuf> {
-    let home = dirs::home_dir().context("Failed to get home directory")?;
-    Ok(home.join(".safe_pocket"))
+    crate::branding::preferred_registry_root()
 }
 
 pub fn registry_dir() -> Result<PathBuf> {
@@ -104,16 +104,16 @@ pub fn sync_registry_git_state() -> Result<usize> {
 
 pub fn temporary_registry_dir() -> Result<PathBuf> {
     let dir = registry_dir()?.join(TEMPORARY_DIR);
-    fs::create_dir_all(&dir).context("Failed to create temporary safe pocket directory")?;
+    fs::create_dir_all(&dir).context("Failed to create temporary pocket directory")?;
     Ok(dir)
 }
 
 pub fn aliases_path() -> Result<PathBuf> {
-    Ok(registry_dir()?.join(ALIASES_FILE))
+    crate::branding::resolve_registry_relative_path(Path::new(ALIASES_FILE))
 }
 
 pub fn global_observations_dir() -> Result<PathBuf> {
-    let dir = registry_dir()?.join("observations");
+    let dir = crate::branding::resolve_registry_relative_path(Path::new("observations"))?;
     migrate_legacy_observations(&dir)?;
     fs::create_dir_all(&dir).context("Failed to create global observations directory")?;
     Ok(dir)
@@ -150,12 +150,40 @@ pub fn is_registry_pocket_dir(pocket_dir: &Path) -> Result<bool> {
         None => return Ok(false),
     };
 
-    Ok(parent == registry_root()?.as_path() || parent == temporary_registry_dir()?.as_path())
+    for root in crate::branding::known_registry_roots()? {
+        if parent == root.as_path() || parent == root.join(TEMPORARY_DIR).as_path() {
+            return Ok(true);
+        }
+    }
+
+    Ok(false)
 }
 
 pub fn load_cache_or_rebuild() -> Result<RegistryCache> {
-    let root = registry_dir()?;
-    load_cache_or_rebuild_from(&root)
+    let write_root = registry_dir()?;
+    let mut merged = RegistryCache::default();
+    let mut seen_paths = HashSet::new();
+    let mut any_existing_root = false;
+
+    for root in crate::branding::known_registry_roots()? {
+        if !root.exists() {
+            continue;
+        }
+
+        any_existing_root = true;
+        let cache = load_cache_or_rebuild_from(&root)?;
+        for entry in cache.pockets {
+            if seen_paths.insert(entry.path.clone()) {
+                merged.pockets.push(entry);
+            }
+        }
+    }
+
+    if !any_existing_root {
+        return load_cache_or_rebuild_from(&write_root);
+    }
+
+    Ok(merged)
 }
 
 fn load_cache_or_rebuild_from(root: &Path) -> Result<RegistryCache> {
@@ -183,7 +211,7 @@ fn load_cache_or_rebuild_from(root: &Path) -> Result<RegistryCache> {
 }
 
 fn rebuild_cache_from(root: &Path) -> Result<RegistryCache> {
-    fs::create_dir_all(root).context("Failed to create safe pocket registry directory")?;
+    fs::create_dir_all(root).context("Failed to create pocket registry directory")?;
 
     let mut cache = RegistryCache::default();
     collect_pockets_from_dir(root, &mut cache)?;
@@ -241,13 +269,15 @@ pub fn remove_pocket(pocket_dir: &Path) -> Result<()> {
 }
 
 pub fn move_to_unhoused(path: &Path, operation: &str) -> Result<Option<PathBuf>> {
-    let root = registry_root()?;
-    if !path.starts_with(&root) {
-        bail!(
-            "Refusing to move path outside ~/.safe_pocket: {}",
-            path.display()
-        );
-    }
+    let root = crate::branding::known_registry_roots()?
+        .into_iter()
+        .find(|root| path.starts_with(root))
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "Refusing to move path outside known pocket roots: {}",
+                path.display()
+            )
+        })?;
     if !path.exists() {
         return Ok(None);
     }
@@ -388,17 +418,20 @@ fn is_reserved_registry_dir(path: &Path) -> bool {
 }
 
 fn ensure_registry_git_state_from(root: &Path) -> Result<()> {
-    fs::create_dir_all(root).context("Failed to create safe pocket registry root")?;
+    fs::create_dir_all(root).context("Failed to create pocket registry root")?;
 
     if !root.join(".git").exists() {
         let output = Command::new("git")
             .args(["init"])
             .current_dir(root)
             .output()
-            .context("Failed to initialize ~/.safe_pocket git repository")?;
+            .with_context(|| {
+                format!("Failed to initialize git repository in {}", root.display())
+            })?;
         if !output.status.success() {
             bail!(
-                "Failed to initialize ~/.safe_pocket git repository: {}",
+                "Failed to initialize git repository in {}: {}",
+                root.display(),
                 String::from_utf8_lossy(&output.stderr)
             );
         }

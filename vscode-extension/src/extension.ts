@@ -8,6 +8,9 @@ let statusBarItem: vscode.StatusBarItem | undefined;
 let syncInProgress = false;
 let activePocketDir: string | undefined;
 
+const POCKET_ROOT_NAMES = [".corner", ".safe_pocket", ".spocket"];
+const CONFIG_ROOT_NAMES = ["corner", "safe_pocket", "spocket"];
+
 interface SyncResult {
   status: "unchanged" | "synced" | "error";
   hash?: string;
@@ -24,8 +27,8 @@ interface LocateResult {
   message?: string;
 }
 
-function getSpocketDir(): string {
-  return path.join(os.homedir(), ".safe_pocket");
+function getPocketRoots(): string[] {
+  return POCKET_ROOT_NAMES.map((name) => path.join(os.homedir(), name));
 }
 
 function isSpocketWorkspace(
@@ -36,31 +39,31 @@ function isSpocketWorkspace(
   }
 
   const filePath = workspaceFile.fsPath;
-  const spocketDir = getSpocketDir();
-
-  if (!filePath.startsWith(spocketDir)) {
-    return undefined;
+  for (const spocketDir of getPocketRoots()) {
+    if (filePath.startsWith(spocketDir)) {
+      return path.dirname(filePath);
+    }
   }
 
-  // The pocket dir is the parent of the workspace file
-  return path.dirname(filePath);
+  return undefined;
 }
 
 function getBinaryPath(): string {
   const config = vscode.workspace.getConfiguration("spocket");
   const configured = config.get<string>("binaryPath")?.trim();
 
-  if (configured && configured !== "spocket") {
+  if (configured && configured !== "corner") {
     return configured;
   }
 
-  const installedBinary = path.join(os.homedir(), ".local", "bin", "safe_pocket");
-
-  if (fs.existsSync(installedBinary)) {
-    return installedBinary;
+  for (const binaryName of ["corner", "safe_pocket", "spocket"]) {
+    const installedBinary = path.join(os.homedir(), ".local", "bin", binaryName);
+    if (fs.existsSync(installedBinary)) {
+      return installedBinary;
+    }
   }
 
-  return "safe_pocket";
+  return "corner";
 }
 
 function runSync(pocketDir: string): Promise<SyncResult> {
@@ -266,7 +269,14 @@ function runDailyFeature(
 }
 
 function featureTagsYamlPath(): string {
-  return path.join(os.homedir(), ".config", "safe_pocket", "feature_tags.yaml");
+  for (const configRoot of CONFIG_ROOT_NAMES) {
+    const candidate = path.join(os.homedir(), ".config", configRoot, "feature_tags.yaml");
+    if (fs.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  return path.join(os.homedir(), ".config", "corner", "feature_tags.yaml");
 }
 
 /**
@@ -329,7 +339,7 @@ async function openDailyFeature(): Promise<void> {
   const pocketDir = await resolveActivePocketDir();
 
   if (!pocketDir) {
-    vscode.window.showWarningMessage("Spocket: no active safe pocket workspace.");
+    vscode.window.showWarningMessage("Corner: no active pocket workspace.");
     return;
   }
 
@@ -342,7 +352,7 @@ async function openDailyFeature(): Promise<void> {
   const result = await runDailyFeature(pocketDir, false);
   if (result.status !== "ok" || !result.path) {
     vscode.window.showWarningMessage(
-      `Spocket: failed to open daily feature: ${result.message ?? "unknown error"}`
+      `Corner: failed to open daily feature: ${result.message ?? "unknown error"}`
     );
     return;
   }
@@ -359,14 +369,14 @@ async function newDailyFeature(): Promise<void> {
   const pocketDir = await resolveActivePocketDir();
 
   if (!pocketDir) {
-    vscode.window.showWarningMessage("Spocket: no active safe pocket workspace.");
+    vscode.window.showWarningMessage("Corner: no active pocket workspace.");
     return;
   }
 
   const result = await runDailyFeature(pocketDir, true);
   if (result.status !== "ok" || !result.path) {
     vscode.window.showWarningMessage(
-      `Spocket: failed to create daily feature: ${result.message ?? "unknown error"}`
+      `Corner: failed to create daily feature: ${result.message ?? "unknown error"}`
     );
     return;
   }
@@ -399,7 +409,7 @@ async function handleFolderChange(pocketDir: string): Promise<void> {
   }
 
   syncInProgress = true;
-  updateStatusBar("$(sync~spin) Spocket syncing...");
+  updateStatusBar("$(sync~spin) Corner syncing...");
 
   try {
     const result = await runSync(pocketDir);
@@ -407,14 +417,14 @@ async function handleFolderChange(pocketDir: string): Promise<void> {
     switch (result.status) {
       case "unchanged":
         updateStatusBar(
-          `$(check) Spocket`,
+          `$(check) Corner`,
           `Hash: ${result.hash}\nBirth: ${result.birth_hash}`
         );
         break;
 
       case "synced": {
         updateStatusBar(
-          `$(check) Spocket`,
+          `$(check) Corner`,
           `Hash: ${result.new_hash}\nBirth: ${result.birth_hash}`
         );
 
@@ -425,21 +435,21 @@ async function handleFolderChange(pocketDir: string): Promise<void> {
             ((result.new_hash !== result.old_hash ? 1 : 0) > 0 ? 1 : 0));
 
         vscode.window.setStatusBarMessage(
-          `Spocket: manifest synced (${result.old_hash?.slice(0, 8)} → ${result.new_hash?.slice(0, 8)})`,
+          `Corner: manifest synced (${result.old_hash?.slice(0, 8)} → ${result.new_hash?.slice(0, 8)})`,
           5000
         );
         break;
       }
 
       case "error":
-        updateStatusBar("$(warning) Spocket", `Error: ${result.message}`);
+        updateStatusBar("$(warning) Corner", `Error: ${result.message}`);
         vscode.window.showWarningMessage(
-          `Spocket sync failed: ${result.message}`
+          `Corner sync failed: ${result.message}`
         );
         break;
     }
   } catch (err) {
-    updateStatusBar("$(error) Spocket", "Sync failed");
+    updateStatusBar("$(error) Corner", "Sync failed");
   } finally {
     syncInProgress = false;
   }
@@ -470,7 +480,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.StatusBarAlignment.Right,
     100
   );
-  statusBarItem.text = "$(check) Spocket";
+  statusBarItem.text = "$(check) Corner";
   statusBarItem.tooltip = `Pocket: ${path.basename(pocketDir)}`;
   statusBarItem.show();
   context.subscriptions.push(statusBarItem);

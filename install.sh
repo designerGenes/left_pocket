@@ -117,13 +117,14 @@ EOF
     fi
 fi
 
-printf 'Building Safe Pocket...\n'
+printf 'Building Corner...\n'
 cargo build --release
 
-BINARY="./target/release/safe_pocket"
+BINARY="./target/release/corner"
 INSTALL_DIR="${INSTALL_DIR:-$HOME/.local/bin}"
-PRIMARY="$INSTALL_DIR/safe_pocket"
-ALIAS="$INSTALL_DIR/spocket"
+PRIMARY="$INSTALL_DIR/corner"
+LEGACY_SAFE_POCKET="$INSTALL_DIR/safe_pocket"
+LEGACY_SPOCKET="$INSTALL_DIR/spocket"
 
 if [ ! -f "$BINARY" ]; then
     printf 'Build failed: binary not found\n' >&2
@@ -136,9 +137,13 @@ printf 'Installing %s\n' "$PRIMARY"
 cp -f "$BINARY" "$PRIMARY"
 chmod +x "$PRIMARY"
 
-printf 'Installing alias %s\n' "$ALIAS"
-cp -f "$BINARY" "$ALIAS"
-chmod +x "$ALIAS"
+printf 'Installing compatibility alias %s\n' "$LEGACY_SAFE_POCKET"
+cp -f "$BINARY" "$LEGACY_SAFE_POCKET"
+chmod +x "$LEGACY_SAFE_POCKET"
+
+printf 'Installing compatibility alias %s\n' "$LEGACY_SPOCKET"
+cp -f "$BINARY" "$LEGACY_SPOCKET"
+chmod +x "$LEGACY_SPOCKET"
 
 if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]]; then
     printf '\n%s is not in your PATH\n\n' "$INSTALL_DIR"
@@ -148,6 +153,7 @@ fi
 
 printf 'Installation complete.\n\n'
 printf 'Try it out:\n'
+printf '  corner --help\n'
 printf '  safe_pocket --help\n'
 printf '  spocket --help\n'
-printf '  safe_pocket register myproject="%s"\n' "$(pwd)"
+printf '  corner register myproject="%s"\n' "$(pwd)"

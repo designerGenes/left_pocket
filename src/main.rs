@@ -1,4 +1,5 @@
 mod agents;
+mod branding;
 mod cli;
 mod config;
 mod event;
@@ -233,7 +234,12 @@ fn handle_command(command: Commands) -> Result<()> {
         Commands::Completions { shell } => {
             let mut cmd = Cli::command();
             let shell: clap_complete::Shell = shell.into();
-            generate(shell, &mut cmd, "safe_pocket", &mut io::stdout());
+            generate(
+                shell,
+                &mut cmd,
+                crate::branding::PRIMARY_BINARY_NAME,
+                &mut io::stdout(),
+            );
             Ok(())
         }
 
@@ -268,13 +274,12 @@ fn handle_daily_feature(pocket: String, new: bool, subpath: Option<String>) -> R
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| feature::DEFAULT_DAILY_SUBPATH.to_string());
 
-    let feature_tags_yaml = template::safe_pocket_config_dir()
-        .unwrap_or_else(|_| {
-            dirs::config_dir()
-                .unwrap_or_else(|| PathBuf::from("/"))
-                .join("safe_pocket")
-        })
-        .join("feature_tags.yaml");
+    let feature_tags_yaml = template::config_path("feature_tags.yaml").unwrap_or_else(|_| {
+        dirs::config_dir()
+            .unwrap_or_else(|| PathBuf::from("/"))
+            .join(crate::branding::PRIMARY_CONFIG_DIRNAME)
+            .join("feature_tags.yaml")
+    });
 
     match feature::resolve_daily_feature(&pocket_dir, &subpath, new, &feature_tags_yaml) {
         Ok(outcome) => {
@@ -311,7 +316,7 @@ fn handle_worktree(action: WorktreeAction) -> Result<()> {
 
     let workspace = Workspace::find_workspace_for_cwd(&cwd)?.ok_or_else(|| {
         anyhow!(
-            "No workspace found for current directory: {}\nRun this from inside a project directory that belongs to a safe pocket.",
+            "No workspace found for current directory: {}\nRun this from inside a project directory that belongs to a Corner pocket.",
             cwd.display()
         )
     })?;
@@ -323,7 +328,7 @@ fn handle_worktree(action: WorktreeAction) -> Result<()> {
             let target_path = match path {
                 Some(p) => config.resolve_path(&p)?,
                 None => prompt_worktree_from_git(&workspace.core_paths)?.ok_or_else(|| {
-                    anyhow!("No path provided and no git worktrees detected. Use: safe_pocket worktree add <path>")
+                    anyhow!("No path provided and no git worktrees detected. Use: corner worktree add <path>")
                 })?,
             };
 
@@ -505,9 +510,6 @@ fn prompt_worktree_from_git(core_paths: &[PathBuf]) -> Result<Option<PathBuf>> {
 }
 
 fn find_existing_workspace_for_paths(paths: &[PathBuf]) -> Result<Option<Workspace>> {
-    let spocket_dir = Workspace::spocket_dir()?;
-    let temporary_spocket_dir = Workspace::temporary_spocket_dir()?;
-
     if !paths.is_empty() {
         if let Some(workspace) = Workspace::find_workspace_by_manifest_paths(paths)? {
             return Ok(Some(workspace));
@@ -515,38 +517,49 @@ fn find_existing_workspace_for_paths(paths: &[PathBuf]) -> Result<Option<Workspa
     }
 
     for path in paths {
-        if path.starts_with(&spocket_dir) {
-            let relative = path.strip_prefix(&spocket_dir).unwrap();
-            if let Some(hash_component) = relative.components().next() {
-                let hash = hash_component.as_os_str().to_string_lossy().to_string();
-                let pocket_dir = spocket_dir.join(&hash);
-                if let Some((_, core_paths)) = Workspace::load_manifest_or_backfill(&pocket_dir)? {
-                    return Ok(Some(Workspace {
-                        hash,
-                        core_paths,
-                        sidecar_paths: vec![],
-                        pocket_dir,
-                        create_readmes: false,
-                        temporary: false,
-                    }));
+        for spocket_dir in crate::branding::known_registry_roots()? {
+            let temporary_spocket_dir = spocket_dir.join("temporary");
+
+            if path.starts_with(&temporary_spocket_dir) {
+                let relative = path.strip_prefix(&temporary_spocket_dir).unwrap();
+                if let Some(hash_component) = relative.components().next() {
+                    let hash = hash_component.as_os_str().to_string_lossy().to_string();
+                    let pocket_dir = temporary_spocket_dir.join(&hash);
+                    if let Some((_, core_paths)) =
+                        Workspace::load_manifest_or_backfill(&pocket_dir)?
+                    {
+                        return Ok(Some(Workspace {
+                            hash,
+                            core_paths,
+                            sidecar_paths: vec![],
+                            pocket_dir,
+                            create_readmes: false,
+                            temporary: true,
+                        }));
+                    }
                 }
             }
-        }
 
-        if path.starts_with(&temporary_spocket_dir) {
-            let relative = path.strip_prefix(&temporary_spocket_dir).unwrap();
-            if let Some(hash_component) = relative.components().next() {
-                let hash = hash_component.as_os_str().to_string_lossy().to_string();
-                let pocket_dir = temporary_spocket_dir.join(&hash);
-                if let Some((_, core_paths)) = Workspace::load_manifest_or_backfill(&pocket_dir)? {
-                    return Ok(Some(Workspace {
-                        hash,
-                        core_paths,
-                        sidecar_paths: vec![],
-                        pocket_dir,
-                        create_readmes: false,
-                        temporary: true,
-                    }));
+            if path.starts_with(&spocket_dir) {
+                let relative = path.strip_prefix(&spocket_dir).unwrap();
+                if let Some(hash_component) = relative.components().next() {
+                    let hash = hash_component.as_os_str().to_string_lossy().to_string();
+                    if hash == "temporary" {
+                        continue;
+                    }
+                    let pocket_dir = spocket_dir.join(&hash);
+                    if let Some((_, core_paths)) =
+                        Workspace::load_manifest_or_backfill(&pocket_dir)?
+                    {
+                        return Ok(Some(Workspace {
+                            hash,
+                            core_paths,
+                            sidecar_paths: vec![],
+                            pocket_dir,
+                            create_readmes: false,
+                            temporary: false,
+                        }));
+                    }
                 }
             }
         }
@@ -640,7 +653,7 @@ fn handle_workspace(cli: Cli) -> Result<()> {
         if let Some(existing) = find_existing_workspace_for_paths(&core_paths)? {
             if !existing.temporary {
                 return Err(anyhow!(
-                    "A permanent safe pocket already exists for these paths: {}\nUse `safe_pocket -i ...` to open it, or pass `--new` if you really want a separate temporary pocket.",
+                    "A permanent Corner pocket already exists for these paths: {}\nUse `corner -i ...` to open it, or pass `--new` if you really want a separate temporary pocket.",
                     existing.hash
                 ));
             }
@@ -651,7 +664,7 @@ fn handle_workspace(cli: Cli) -> Result<()> {
         if let Some(mut existing) = find_existing_workspace_for_paths(&core_paths)? {
             if cli.temporary && !existing.temporary {
                 return Err(anyhow!(
-                    "Found a permanent safe pocket for these paths: {}\nTemporary mode only reuses temporary pockets.",
+                    "Found a permanent Corner pocket for these paths: {}\nTemporary mode only reuses temporary pockets.",
                     existing.hash
                 ));
             }
@@ -934,10 +947,10 @@ fn prepare_tool_dir(dir: &Path, tool: &str, workspace: &Workspace) -> Result<()>
 
 fn tool_readme(tool: &str) -> String {
     match tool {
-        "gitleaks" => "# gitleaks\n\nManaged by safe_pocket. Use `gitleaks detect --source <project>` to scan for secrets.\n".to_string(),
-        "graphify" => "# graphify\n\nManaged by safe_pocket. Graph output is stored in the safe pocket and may be bridged into the project.\n".to_string(),
-        "memgraph" => "# Memgraph relational memory\n\nManaged by safe_pocket. This directory contains a Memgraph configuration, Docker Compose file, Cypher schema, and a scanner for the safe pocket's FEATURES tree and relevant markdown context files.\n".to_string(),
-        _ => format!("# {tool}\n\nManaged by safe_pocket.\n"),
+        "gitleaks" => "# gitleaks\n\nManaged by corner. Use `gitleaks detect --source <project>` to scan for secrets.\n".to_string(),
+        "graphify" => "# graphify\n\nManaged by corner. Graph output is stored in the pocket and may be bridged into the project.\n".to_string(),
+        "memgraph" => "# Memgraph relational memory\n\nManaged by corner. This directory contains a Memgraph configuration, Docker Compose file, Cypher schema, and a scanner for the pocket's FEATURES tree and relevant markdown context files.\n".to_string(),
+        _ => format!("# {tool}\n\nManaged by corner.\n"),
     }
 }
 
@@ -958,7 +971,7 @@ fn install_gitleaks(workspace: &Workspace) -> Result<()> {
         if !config_path.exists() {
             fs::write(
                 &config_path,
-                "title = \"safe_pocket gitleaks guard\"\n\n[extend]\nuseDefault = true\n",
+                "title = \"corner gitleaks guard\"\n\n[extend]\nuseDefault = true\n",
             )
             .with_context(|| format!("Failed to write {}", config_path.display()))?;
         }
@@ -981,7 +994,7 @@ fn install_gitleaks(workspace: &Workspace) -> Result<()> {
 }
 
 fn gitleaks_pre_commit_helper() -> &'static str {
-    "#!/bin/sh\nset -eu\nSELF_DIR=$(CDPATH= cd -- \"$(dirname -- \"$0\")\" && pwd)\nPROJECT_DIR=${1:-$(pwd)}\nCONFIG_PATH=${2:-$PROJECT_DIR/.gitleaks.toml}\nLOCAL_GITLEAKS=\"$SELF_DIR/bin/gitleaks\"\ncd \"$PROJECT_DIR\"\nif [ -x \"$LOCAL_GITLEAKS\" ]; then\n  exec \"$LOCAL_GITLEAKS\" protect --staged --redact --config \"$CONFIG_PATH\"\nfi\nif command -v gitleaks >/dev/null 2>&1; then\n  exec gitleaks protect --staged --redact --config \"$CONFIG_PATH\"\nfi\nprintf '%s\\n' 'safe_pocket: gitleaks is required but was not found.' >&2\nprintf '%s\\n' 'Install gitleaks on PATH, or place the binary at:' >&2\nprintf '  %s\\n' \"$LOCAL_GITLEAKS\" >&2\nexit 1\n"
+    "#!/bin/sh\nset -eu\nSELF_DIR=$(CDPATH= cd -- \"$(dirname -- \"$0\")\" && pwd)\nPROJECT_DIR=${1:-$(pwd)}\nCONFIG_PATH=${2:-$PROJECT_DIR/.gitleaks.toml}\nLOCAL_GITLEAKS=\"$SELF_DIR/bin/gitleaks\"\ncd \"$PROJECT_DIR\"\nif [ -x \"$LOCAL_GITLEAKS\" ]; then\n  exec \"$LOCAL_GITLEAKS\" protect --staged --redact --config \"$CONFIG_PATH\"\nfi\nif command -v gitleaks >/dev/null 2>&1; then\n  exec gitleaks protect --staged --redact --config \"$CONFIG_PATH\"\nfi\nprintf '%s\\n' 'corner: gitleaks is required but was not found.' >&2\nprintf '%s\\n' 'Install gitleaks on PATH, or place the binary at:' >&2\nprintf '  %s\\n' \"$LOCAL_GITLEAKS\" >&2\nexit 1\n"
 }
 
 fn git_hooks_dir(project: &Path) -> Option<PathBuf> {
@@ -1318,12 +1331,8 @@ fn mark_temporary(pocket: String) -> Result<()> {
     let workspace = resolve_workspace_reference(&pocket)?;
     let manifest_path = workspace.pocket_dir.join("manifest.json");
 
-    let mut manifest = Manifest::load(&workspace.pocket_dir)?.ok_or_else(|| {
-        anyhow!(
-            "No manifest found in safe pocket: {}",
-            manifest_path.display()
-        )
-    })?;
+    let mut manifest = Manifest::load(&workspace.pocket_dir)?
+        .ok_or_else(|| anyhow!("No manifest found in pocket: {}", manifest_path.display()))?;
 
     if manifest.temporary {
         println!(
@@ -1414,7 +1423,7 @@ fn handle_clean(
     if hard {
         println!(
             "{} {} pocket(s)",
-            "Deleted safe pockets:".bright_green(),
+            "Deleted pockets:".bright_green(),
             count.to_string().bright_yellow()
         );
     } else {
@@ -1455,7 +1464,11 @@ fn confirm_hard_clean(entries: &[RegistryEntry], yes: bool) -> Result<()> {
 
     println!(
         "{}",
-        "Hard clean will delete safe pocket directories from ~/.safe_pocket. Project folders are preserved.".bright_yellow()
+        format!(
+            "Hard clean will delete pocket directories from {}. Project folders are preserved.",
+            registry::registry_root()?.display()
+        )
+        .bright_yellow()
     );
     for entry in entries {
         println!("  {}", entry.path.display().to_string().bright_blue());
@@ -1476,10 +1489,10 @@ fn confirm_hard_clean(entries: &[RegistryEntry], yes: bool) -> Result<()> {
 }
 
 fn delete_pocket_dir(path: &Path) -> Result<()> {
-    let registry_root = registry::registry_root()?;
-    if !path.starts_with(&registry_root) {
+    let known_roots = crate::branding::known_registry_roots()?;
+    if !known_roots.iter().any(|root| path.starts_with(root)) {
         bail!(
-            "Refusing to delete path outside ~/.safe_pocket: {}",
+            "Refusing to delete path outside known pocket roots: {}",
             path.display()
         );
     }
@@ -1534,7 +1547,7 @@ fn handle_heal(
 
         let mut manifest = Manifest::load(&source.pocket_dir)?.ok_or_else(|| {
             anyhow!(
-                "No manifest found in safe pocket: {}",
+                "No manifest found in pocket: {}",
                 source.pocket_dir.display()
             )
         })?;
@@ -1628,7 +1641,7 @@ fn handle_heal(
 
     println!(
         "{} {} -> {}",
-        "Healed safe pocket:".bright_green(),
+        "Healed pocket:".bright_green(),
         source.hash.bright_yellow(),
         target.pocket_dir.display().to_string().bright_blue()
     );
@@ -1638,13 +1651,10 @@ fn handle_heal(
 fn prompt_heal_pocket(project_path: &Path) -> Result<String> {
     let mut candidates = Workspace::rank_heal_candidates(project_path)?;
     if candidates.is_empty() {
-        bail!("No safe pockets found to heal from. Use --pocket <id-or-path>.");
+        bail!("No pockets found to heal from. Use --pocket <id-or-path>.");
     }
 
-    println!(
-        "{}",
-        "Safe pockets available for healing:".bright_white().bold()
-    );
+    println!("{}", "Pockets available for healing:".bright_white().bold());
     for (index, (workspace, score)) in candidates.iter().enumerate() {
         println!(
             "  {}. {} {} {}",
@@ -1724,11 +1734,11 @@ fn handle_locate(path: String) -> Result<()> {
 }
 
 fn handle_backup(repo: String, schedule: String) -> Result<()> {
-    let backup_repo = registry::registry_root()?.with_file_name(".safe_pocket_backup_repo");
+    let backup_repo = crate::branding::preferred_backup_repo_path()?;
     let script_path = registry::registry_root()?.join("backup.sh");
     let source_dir = registry::registry_root()?;
 
-    fs::create_dir_all(&source_dir).context("Failed to create safe pocket registry root")?;
+    fs::create_dir_all(&source_dir).context("Failed to create pocket registry root")?;
 
     if !backup_repo.exists() {
         let output = std::process::Command::new("git")
@@ -1744,7 +1754,7 @@ fn handle_backup(repo: String, schedule: String) -> Result<()> {
     }
 
     let script = format!(
-        "#!/bin/sh\nset -eu\nrsync -a --delete --exclude '.git/' --exclude 'backup.sh' '{source}/' '{backup}/'\ncd '{backup}'\ngit add .\nif ! git diff --cached --quiet; then\n  git commit -m 'Back up safe pockets'\n  git push\nfi\n",
+        "#!/bin/sh\nset -eu\nrsync -a --delete --exclude '.git/' --exclude 'backup.sh' '{source}/' '{backup}/'\ncd '{backup}'\ngit add .\nif ! git diff --cached --quiet; then\n  git commit -m 'Back up pockets'\n  git push\nfi\n",
         source = source_dir.display(),
         backup = backup_repo.display()
     );
@@ -1867,7 +1877,7 @@ fn resolve_workspace_reference(reference: &str) -> Result<Workspace> {
         }
     }
 
-    Err(anyhow!("No safe pocket found for reference: {}", reference))
+    Err(anyhow!("No pocket found for reference: {}", reference))
 }
 
 fn handle_sync(target: Option<String>, pocket: Option<String>) -> Result<()> {
@@ -2010,7 +2020,7 @@ fn handle_sync_agents() -> Result<()> {
     let cwd = std::env::current_dir().context("Failed to get current working directory")?;
     let workspace = Workspace::find_workspace_for_cwd(&cwd)?.ok_or_else(|| {
         anyhow!(
-            "No safe pocket found for the current directory: {}\n\
+            "No Corner pocket found for the current directory: {}\n\
              Agents are now installed per-project. Run this from inside a workspace \
              directory (or its pocket) so the agents can be written to \
              `<pocket>/.opencode/agent`.",
@@ -2500,14 +2510,14 @@ fn build_template_context(pocket_dir: &std::path::Path) -> Result<template::Temp
     let global_obs = template::global_observations_dir().unwrap_or_else(|_| {
         dirs::home_dir()
             .unwrap_or_else(|| PathBuf::from("/"))
-            .join(".safe_pocket")
+            .join(crate::branding::PRIMARY_REGISTRY_DIRNAME)
             .join("observations")
     });
 
     let config_root = template::safe_pocket_config_dir().unwrap_or_else(|_| {
         dirs::config_dir()
             .unwrap_or_else(|| PathBuf::from("/"))
-            .join("safe_pocket")
+            .join(crate::branding::PRIMARY_CONFIG_DIRNAME)
     });
 
     Ok(template::TemplateContext {
@@ -2583,14 +2593,12 @@ fn handle_upgrade(path: String) -> Result<()> {
     // The path might be:
     // 1. A pocket directory directly (e.g. ~/.safe_pocket/abc123)
     // 2. A project directory that has an associated pocket
-    let spocket_dir = Workspace::spocket_dir()?;
-    let temporary_spocket_dir = Workspace::temporary_spocket_dir()?;
+    let is_direct_pocket = crate::branding::known_registry_roots()?
+        .iter()
+        .any(|root| resolved.starts_with(root) || resolved.starts_with(&root.join("temporary")))
+        && resolved.is_dir();
 
-    let pocket_dir = if (resolved.starts_with(&spocket_dir)
-        || resolved.starts_with(&temporary_spocket_dir))
-        && resolved.is_dir()
-    {
-        // Direct pocket path
+    let pocket_dir = if is_direct_pocket {
         resolved
     } else {
         // Try to find the pocket for this project path
@@ -2601,7 +2609,7 @@ fn handle_upgrade(path: String) -> Result<()> {
             })
             .ok_or_else(|| {
                 anyhow!(
-                    "No safe pocket found for path: {}\n\
+                    "No Corner pocket found for path: {}\n\
                      Provide either a pocket directory or a project directory with an existing pocket.",
                     resolved.display()
                 )

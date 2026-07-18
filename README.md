@@ -1,8 +1,10 @@
-# safe_pocket
+# Corner
 
-**safe_pocket** (alias: `spocket`) — ad hoc VS Code workspace manager with AI copilot support.
+**corner** (compatibility aliases: `safe_pocket`, `spocket`) — ad hoc VS Code workspace manager with AI copilot support.
 
-Keep "meta" files (copilot instructions, prompts, observations, feature notes) in a dedicated pocket directory (`~/.safe_pocket/<hash>/`) so they never pollute your project repo, yet VS Code opens them together with your project as a single multi-root workspace.
+Keep "meta" files (copilot instructions, prompts, observations, feature notes) in a dedicated pocket directory (`~/.corner/<hash>/`) so they never pollute your project repo, yet VS Code opens them together with your project as a single multi-root workspace.
+
+Corner prefers the new roots `~/.corner/` and `~/.config/corner/`, but it falls back to legacy `~/.safe_pocket/`, `~/.spocket/`, `~/.config/safe_pocket/`, and `~/.config/spocket/` locations when the matching files or directories only exist there.
 
 ---
 
@@ -10,19 +12,19 @@ Keep "meta" files (copilot instructions, prompts, observations, feature notes) i
 
 ```bash
 # Create or open a workspace for the current directory
-safe_pocket -i .
+corner -i .
 
 # Create a workspace spanning two projects
-safe_pocket -i ~/dev/frontend -i ~/dev/backend
+corner -i ~/dev/frontend -i ~/dev/backend
 
 # Upgrade pocket templates to match latest config
-safe_pocket -u ~/dev/myproject
+corner -u ~/dev/myproject
 
 # Check which pocket a project belongs to
-safe_pocket locate --path ~/dev/myproject
+corner locate --path ~/dev/myproject
 
 # Generate shell completions (zsh)
-safe_pocket completions zsh > ~/.zsh/completions/_safe_pocket
+corner completions zsh > ~/.zsh/completions/_corner
 ```
 
 ---
@@ -30,7 +32,7 @@ safe_pocket completions zsh > ~/.zsh/completions/_safe_pocket
 ## Command Hierarchy
 
 ```
-safe_pocket
+corner
 │
 ├─ GLOBAL FLAGS (always available)
 │  ├─ -i, --include PATH      Add directory to workspace (repeatable)
@@ -39,7 +41,7 @@ safe_pocket
 │  ├─ --add TOOL              Install tool for future sessions
 │  ├─ -u, --upgrade PATH      Upgrade pocket templates
 │  ├─ --clone-from PATH       Clone pocket from another project
-│  ├─ --temporary             Use ~/.safe_pocket/temporary
+│  ├─ --temporary             Use ~/.corner/temporary
 │  ├─ --force-new             Create new pocket even if one exists
 │  ├─ --no-readme             Skip README generation
 │  ├─ --simulate-runtime      Inject runtime content without launching VS Code
@@ -474,7 +476,7 @@ safe_pocket worktree list
 ### Task Tracking
 
 #### `task`
-Built-in issue tracker (replaces Beads). Tasks live in a global SQLite database at `~/.safe_pocket/global_data/tasks.db` and are grouped per safe pocket by a prefix derived from the pocket directory name. When run from inside a registered project, the correct prefix is detected automatically.
+Built-in issue tracker (replaces Beads). Tasks live in a global SQLite database at `~/.corner/global_data/tasks.db`, with fallback to legacy registry roots when needed. Tasks are grouped per pocket by a prefix derived from the pocket directory name. When run from inside a registered project, the correct prefix is detected automatically.
 
 Task IDs are formatted as `<prefix>-<hash>` (e.g., `27472722730d-AB12CD`).
 
@@ -495,10 +497,10 @@ Task IDs are formatted as `<prefix>-<hash>` (e.g., `27472722730d-AB12CD`).
 List all tasks for the current project (or specified project). Shows open and in-progress tasks by default.
 
 ```bash
-spocket task list
-spocket task list --priority 1              # only P0 and P1
-spocket task list --project ~/dev/api
-spocket task list --raw                     # JSON output
+corner task list
+corner task list --priority 1              # only P0 and P1
+corner task list --project ~/dev/api
+corner task list --raw                     # JSON output
 ```
 
 **Options:**
@@ -510,7 +512,7 @@ spocket task list --raw                     # JSON output
 Create a new task.
 
 ```bash
-spocket task create --named "Implement feature X" \
+corner task create --named "Implement feature X" \
   --description "Why this matters and what to do" --priority 1
 ```
 
@@ -524,7 +526,7 @@ spocket task create --named "Implement feature X" \
 Assign a task to an agent.
 
 ```bash
-spocket task 27472722730d-AB12CD assign --agent "Builder"
+corner task 27472722730d-AB12CD assign --agent "Builder"
 ```
 
 **Options:**
@@ -534,8 +536,8 @@ spocket task 27472722730d-AB12CD assign --agent "Builder"
 Start working on a task (moves to in_progress status).
 
 ```bash
-spocket task 27472722730d-AB12CD start
-spocket task 27472722730d-AB12CD start --notes "Starting implementation"
+corner task 27472722730d-AB12CD start
+corner task 27472722730d-AB12CD start --notes "Starting implementation"
 ```
 
 **Options:**
@@ -545,7 +547,7 @@ spocket task 27472722730d-AB12CD start --notes "Starting implementation"
 Add a progress log entry to a task.
 
 ```bash
-spocket task 27472722730d-AB12CD log --notes "Completed API endpoints"
+corner task 27472722730d-AB12CD log --notes "Completed API endpoints"
 ```
 
 **Options:**
@@ -555,8 +557,8 @@ spocket task 27472722730d-AB12CD log --notes "Completed API endpoints"
 Close a task (mark as completed).
 
 ```bash
-spocket task 27472722730d-AB12CD close
-spocket task 27472722730d-AB12CD close --notes "Released in v1.2.0"
+corner task 27472722730d-AB12CD close
+corner task 27472722730d-AB12CD close --notes "Released in v1.2.0"
 ```
 
 **Options:**
@@ -566,15 +568,15 @@ spocket task 27472722730d-AB12CD close --notes "Released in v1.2.0"
 Discard a task (mark as cancelled or invalid).
 
 ```bash
-spocket task 27472722730d-AB12CD discard
+corner task 27472722730d-AB12CD discard
 ```
 
 ##### `task <ID> describe`
 Show full details for a task.
 
 ```bash
-spocket task 27472722730d-AB12CD describe
-spocket task 27472722730d-AB12CD describe --raw  # JSON output
+corner task 27472722730d-AB12CD describe
+corner task 27472722730d-AB12CD describe --raw  # JSON output
 ```
 
 **Options:**
@@ -584,7 +586,7 @@ spocket task 27472722730d-AB12CD describe --raw  # JSON output
 Rename task prefix (when a pocket is reorganized or renamed).
 
 ```bash
-spocket task reprefix --from 27472722730d --to abc123def456
+corner task reprefix --from 27472722730d --to abc123def456
 ```
 
 **Options:**
@@ -597,22 +599,22 @@ spocket task reprefix --from 27472722730d --to abc123def456
 
 ### Aliases
 
-Aliases are stored in `~/.safe_pocket/registry.json` under the `aliases` key. Register them via CLI:
+Aliases are stored in the registry root's `aliases` file, preferring `~/.corner/aliases` and falling back to legacy registry roots when needed. Register them via CLI:
 
 ```bash
-safe_pocket register api="~/dev/my-api"
-safe_pocket register frontend="~/dev/my-frontend"
+corner register api="~/dev/my-api"
+corner register frontend="~/dev/my-frontend"
 ```
 
 Or use the aliases immediately:
 
 ```bash
-safe_pocket -i api -i frontend
+corner -i api -i frontend
 ```
 
 ### Templates
 
-Customize files written into every new pocket by editing templates in `~/.config/safe_pocket/templates/`. Each template file must begin with:
+Customize files written into every new pocket by editing templates in `~/.config/corner/templates/`, with fallback to legacy config roots when those directories already exist. Each template file must begin with:
 
 ```
 #SPOCKET_TEMPLATE_DESTINATION: <relative-path>
@@ -623,14 +625,14 @@ Supported variables:
 - `{{PROJECT_ROOT}}` — Absolute path to the first included project
 - `{{SPOCKET_NAME}}` — Hash-based pocket identifier
 
-Directory structure is controlled by `~/.config/safe_pocket/directory_structure.md`.
+Directory structure is controlled by `~/.config/corner/directory_structure.yaml`.
 
 ### Directory Structure
 
 The default pocket directory structure is:
 
 ```
-~/.safe_pocket/<hash>/
+~/.corner/<hash>/
 ├── .code-workspace       # VS Code workspace file
 ├── .github/
 │  └── copilot-instructions.md
@@ -715,4 +717,3 @@ safe_pocket completions zsh > ~/.zsh/completions/_safe_pocket
 - `~/.safe_pocket/snapshots/` — Git snapshot of all pockets
 - `~/.safe_pocket/global_data/tasks.db` — Global tasks database
 - `~/.config/safe_pocket/` — User configuration and templates
-

@@ -48,15 +48,15 @@ const LEGACY_BEADS_BEGIN_MARKER: &str = "<!-- BEGIN BEADS INTEGRATION -->";
 const LEGACY_BEADS_END_MARKER: &str = "<!-- END BEADS INTEGRATION -->";
 
 /// Agent-facing guidance injected into AGENTS.md at runtime, describing
-/// safe_pocket's built-in task tracker (`spocket task`).
+/// Corner's built-in task tracker (`corner task`).
 const TASK_RUNTIME_BLOCK: &str = r#"<!-- BEGIN SPOCKET TASK INTEGRATION -->
-## Issue Tracking with `spocket task`
+## Issue Tracking with `corner task`
 
-**IMPORTANT**: This project tracks all work in safe_pocket's built-in task
+**IMPORTANT**: This project tracks all work in Corner's built-in task
 tracker. Do NOT use markdown TODO lists or external issue trackers — use
-`spocket task` so every agent shares one source of truth.
+`corner task` so every agent shares one source of truth.
 
-### Why `spocket task`?
+### Why `corner task`?
 
 - Fast: backed by a local SQLite database, no network or daemon required.
 - Shared: every agent on this safe pocket sees the same task list.
@@ -67,22 +67,22 @@ tracker. Do NOT use markdown TODO lists or external issue trackers — use
 
 ```bash
 # What work is open (lowest priority number = highest urgency)?
-spocket task list
-spocket task list --priority 1      # only P0 and P1
-spocket task list --raw             # JSON, for programmatic use
+corner task list
+corner task list --priority 1      # only P0 and P1
+corner task list --raw             # JSON, for programmatic use
 
 # Create work
-spocket task create --named "Implement feature X" \
+corner task create --named "Implement feature X" \
   --description "Why this matters and what to do" --priority 1
 
 # Drive a task through its lifecycle (ID may be the full id or the suffix)
-spocket task <ID> assign --agent "Builder"
-spocket task <ID> start  --notes "Starting now"
-spocket task <ID> log    --notes "Progress / findings"
-spocket task <ID> close  --notes "Done and verified"
-spocket task <ID> discard
-spocket task <ID> describe          # full details + history
-spocket task <ID> describe --raw    # JSON
+corner task <ID> assign --agent "Builder"
+corner task <ID> start  --notes "Starting now"
+corner task <ID> log    --notes "Progress / findings"
+corner task <ID> close  --notes "Done and verified"
+corner task <ID> discard
+corner task <ID> describe          # full details + history
+corner task <ID> describe --raw    # JSON
 ```
 
 ### Priorities
@@ -95,16 +95,16 @@ spocket task <ID> describe --raw    # JSON
 
 ### Workflow for AI Agents
 
-1. **Check open work**: `spocket task list` before asking what to do.
-2. **Claim it**: `spocket task <ID> assign --agent "<you>"` then
-   `spocket task <ID> start`.
-3. **Record progress**: `spocket task <ID> log --notes "…"` as you go.
-4. **Discover new work?** `spocket task create --named "…" --description "…"`.
-5. **Finish**: `spocket task <ID> close --notes "…"`.
+1. **Check open work**: `corner task list` before asking what to do.
+2. **Claim it**: `corner task <ID> assign --agent "<you>"` then
+   `corner task <ID> start`.
+3. **Record progress**: `corner task <ID> log --notes "…"` as you go.
+4. **Discover new work?** `corner task create --named "…" --description "…"`.
+5. **Finish**: `corner task <ID> close --notes "…"`.
 
 ### Rules
 
-- ✅ Use `spocket task` for ALL task tracking.
+- ✅ Use `corner task` for ALL task tracking.
 - ✅ Use `--raw` when you need structured (JSON) output.
 - ❌ Do NOT create markdown TODO lists.
 - ❌ Do NOT use external issue trackers.
@@ -430,15 +430,21 @@ fn parse_directory_line(line: &str) -> (usize, String) {
 
 // ── Template directory helpers ───────────────────────────────────────────────
 
-/// Returns the path to the safe_pocket config directory (`$HOME/.config/safe_pocket`).
+/// Returns the preferred config directory, falling back to legacy names when
+/// only old locations exist.
 pub fn safe_pocket_config_dir() -> Result<PathBuf> {
-    let home = dirs::home_dir().context("Failed to get home directory")?;
-    Ok(home.join(".config").join("safe_pocket"))
+    crate::branding::preferred_config_root()
 }
 
-/// Returns the path to the templates directory (`$HOME/.config/safe_pocket/templates`).
+pub fn config_path(relative: &str) -> Result<PathBuf> {
+    crate::branding::resolve_config_relative_path(Path::new(relative))
+}
+
+/// Returns the path to the templates directory, preferring Corner's config root
+/// but falling back to legacy config directories when that specific directory is
+/// still only present there.
 pub fn templates_dir() -> Result<PathBuf> {
-    Ok(safe_pocket_config_dir()?.join("templates"))
+    config_path("templates")
 }
 
 /// Returns the path to the global observations directory
@@ -648,7 +654,7 @@ fn merge_templates_by_destination(templates: Vec<Template>) -> Vec<Template> {
 /// Load the directory structure, respecting project-local override.
 ///
 /// 1. If `project_dir` contains a `directory_template.md` or `directory_template.yaml`, use it.
-/// 2. Otherwise, look in `$HOME/.config/safe_pocket/` for *exactly one* file matching
+/// 2. Otherwise, look in the preferred config roots for *exactly one* file matching
 ///    `directory_structure.md` or `directory_structure.yaml`. Error if more than one is found.
 /// 3. If neither exists, return an empty list.
 pub fn load_directory_structure(project_dir: Option<&Path>) -> Result<Vec<PathBuf>> {
@@ -664,45 +670,48 @@ pub fn load_directory_structure(project_dir: Option<&Path>) -> Result<Vec<PathBu
         }
     }
 
-    let config_dir = safe_pocket_config_dir()?;
-
-    // Count directory structure files in config dir (only top-level)
-    let mut structure_files: Vec<PathBuf> = Vec::new();
-    if config_dir.exists() {
-        for entry in fs::read_dir(&config_dir)? {
-            let entry = entry?;
-            let path = entry.path();
-            if path.is_file() {
-                if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                    if name == "directory_structure.md"
-                        || name == "directory_structure.yaml"
-                        || name == "directory_template.md"
-                        || name == "directory_template.yaml"
-                    {
-                        structure_files.push(path);
+    for config_dir in crate::branding::known_config_roots()? {
+        let mut structure_files: Vec<PathBuf> = Vec::new();
+        if config_dir.exists() {
+            for entry in fs::read_dir(&config_dir)? {
+                let entry = entry?;
+                let path = entry.path();
+                if path.is_file() {
+                    if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                        if name == "directory_structure.md"
+                            || name == "directory_structure.yaml"
+                            || name == "directory_template.md"
+                            || name == "directory_template.yaml"
+                        {
+                            structure_files.push(path);
+                        }
                     }
                 }
             }
         }
+
+        match structure_files.len() {
+            0 => continue,
+            1 => {
+                let content = fs::read_to_string(&structure_files[0])?;
+                return parse_directory_structure(&content);
+            }
+            n => {
+                return Err(anyhow!(
+                    "Found {} directory structure files in {}, expected at most 1:\n{}",
+                    n,
+                    config_dir.display(),
+                    structure_files
+                        .iter()
+                        .map(|p| format!("  - {}", p.display()))
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                ));
+            }
+        }
     }
 
-    match structure_files.len() {
-        0 => Ok(Vec::new()),
-        1 => {
-            let content = fs::read_to_string(&structure_files[0])?;
-            parse_directory_structure(&content)
-        }
-        n => Err(anyhow!(
-            "Found {} directory structure files in {}, expected at most 1:\n{}",
-            n,
-            config_dir.display(),
-            structure_files
-                .iter()
-                .map(|p| format!("  - {}", p.display()))
-                .collect::<Vec<_>>()
-                .join("\n")
-        )),
-    }
+    Ok(Vec::new())
 }
 
 // ── Runtime merge ────────────────────────────────────────────────────────────
@@ -1361,14 +1370,14 @@ pub fn upgrade_pocket(pocket_dir: &Path) -> Result<()> {
     let global_obs = global_observations_dir().unwrap_or_else(|_| {
         dirs::home_dir()
             .unwrap_or_else(|| PathBuf::from("/"))
-            .join(".safe_pocket")
+            .join(crate::branding::PRIMARY_REGISTRY_DIRNAME)
             .join("observations")
     });
 
     let config_root = safe_pocket_config_dir().unwrap_or_else(|_| {
         dirs::config_dir()
             .unwrap_or_else(|| PathBuf::from("/"))
-            .join("safe_pocket")
+            .join(crate::branding::PRIMARY_CONFIG_DIRNAME)
     });
 
     let ctx = TemplateContext {
@@ -1994,7 +2003,7 @@ mod tests {
         let content = runtime_content_for_template(&tmpl, &ctx);
         assert!(content.contains("Base runtime"));
         assert!(content.contains("<!-- BEGIN SPOCKET TASK INTEGRATION -->"));
-        assert!(content.contains("spocket task"));
+        assert!(content.contains("corner task"));
     }
 
     #[test]

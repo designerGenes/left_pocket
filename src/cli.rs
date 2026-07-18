@@ -4,48 +4,52 @@ use clap_complete::Shell;
 // ── Top-level CLI ─────────────────────────────────────────────────────────────
 
 #[derive(Parser, Debug)]
-#[command(name = "safe_pocket", visible_alias = "spocket")]
+#[command(name = "corner", visible_aliases = ["safe_pocket", "spocket"])]
 #[command(version)]
 #[command(
-    about = "Safe Pocket — ad hoc VS Code workspace manager with AI copilot support",
+    about = "Corner — ad hoc VS Code workspace manager with AI copilot support",
     long_about = "\
-Safe Pocket keeps \"meta\" files (copilot instructions, prompts, observations, \
-feature notes) in a dedicated pocket directory (~/.safe_pocket/<hash>/) so they \
+Corner keeps \"meta\" files (copilot instructions, prompts, observations, \
+feature notes) in a dedicated pocket directory (~/.corner/<hash>/) so they \
 never pollute your project repo, yet VS Code opens them together with your project \
 as a single multi-root workspace.
 
 QUICK START
 
   # Create or open a workspace for the current directory
-  safe_pocket -i .
+  corner -i .
 
   # Create a workspace spanning two projects
-  safe_pocket -i ~/dev/frontend -i ~/dev/backend
+  corner -i ~/dev/frontend -i ~/dev/backend
 
   # Upgrade the pocket's template files to match your latest templates
-  safe_pocket -u ~/dev/myproject
+  corner -u ~/dev/myproject
 
   # Generate and install shell completions (zsh example)
-  safe_pocket completions zsh > ~/.zsh/completions/_safe_pocket
+  corner completions zsh > ~/.zsh/completions/_corner
 
-ALIAS
+LEGACY ALIASES
 
-  `spocket` is the short alias for the `safe_pocket` binary.
+  `safe_pocket` and `spocket` continue to work as compatibility aliases.
 
 POCKET DIRECTORY
 
-  Pockets are stored in ~/.safe_pocket/<hash>/.
+  New pockets are stored in ~/.corner/<hash>/. If that tree does not exist yet,
+  Corner falls back to ~/.safe_pocket/ (and then ~/.spocket/) so existing data,
+  tasks, and registry state keep working.
 
 TEMPLATES
 
   Customise the files written into every new pocket by editing templates in
-  ~/.config/safe_pocket/templates/.  Each template file must begin with:
+  ~/.config/corner/templates/. If that path is absent, Corner falls back to
+  ~/.config/safe_pocket/templates/ and ~/.config/spocket/templates/.
+  Each template file must begin with:
 
     #SPOCKET_TEMPLATE_DESTINATION: <relative-path>
 
   Supported variables: {{SPOCKET_ROOT}}, {{PROJECT_ROOT}}, {{SPOCKET_NAME}}
 
-  Directory structure is controlled by ~/.config/safe_pocket/directory_structure.md."
+  Directory structure is controlled by ~/.config/corner/directory_structure.yaml."
 )]
 pub struct Cli {
     #[command(subcommand)]
@@ -53,10 +57,10 @@ pub struct Cli {
 
     /// Add a directory to the workspace (repeatable)
     ///
-    /// Resolves aliases registered with `safe_pocket register`. Can be specified
+    /// Resolves aliases registered with `corner register`. Can be specified
     /// multiple times to create a multi-root workspace:
     ///
-    ///   safe_pocket -i ~/dev/api -i ~/dev/frontend
+    ///   corner -i ~/dev/api -i ~/dev/frontend
     #[arg(short = 'i', long = "include", value_name = "PATH")]
     pub include: Vec<String>,
 
@@ -69,7 +73,7 @@ pub struct Cli {
     #[arg(short = 's', long = "sidecar", value_name = "PATH")]
     pub sidecar: Vec<String>,
 
-    /// Add a tool for this safe_pocket session only
+    /// Add a tool for this Corner session only
     ///
     /// Tools are exposed as managed sidecar folders when the workspace opens, but
     /// are not installed into the project for future sessions.
@@ -80,7 +84,7 @@ pub struct Cli {
     #[arg(long = "with", value_name = "TOOL")]
     pub with_tools: Vec<String>,
 
-    /// Install a tool into the project and safe pocket for future sessions
+    /// Install a tool into the project and pocket for future sessions
     ///
     /// If the tool is already installed this is a no-op. Supported tools:
     /// gitleaks, graphify, memgraph.
@@ -98,11 +102,11 @@ pub struct Cli {
     /// manifests. Useful when starting a new project that should inherit the
     /// AI configuration of a related one.
     ///
-    ///   safe_pocket -i ~/dev/new-project --clone-from ~/dev/existing-project
+    ///   corner -i ~/dev/new-project --clone-from ~/dev/existing-project
     #[arg(long = "clone-from", value_name = "PATH")]
     pub clone_from: Option<String>,
 
-    /// Create or reuse the pocket under ~/.safe_pocket/temporary/
+    /// Create or reuse the pocket under ~/.corner/temporary/
     ///
     /// Temporary pockets are tracked separately so test suites and other
     /// short-lived workflows can be cleaned up without touching normal pockets.
@@ -111,7 +115,7 @@ pub struct Cli {
 
     /// Skip creating README files in empty directories
     ///
-    /// By default safe_pocket writes helpful README.md files into new empty
+    /// By default Corner writes helpful README.md files into new empty
     /// directories (observations/, .github/prompts/, etc.).  Pass this flag
     /// to suppress them, e.g. when cloning a pocket for a minimal setup.
     #[arg(long = "no-readme")]
@@ -119,28 +123,29 @@ pub struct Cli {
 
     /// Upgrade an existing pocket to match current templates (does not open VS Code)
     ///
-    /// Reads every template from ~/.config/safe_pocket/templates/, expands
+    /// Reads every template from the preferred config templates directory,
+    /// expands
     /// {{SPOCKET_ROOT}} / {{PROJECT_ROOT}} / {{SPOCKET_NAME}} variables, and
     /// writes the result to the pocket.  If a file already exists with different
     /// content you are shown a diff and asked to confirm before overwriting.
     ///
     /// PATH may be either:
-    ///   • The pocket directory itself  (~/.safe_pocket/abc123)
+    ///   • The pocket directory itself  (~/.corner/abc123)
     ///   • Any project directory whose pocket you want to upgrade
     ///
-    ///   safe_pocket -u ~/dev/myproject
-    ///   safe_pocket -u ~/.safe_pocket/abc123
+    ///   corner -u ~/dev/myproject
+    ///   corner -u ~/.corner/abc123
     #[arg(short = 'u', long = "upgrade", value_name = "PATH")]
     pub upgrade: Option<String>,
 
     /// Force creation of a new workspace even if one already exists
     ///
-    /// By default, if `safe_pocket -i .` detects that the current directory (or any
-    /// included path) already belongs to an existing safe pocket, it opens that
+    /// By default, if `corner -i .` detects that the current directory (or any
+    /// included path) already belongs to an existing pocket, it opens that
     /// pocket instead of creating a duplicate.  Pass `--new` to override this
     /// behaviour and always create a fresh workspace.
     ///
-    ///   safe_pocket -i . --new
+    ///   corner -i . --new
     #[arg(long = "new")]
     pub force_new: bool,
 
@@ -150,7 +155,7 @@ pub struct Cli {
     /// merge notifications, template installation notices, and other
     /// non-error/non-warning details.
     ///
-    ///   safe_pocket -i . --verbose
+    ///   corner -i . --verbose
     #[arg(long = "verbose")]
     pub verbose: bool,
 
@@ -162,18 +167,18 @@ pub struct Cli {
     /// gains that content even though the runtime (VS Code) is never started.
     /// Implies --silent: VS Code is not opened.
     ///
-    ///   safe_pocket -i . --simulate-runtime --temporary --silent
+    ///   corner -i . --simulate-runtime --temporary --silent
     #[arg(long = "simulate-runtime")]
     pub simulate_runtime: bool,
 
     /// Perform every step except opening VS Code at the end (debug)
     ///
-    /// Useful for exercising safe_pocket setup without launching the editor. If
+    /// Useful for exercising Corner setup without launching the editor. If
     /// run inside a directory already associated with a safe pocket this is
     /// effectively a no-op, since the normal action would simply have opened the
     /// related project.
     ///
-    ///   safe_pocket -i . --silent
+    ///   corner -i . --silent
     #[arg(long = "silent")]
     pub silent: bool,
 
@@ -188,10 +193,10 @@ pub enum Commands {
     /// Register a short alias for a directory path
     ///
     /// Aliases let you refer to long directory paths by a short name in any
-    /// safe_pocket command that accepts a PATH argument.
+    /// corner command that accepts a PATH argument.
     ///
-    ///   safe_pocket register api="~/dev/my-api-project"
-    ///   safe_pocket -i api      # same as -i ~/dev/my-api-project
+    ///   corner register api="~/dev/my-api-project"
+    ///   corner -i api      # same as -i ~/dev/my-api-project
     #[command(name = "register")]
     Register {
         /// Alias definition in format: name="path"
@@ -201,7 +206,7 @@ pub enum Commands {
 
     /// Remove a previously registered directory alias
     ///
-    ///   safe_pocket unregister api
+    ///   corner unregister api
     #[command(name = "unregister")]
     Unregister {
         /// Name of the alias to remove
@@ -213,19 +218,19 @@ pub enum Commands {
     #[command(name = "list-aliases")]
     ListAliases,
 
-    /// List all known safe pockets with their project paths
+    /// List all known pockets with their project paths
     #[command(name = "list-workspaces")]
     ListWorkspaces,
 
     /// Sync system-wide assets, or the manifest after the workspace file changes
     ///
-    /// With a TARGET, synchronizes system-wide safe_pocket assets that every
+    /// With a TARGET, synchronizes system-wide Corner assets that every
     /// pocket draws from:
     ///
-    ///   safe_pocket sync agents   Write the unified agent definitions from
-    ///                             ~/.config/safe_pocket/templates/agents into the
+    ///   corner sync agents        Write the unified agent definitions from
+    ///                             ~/.config/corner/templates/agents into the
     ///                             places OpenCode looks for agents.
-    ///   safe_pocket sync all      Run every system-wide sync (currently agents).
+    ///   corner sync all           Run every system-wide sync (currently agents).
     ///
     /// Without a TARGET (the legacy form used by the VS Code extension), updates
     /// the pocket manifest to reflect the current .code-workspace folders and
@@ -247,9 +252,9 @@ pub enum Commands {
     /// directory. Run this from inside a pocket or project directory that
     /// belongs to an existing workspace.
     ///
-    ///   safe_pocket augment --add ~/dev/new-service
-    ///   safe_pocket augment --remove ~/dev/old-service
-    ///   safe_pocket augment --add ~/dev/new-service --no-open
+    ///   corner augment --add ~/dev/new-service
+    ///   corner augment --remove ~/dev/old-service
+    ///   corner augment --add ~/dev/new-service --no-open
     #[command(name = "augment")]
     Augment {
         /// Project directory to add to the workspace

@@ -1,25 +1,25 @@
-//! Lightweight, SQLite-backed task tracking — safe_pocket's built-in replacement
+//! Lightweight, SQLite-backed task tracking — Corner's built-in replacement
 //! for Beads.
 //!
 //! Tasks are stored in a single global database at
-//! `$HOME/.safe_pocket/global_data/tasks.db`. Each task is associated with a
-//! safe pocket via a *prefix* derived from the pocket directory's name (the same
-//! short id used everywhere else in safe_pocket). Task ids look like
+//! `$HOME/.corner/global_data/tasks.db` (with fallback to legacy roots). Each task
+//! is associated with a pocket via a *prefix* derived from the pocket directory's
+//! name (the same short id used everywhere else). Task ids look like
 //! `27472722730d-AB12CD`, so they sort and group naturally by project and never
 //! collide across pockets.
 //!
-//! The CLI surface (`spocket task …`) is intentionally small and Jira-like:
+//! The CLI surface (`corner task …`) is intentionally small and Jira-like:
 //!
 //! ```text
-//! spocket task list [--priority N] [--project PATH] [--raw]
-//! spocket task create --named "…" --description "…" --priority N [--project PATH]
-//! spocket task <ID> assign --agent "Builder"
-//! spocket task <ID> start  [--notes "…"]
-//! spocket task <ID> log     --notes "…"
-//! spocket task <ID> close  [--notes "…"]
-//! spocket task <ID> discard
-//! spocket task <ID> describe [--raw]
-//! spocket task reprefix --from OLD --to NEW
+//! corner task list [--priority N] [--project PATH] [--raw]
+//! corner task create --named "…" --description "…" --priority N [--project PATH]
+//! corner task <ID> assign --agent "Builder"
+//! corner task <ID> start  [--notes "…"]
+//! corner task <ID> log     --notes "…"
+//! corner task <ID> close  [--notes "…"]
+//! corner task <ID> discard
+//! corner task <ID> describe [--raw]
+//! corner task reprefix --from OLD --to NEW
 //! ```
 
 use anyhow::{anyhow, bail, Context, Result};
@@ -45,10 +45,9 @@ const DEFAULT_PRIORITY: i64 = 2;
 
 // ── Database location ─────────────────────────────────────────────────────────
 
-/// `$HOME/.safe_pocket/global_data` — created on demand.
+/// `$HOME/.corner/global_data` — created on demand, with fallback to legacy roots.
 pub fn global_data_dir() -> Result<PathBuf> {
-    let home = dirs::home_dir().context("Failed to get home directory")?;
-    let dir = home.join(".safe_pocket").join("global_data");
+    let dir = crate::branding::resolve_registry_relative_path(Path::new("global_data"))?;
     fs::create_dir_all(&dir)
         .with_context(|| format!("Failed to create global data dir: {}", dir.display()))?;
     Ok(dir)
@@ -143,41 +142,43 @@ fn row_to_task(row: &rusqlite::Row) -> rusqlite::Result<Task> {
 
 // ── Prefix derivation ─────────────────────────────────────────────────────────
 
-/// Derive the task prefix (safe pocket directory name) for a starting path.
+/// Derive the task prefix (pocket directory name) for a starting path.
 ///
 /// Resolution order:
-/// 1. If `start` lives inside `~/.safe_pocket/<hash>/…` (or
-///    `~/.safe_pocket/temporary/<hash>/…`), the `<hash>` is the prefix.
+/// 1. If `start` lives inside a known pocket root such as `~/.corner/<hash>/…`
+///    (or `.../temporary/<hash>/…`), the `<hash>` is the prefix.
 /// 2. Otherwise ask the workspace registry which pocket owns `start`, covering
-///    both project directories and safe pocket directories.
+///    both project directories and pocket directories.
 /// 3. Finally walk up from `start` looking for a `.env` file containing
 ///    `SPOCKET_ROOT=<path>`; the basename of that path is the prefix.
 pub fn detect_prefix(start: &Path) -> Result<String> {
     let start = start.canonicalize().unwrap_or_else(|_| start.to_path_buf());
 
     // 1. Inside the registry root.
-    if let Ok(root) = crate::registry::registry_root() {
-        let root = root.canonicalize().unwrap_or(root);
-        if let Ok(rel) = start.strip_prefix(&root) {
-            let mut comps = rel.components();
-            if let Some(first) = comps.next() {
-                let name = first.as_os_str().to_string_lossy().to_string();
-                if name == "temporary" {
-                    if let Some(second) = comps.next() {
-                        let hash = second.as_os_str().to_string_lossy().to_string();
-                        if !hash.is_empty() {
-                            return Ok(hash);
+    if let Ok(roots) = crate::branding::known_registry_roots() {
+        for root in roots {
+            let root = root.canonicalize().unwrap_or(root);
+            if let Ok(rel) = start.strip_prefix(&root) {
+                let mut comps = rel.components();
+                if let Some(first) = comps.next() {
+                    let name = first.as_os_str().to_string_lossy().to_string();
+                    if name == "temporary" {
+                        if let Some(second) = comps.next() {
+                            let hash = second.as_os_str().to_string_lossy().to_string();
+                            if !hash.is_empty() {
+                                return Ok(hash);
+                            }
                         }
+                    } else if !is_reserved_dir(&name) && !name.is_empty() {
+                        return Ok(name);
                     }
-                } else if !is_reserved_dir(&name) && !name.is_empty() {
-                    return Ok(name);
                 }
             }
         }
     }
 
-    // 2. Bridge through the safe_pocket registry/cache. This lets `spocket task`
-    // work the same from either the project folder or its safe pocket folder.
+    // 2. Bridge through the registry/cache. This lets `corner task` work the
+    // same from either the project folder or its pocket folder.
     if let Ok(Some(workspace)) = crate::workspace::Workspace::find_workspace_for_cwd(&start) {
         if !workspace.hash.is_empty() {
             return Ok(workspace.hash);
@@ -204,8 +205,8 @@ pub fn detect_prefix(start: &Path) -> Result<String> {
     }
 
     bail!(
-        "Could not determine which safe pocket this directory belongs to.\n\
-         Run `spocket task …` from inside a registered project (one whose .env\n\
+        "Could not determine which pocket this directory belongs to.\n\
+         Run `corner task …` from inside a registered project (one whose .env\n\
          contains SPOCKET_ROOT) or pass --project <path>."
     )
 }

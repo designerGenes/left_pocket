@@ -57,11 +57,6 @@ impl Workspace {
         registry::temporary_registry_dir()
     }
 
-    fn legacy_spocket_dir() -> Result<PathBuf> {
-        let home = dirs::home_dir().context("Failed to get home directory")?;
-        Ok(home.join(".spocket"))
-    }
-
     /// Find the .code-workspace file in a pocket directory.
     /// Looks for `<dirname>.code-workspace` first, falls back to any `.code-workspace` file.
     pub fn find_workspace_file(pocket_dir: &Path) -> Option<PathBuf> {
@@ -162,7 +157,7 @@ impl Workspace {
         }
 
         if crate::verbose() {
-            println!("{}", "Creating new safe pocket...".bright_white());
+            println!("{}", "Creating new Corner pocket...".bright_white());
         }
 
         fs::create_dir_all(&self.pocket_dir).context("Failed to create pocket directory")?;
@@ -203,14 +198,14 @@ impl Workspace {
         let global_obs = crate::template::global_observations_dir().unwrap_or_else(|_| {
             dirs::home_dir()
                 .unwrap_or_else(|| PathBuf::from("/"))
-                .join(".safe_pocket")
+                .join(crate::branding::PRIMARY_REGISTRY_DIRNAME)
                 .join("observations")
         });
 
         let config_root = crate::template::safe_pocket_config_dir().unwrap_or_else(|_| {
             dirs::config_dir()
                 .unwrap_or_else(|| PathBuf::from("/"))
-                .join("safe_pocket")
+                .join(crate::branding::PRIMARY_CONFIG_DIRNAME)
         });
 
         let ctx = crate::template::TemplateContext {
@@ -256,14 +251,14 @@ impl Workspace {
                 fs::write(
                     &readme,
                     format!(
-                        "# Safe Pocket: {hash}\n\n\
-                        This is a Safe Pocket workspace directory. It contains:\n\n\
+                        "# Corner: {hash}\n\n\
+                        This is a Corner workspace directory. It contains:\n\n\
                         - `.github/copilot-instructions.md` - Custom AI copilot instructions\n\
                         - `.github/prompts/` - Reusable prompt templates\n\
                         - `FEATURES/` - Feature ideas and documentation\n\
                         - `observations/` - AI-generated insights and learnings\n\n\
                         ## Usage\n\n\
-                        This directory is automatically managed by spocket. Edit the files above to customize \
+                        This directory is automatically managed by corner. Legacy `safe_pocket` and `spocket` commands still work. Edit the files above to customize \
                         your AI assistant's behavior for the workspace directories:\n\n\
                         {paths}\n\n\
                         Learn more: https://github.com/your-repo/safe_pocket\n",
@@ -358,8 +353,7 @@ impl Workspace {
         workspace_file: &Path,
         pocket_dir: &Path,
     ) -> Result<(VSCodeWorkspace, Vec<PathBuf>)> {
-        let spocket_dir = Self::spocket_dir()?;
-        let legacy_spocket_dir = Self::legacy_spocket_dir()?;
+        let storage_roots = crate::branding::known_registry_roots()?;
 
         // The workspace file's parent is used as the base for resolving relative paths.
         let workspace_parent = workspace_file.parent().unwrap_or(pocket_dir);
@@ -388,19 +382,15 @@ impl Workspace {
                     })
                 }
             })
-            .filter(|p| {
-                !p.starts_with(pocket_dir)
-                    && !p.starts_with(&spocket_dir)
-                    && !p.starts_with(&legacy_spocket_dir)
-            })
+            .filter(|p| !p.starts_with(pocket_dir))
+            .filter(|p| !storage_roots.iter().any(|root| p.starts_with(root)))
             .collect();
 
         Ok((workspace, core_paths))
     }
 
     fn workspace_storage_paths_need_migration(&self, workspace: &VSCodeWorkspace) -> Result<bool> {
-        let spocket_dir = Self::spocket_dir()?;
-        let legacy_spocket_dir = Self::legacy_spocket_dir()?;
+        let storage_roots = crate::branding::known_registry_roots()?;
 
         let mut has_current_pocket_entry = false;
 
@@ -411,7 +401,7 @@ impl Workspace {
                 continue;
             }
 
-            if path.starts_with(&spocket_dir) || path.starts_with(&legacy_spocket_dir) {
+            if storage_roots.iter().any(|root| path.starts_with(root)) {
                 return Ok(true);
             }
         }
@@ -430,7 +420,11 @@ impl Workspace {
             self.write_workspace_file_preserving(Some(&workspace))?;
             println!(
                 "{}",
-                "Migrated workspace storage paths to ~/.safe_pocket.".dimmed()
+                format!(
+                    "Migrated workspace storage paths to {}.",
+                    Self::spocket_dir()?.display()
+                )
+                .dimmed()
             );
         }
 
@@ -455,7 +449,7 @@ impl Workspace {
         // Add the safe pocket itself
         folders.push(WorkspaceFolder {
             path: self.pocket_dir.to_string_lossy().to_string(),
-            name: Some(format!("[Safe Pocket] {}", self.hash)),
+            name: Some(crate::branding::workspace_folder_name(&self.hash)),
         });
 
         let workspace = if let Some(existing) = existing {
@@ -753,49 +747,53 @@ impl Workspace {
     /// Checks if cwd is inside a pocket dir, or inside/equal to any workspace's core_paths.
     /// When multiple pockets match, prefers the one where all core_paths exist on disk.
     pub fn find_workspace_for_cwd(cwd: &Path) -> Result<Option<Self>> {
-        let spocket_dir = Self::spocket_dir()?;
-        let temporary_spocket_dir = Self::temporary_spocket_dir()?;
+        for spocket_dir in crate::branding::known_registry_roots()? {
+            let temporary_spocket_dir = spocket_dir.join("temporary");
 
-        // Check 1: Is CWD inside a ~/.safe_pocket/<hash>/ directory?
-        if cwd.starts_with(&spocket_dir) {
-            if let Ok(relative) = cwd.strip_prefix(&spocket_dir) {
-                if let Some(hash_component) = relative.components().next() {
-                    let dir_name = hash_component.as_os_str().to_string_lossy().to_string();
-                    let pocket_dir = spocket_dir.join(&dir_name);
+            if cwd.starts_with(&temporary_spocket_dir) {
+                if let Ok(relative) = cwd.strip_prefix(&temporary_spocket_dir) {
+                    if let Some(hash_component) = relative.components().next() {
+                        let dir_name = hash_component.as_os_str().to_string_lossy().to_string();
+                        let pocket_dir = temporary_spocket_dir.join(&dir_name);
 
-                    if let Some((_, core_paths)) = Self::load_manifest_or_backfill(&pocket_dir)? {
-                        let temporary = Manifest::load(&pocket_dir)?
-                            .map(|manifest| manifest.temporary)
-                            .unwrap_or(false);
-                        return Ok(Some(Self {
-                            hash: dir_name,
-                            core_paths,
-                            sidecar_paths: vec![],
-                            pocket_dir,
-                            create_readmes: false,
-                            temporary,
-                        }));
+                        if let Some((_, core_paths)) = Self::load_manifest_or_backfill(&pocket_dir)?
+                        {
+                            return Ok(Some(Self {
+                                hash: dir_name,
+                                core_paths,
+                                sidecar_paths: vec![],
+                                pocket_dir,
+                                create_readmes: false,
+                                temporary: true,
+                            }));
+                        }
                     }
                 }
             }
-        }
 
-        // Check 1b: Is CWD inside a ~/.safe_pocket/temporary/<hash>/ directory?
-        if cwd.starts_with(&temporary_spocket_dir) {
-            if let Ok(relative) = cwd.strip_prefix(&temporary_spocket_dir) {
-                if let Some(hash_component) = relative.components().next() {
-                    let dir_name = hash_component.as_os_str().to_string_lossy().to_string();
-                    let pocket_dir = temporary_spocket_dir.join(&dir_name);
+            if cwd.starts_with(&spocket_dir) {
+                if let Ok(relative) = cwd.strip_prefix(&spocket_dir) {
+                    if let Some(hash_component) = relative.components().next() {
+                        let dir_name = hash_component.as_os_str().to_string_lossy().to_string();
+                        if dir_name == "temporary" {
+                            continue;
+                        }
+                        let pocket_dir = spocket_dir.join(&dir_name);
 
-                    if let Some((_, core_paths)) = Self::load_manifest_or_backfill(&pocket_dir)? {
-                        return Ok(Some(Self {
-                            hash: dir_name,
-                            core_paths,
-                            sidecar_paths: vec![],
-                            pocket_dir,
-                            create_readmes: false,
-                            temporary: true,
-                        }));
+                        if let Some((_, core_paths)) = Self::load_manifest_or_backfill(&pocket_dir)?
+                        {
+                            let temporary = Manifest::load(&pocket_dir)?
+                                .map(|manifest| manifest.temporary)
+                                .unwrap_or(false);
+                            return Ok(Some(Self {
+                                hash: dir_name,
+                                core_paths,
+                                sidecar_paths: vec![],
+                                pocket_dir,
+                                create_readmes: false,
+                                temporary,
+                            }));
+                        }
                     }
                 }
             }

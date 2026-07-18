@@ -1,8 +1,8 @@
 {
   "name": "spocket",
-  "displayName": "Spocket - Safe Pocket Sync",
-  "description": "Real-time sync between VS Code workspace folders and spocket manifests",
-  "version": "0.4.1",
+  "displayName": "Corner - Pocket Sync",
+  "description": "Real-time sync between VS Code workspace folders and Corner manifests",
+  "version": "2.0.0",
   "publisher": "jadennation",
   "repository": {
     "url": "https://github.com/designerGenes/safe_pocket"
@@ -22,12 +22,12 @@
   "main": "./out/extension.js",
   "contributes": {
     "configuration": {
-      "title": "Spocket",
+      "title": "Corner",
       "properties": {
         "spocket.binaryPath": {
           "type": "string",
-          "default": "safe_pocket",
-          "description": "Path to the spocket binary"
+          "default": "corner",
+          "description": "Path to the Corner binary"
         },
         "spocket.dailyFeatureSubpath": {
           "type": "string",
@@ -39,11 +39,11 @@
     "commands": [
       {
         "command": "spocket.openDailyFeature",
-        "title": "Spocket: Open Daily Feature"
+        "title": "Corner: Open Daily Feature"
       },
       {
         "command": "spocket.newDailyFeature",
-        "title": "Spocket: New Daily Feature File"
+        "title": "Corner: New Daily Feature File"
       }
     ],
     "keybindings": [

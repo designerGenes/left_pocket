@@ -26,7 +26,7 @@ pub struct Manifest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub birth_hash: Option<String>,
     /// Additional worktree directories that share this safe pocket.
-    /// Registered via `spocket worktree add <path>`.
+    /// Registered via `corner worktree add <path>`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub worktrees: Vec<PathBuf>,
 }
@@ -36,26 +36,16 @@ fn default_version() -> u32 {
 }
 
 impl Manifest {
-    fn safe_pocket_storage_dir() -> Result<PathBuf> {
-        let home = dirs::home_dir().context("Failed to get home directory")?;
-        Ok(home.join(".safe_pocket"))
-    }
-
-    fn legacy_spocket_storage_dir() -> Result<PathBuf> {
-        let home = dirs::home_dir().context("Failed to get home directory")?;
-        Ok(home.join(".spocket"))
-    }
-
     fn sanitize_core_paths(core_paths: Vec<PathBuf>, pocket_dir: &Path) -> Result<Vec<PathBuf>> {
-        let safe_pocket_dir = Self::safe_pocket_storage_dir()?;
-        let legacy_spocket_dir = Self::legacy_spocket_storage_dir()?;
+        let storage_dirs = crate::branding::known_registry_roots()?;
 
         Ok(core_paths
             .into_iter()
+            .filter(|path| !path.starts_with(pocket_dir))
             .filter(|path| {
-                !path.starts_with(pocket_dir)
-                    && !path.starts_with(&safe_pocket_dir)
-                    && !path.starts_with(&legacy_spocket_dir)
+                !storage_dirs
+                    .iter()
+                    .any(|storage_dir| path.starts_with(storage_dir))
             })
             .collect())
     }
