@@ -8,6 +8,12 @@ Corner prefers the new roots `~/.corner/` and `~/.config/corner/`, but it falls 
 
 ---
 
+To understand Corner, read the [documentation](documentation/Concepts.md) or run `corner --help` for a quick overview of commands and flags.
+
+Reading the documentation is highly recommended.
+
+---
+
 ## Quick Start
 
 ```bash
