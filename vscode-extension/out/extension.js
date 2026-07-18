@@ -48,20 +48,20 @@ const CONFIG_ROOT_NAMES = ["corner", "safe_pocket", "spocket"];
 function getCornerRoots() {
     return CORNER_ROOT_NAMES.map((name) => path.join(os.homedir(), name));
 }
-function isSpocketWorkspace(workspaceFile) {
+function isCornerWorkspace(workspaceFile) {
     if (!workspaceFile) {
         return undefined;
     }
     const filePath = workspaceFile.fsPath;
-    for (const spocketDir of getCornerRoots()) {
-        if (filePath.startsWith(spocketDir)) {
+    for (const cornerRootDir of getCornerRoots()) {
+        if (filePath.startsWith(cornerRootDir)) {
             return path.dirname(filePath);
         }
     }
     return undefined;
 }
 function getBinaryPath() {
-    const config = vscode.workspace.getConfiguration("spocket");
+    const config = vscode.workspace.getConfiguration("corner");
     const configured = config.get("binaryPath")?.trim();
     if (configured && configured !== "corner") {
         return configured;
@@ -103,7 +103,7 @@ function runMergeCommand(action, cornerDir) {
         const binary = getBinaryPath();
         (0, child_process_1.execFile)(binary, [action, "--corner", cornerDir], (error) => {
             if (error) {
-                console.error(`spocket ${action} failed: ${error.message}`);
+                console.error(`corner ${action} failed: ${error.message}`);
             }
             resolve();
         });
@@ -114,7 +114,7 @@ function locateCornerDir(workspacePath) {
         const binary = getBinaryPath();
         (0, child_process_1.execFile)(binary, ["locate", "--path", workspacePath], (error, stdout) => {
             if (error) {
-                console.error(`spocket locate failed: ${error.message}`);
+                console.error(`corner locate failed: ${error.message}`);
                 resolve(undefined);
                 return;
             }
@@ -133,7 +133,7 @@ async function resolveActiveCornerDir() {
     if (activeCornerDir) {
         return activeCornerDir;
     }
-    const workspaceCorner = isSpocketWorkspace(vscode.workspace.workspaceFile);
+    const workspaceCorner = isCornerWorkspace(vscode.workspace.workspaceFile);
     if (workspaceCorner) {
         activeCornerDir = workspaceCorner;
         return workspaceCorner;
@@ -218,7 +218,7 @@ function runDailyFeature(cornerDir, isNew) {
         if (isNew) {
             args.push("--new");
         }
-        const config = vscode.workspace.getConfiguration("spocket");
+        const config = vscode.workspace.getConfiguration("corner");
         const subpath = config.get("dailyFeatureSubpath")?.trim();
         if (subpath) {
             args.push("--subpath", subpath);
@@ -326,7 +326,7 @@ async function newDailyFeature() {
     await updateFeatureContext();
 }
 /**
- * Keep the `spocket.inTodaysFeature` context key in sync with the active editor
+ * Keep the `corner.inTodaysFeature` context key in sync with the active editor
  * so the shift+hotkey binding can be gated to today's feature file.
  */
 async function updateFeatureContext() {
@@ -335,7 +335,7 @@ async function updateFeatureContext() {
     const inTodaysFeature = cornerDir
         ? isTodaysFeatureFile(cornerDir, activePath)
         : false;
-    await vscode.commands.executeCommand("setContext", "spocket.inTodaysFeature", inTodaysFeature);
+    await vscode.commands.executeCommand("setContext", "corner.inTodaysFeature", inTodaysFeature);
 }
 async function handleFolderChange(cornerDir) {
     if (syncInProgress) {
@@ -372,8 +372,8 @@ async function handleFolderChange(cornerDir) {
     }
 }
 async function activate(context) {
-    context.subscriptions.push(vscode.commands.registerCommand("spocket.openDailyFeature", openDailyFeature), vscode.commands.registerCommand("spocket.newDailyFeature", newDailyFeature), vscode.window.onDidChangeActiveTextEditor(() => {
-        updateFeatureContext().catch((err) => console.error("spocket updateFeatureContext failed:", err));
+    context.subscriptions.push(vscode.commands.registerCommand("corner.openDailyFeature", openDailyFeature), vscode.commands.registerCommand("corner.newDailyFeature", newDailyFeature), vscode.window.onDidChangeActiveTextEditor(() => {
+        updateFeatureContext().catch((err) => console.error("corner updateFeatureContext failed:", err));
     }));
     const cornerDir = await resolveActiveCornerDir();
     if (!cornerDir) {
@@ -391,7 +391,7 @@ async function activate(context) {
     });
     context.subscriptions.push(disposable);
     handleFolderChange(cornerDir);
-    runMergeCommand("runtime-merge-start", cornerDir).catch((err) => console.error("spocket runtime-merge-start failed:", err));
+    runMergeCommand("runtime-merge-start", cornerDir).catch((err) => console.error("corner runtime-merge-start failed:", err));
 }
 function deactivate() {
     statusBarItem?.dispose();

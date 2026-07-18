@@ -31,7 +31,7 @@ function getCornerRoots(): string[] {
   return CORNER_ROOT_NAMES.map((name) => path.join(os.homedir(), name));
 }
 
-function isSpocketWorkspace(
+function isCornerWorkspace(
   workspaceFile: vscode.Uri | undefined
 ): string | undefined {
   if (!workspaceFile) {
@@ -39,8 +39,8 @@ function isSpocketWorkspace(
   }
 
   const filePath = workspaceFile.fsPath;
-  for (const spocketDir of getCornerRoots()) {
-    if (filePath.startsWith(spocketDir)) {
+  for (const cornerRootDir of getCornerRoots()) {
+    if (filePath.startsWith(cornerRootDir)) {
       return path.dirname(filePath);
     }
   }
@@ -49,7 +49,7 @@ function isSpocketWorkspace(
 }
 
 function getBinaryPath(): string {
-  const config = vscode.workspace.getConfiguration("spocket");
+  const config = vscode.workspace.getConfiguration("corner");
   const configured = config.get<string>("binaryPath")?.trim();
 
   if (configured && configured !== "corner") {
@@ -100,7 +100,7 @@ function runMergeCommand(
     const binary = getBinaryPath();
     execFile(binary, [action, "--corner", cornerDir], (error) => {
       if (error) {
-        console.error(`spocket ${action} failed: ${error.message}`);
+        console.error(`corner ${action} failed: ${error.message}`);
       }
       resolve();
     });
@@ -113,7 +113,7 @@ function locateCornerDir(workspacePath: string): Promise<string | undefined> {
 
     execFile(binary, ["locate", "--path", workspacePath], (error, stdout) => {
       if (error) {
-        console.error(`spocket locate failed: ${error.message}`);
+        console.error(`corner locate failed: ${error.message}`);
         resolve(undefined);
         return;
       }
@@ -134,7 +134,7 @@ async function resolveActiveCornerDir(): Promise<string | undefined> {
     return activeCornerDir;
   }
 
-  const workspaceCorner = isSpocketWorkspace(vscode.workspace.workspaceFile);
+  const workspaceCorner = isCornerWorkspace(vscode.workspace.workspaceFile);
   if (workspaceCorner) {
     activeCornerDir = workspaceCorner;
     return workspaceCorner;
@@ -243,7 +243,7 @@ function runDailyFeature(
       args.push("--new");
     }
 
-    const config = vscode.workspace.getConfiguration("spocket");
+    const config = vscode.workspace.getConfiguration("corner");
     const subpath = config.get<string>("dailyFeatureSubpath")?.trim();
     if (subpath) {
       args.push("--subpath", subpath);
@@ -461,7 +461,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand("corner.newDailyFeature", newDailyFeature),
     vscode.window.onDidChangeActiveTextEditor(() => {
       updateFeatureContext().catch((err) =>
-        console.error("spocket updateFeatureContext failed:", err)
+        console.error("corner updateFeatureContext failed:", err)
       );
     })
   );
@@ -493,7 +493,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   handleFolderChange(cornerDir);
 
   runMergeCommand("runtime-merge-start", cornerDir).catch((err) =>
-    console.error("spocket runtime-merge-start failed:", err)
+    console.error("corner runtime-merge-start failed:", err)
   );
 }
 
