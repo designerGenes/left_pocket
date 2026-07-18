@@ -269,11 +269,9 @@ fn cli_help_surface_is_reachable() {
 
     let short_version = env.run_spocket(&project, &["-v"]);
     assert_success(&short_version);
-    assert_eq!(
-        String::from_utf8_lossy(&short_version.stdout).trim(),
-        env!("CARGO_PKG_VERSION")
-    );
-    summary.step("Ran `spocket -v` and verified the bare package version".to_string());
+    assert_contains(&short_version, env!("CARGO_PKG_VERSION"));
+    assert_contains(&short_version, "corner");
+    summary.step("Ran `spocket -v` and verified the version and logo rendered".to_string());
 
     let long_version = env.run_spocket(&project, &["--version"]);
     assert_success(&long_version);
@@ -1596,11 +1594,13 @@ fn canon(path: &Path) -> PathBuf {
 }
 
 /// Split-brain: the same corner hash lives in both `~/.corner` and
-/// `~/.safe_pocket` with different manifests. The corner whose `birth_hash`
-/// matches the directory name "owns" the hash and should win every lookup,
-/// even when both registry caches are stale.
+/// `~/.safe_pocket` with different manifests. The corner with MORE USER
+/// CONTENT (FEATURES, observations, etc.) wins every lookup, because that's
+/// the "real" working corner. An accidentally created duplicate with
+/// near-empty content directories loses even if its birth_hash matches the
+/// directory name.
 #[test]
-fn split_brain_registry_dedupes_by_birth_hash() {
+fn split_brain_registry_dedupes_by_content_count() {
     let env = TestEnv::new("split-brain-dedupe");
     let project = env.project("project");
     let extra = env.project("extra");
@@ -1612,26 +1612,38 @@ fn split_brain_registry_dedupes_by_birth_hash() {
     let legacy_corner = env.legacy_safe_pocket_root().join(hash);
     let primary_corner = env.corner_root().join(hash);
 
-    // Fresh corner in the legacy root: birth_hash matches the dir name, so it
-    // "owns" this hash. Core paths only contain `project`.
-    write_synthetic_corner(
-        &legacy_corner,
-        "newhash000000",
-        &[project.clone()],
-        Some(hash),
-        Some(hash),
-    );
-
-    // Stale corner in the primary root: birth_hash is a different hash, so it
-    // was augmented INTO this dir name from somewhere else. Core paths
-    // contain both `project` and `extra`.
+    // Rich corner in the primary root: lots of user content, birth_hash does
+    // NOT match the dir name (it was migrated here from an earlier hash).
     write_synthetic_corner(
         &primary_corner,
-        "oldhash000000",
+        "richhash00000",
         &[project.clone(), extra.clone()],
         Some("different0000"),
         Some(hash),
     );
+    // Add user content so this corner wins the content-count tiebreaker.
+    fs::create_dir_all(primary_corner.join("FEATURES/dailies")).unwrap();
+    for i in 0..10 {
+        fs::write(
+            primary_corner.join("FEATURES/dailies").join(format!("2026_07_{i:02}.md")),
+            "daily note",
+        )
+        .unwrap();
+    }
+    fs::create_dir_all(primary_corner.join("observations")).unwrap();
+    fs::write(primary_corner.join("observations").join("note.md"), "obs").unwrap();
+
+    // Empty corner in the legacy root: birth_hash MATCHES the dir name (it was
+    // freshly created here), but has almost no user content.
+    write_synthetic_corner(
+        &legacy_corner,
+        "emptyhash00000",
+        &[project.clone()],
+        Some(hash),
+        Some(hash),
+    );
+    fs::create_dir_all(legacy_corner.join("FEATURES")).unwrap();
+    fs::write(legacy_corner.join("FEATURES/00.md"), "minimal").unwrap();
 
     // Stale caches that don't reflect either on-disk manifest.
     write_synthetic_cache(
@@ -1640,11 +1652,11 @@ fn split_brain_registry_dedupes_by_birth_hash() {
     );
     write_synthetic_cache(
         &env.corner_root(),
-        &[(hash, "oldhash000000", &primary_corner, &[project.clone(), extra.clone()])],
+        &[(hash, "richhash00000", &primary_corner, &[project.clone(), extra.clone()])],
     );
 
-    // `corner locate --path project` must resolve to the legacy corner because
-    // its birth_hash matches the directory name.
+    // `corner locate --path project` must resolve to the rich primary corner
+    // because it has far more user content.
     let locate = env.run_spocket(
         &project,
         &["locate", "--path", project.to_string_lossy().as_ref()],
@@ -1653,18 +1665,17 @@ fn split_brain_registry_dedupes_by_birth_hash() {
     let value: serde_json::Value = serde_json::from_slice(&locate.stdout).unwrap();
     let corner_dir = PathBuf::from(value.get("corner_dir").unwrap().as_str().unwrap());
     assert_eq!(
-        corner_dir, legacy_corner,
-        "expected legacy corner (birth_hash matches dir name) to win, got {}",
+        corner_dir, primary_corner,
+        "expected rich primary corner (more user content) to win, got {}",
         corner_dir.display()
     );
 
     let core_paths = value.get("core_paths").unwrap().as_array().unwrap();
     assert_eq!(
         core_paths.len(),
-        1,
+        2,
         "expected fresh manifest's core_paths, got {core_paths:?}"
     );
-    assert_eq!(PathBuf::from(core_paths[0].as_str().unwrap()), canon(&project));
 }
 
 /// A stale cache entry whose `manifest_hash` accidentally matches a target
@@ -1745,7 +1756,7 @@ fn stale_cache_manifest_hash_does_not_shadow_fresh_disk_manifest() {
 
 /// `corner sync-registry` rewrites every registry root's cache from the
 /// on-disk manifests, collapsing split-brain duplicates into a single
-/// canonical entry per hash.
+/// canonical entry per hash. The corner with more user content wins.
 #[test]
 fn sync_registry_rebuilds_caches_and_collapses_split_brain() {
     let env = TestEnv::new("sync-registry-rebuild");
@@ -1758,20 +1769,34 @@ fn sync_registry_rebuilds_caches_and_collapses_split_brain() {
     let legacy_corner = env.legacy_safe_pocket_root().join(hash);
     let primary_corner = env.corner_root().join(hash);
 
-    write_synthetic_corner(
-        &legacy_corner,
-        "freshhash0000",
-        &[project.clone()],
-        Some(hash),
-        Some(hash),
-    );
+    // Rich corner in the primary root with lots of user content.
     write_synthetic_corner(
         &primary_corner,
-        "stalehash0000",
+        "richhash00000",
         &[project.clone()],
         Some("other00000000"),
         Some(hash),
     );
+    fs::create_dir_all(primary_corner.join("FEATURES/dailies")).unwrap();
+    for i in 0..5 {
+        fs::write(
+            primary_corner.join("FEATURES/dailies").join(format!("day_{i}.md")),
+            "content",
+        )
+        .unwrap();
+    }
+
+    // Empty corner in the legacy root with birth_hash matching the dir name
+    // but almost no content.
+    write_synthetic_corner(
+        &legacy_corner,
+        "emptyhash00000",
+        &[project.clone()],
+        Some(hash),
+        Some(hash),
+    );
+    fs::create_dir_all(legacy_corner.join("FEATURES")).unwrap();
+    fs::write(legacy_corner.join("FEATURES/00.md"), "minimal").unwrap();
 
     // Both caches start with stale entries.
     write_synthetic_cache(
@@ -1780,14 +1805,14 @@ fn sync_registry_rebuilds_caches_and_collapses_split_brain() {
     );
     write_synthetic_cache(
         &env.corner_root(),
-        &[(hash, "stalehash0000", &primary_corner, &[project.clone()])],
+        &[(hash, "richhash00000", &primary_corner, &[project.clone()])],
     );
 
     let output = env.run_spocket(&project, &["sync-registry"]);
     assert_success(&output);
 
     // After rebuild, only ONE entry for `hash` should survive across both
-    // caches: the fresh legacy corner (birth_hash matches the dir name).
+    // caches: the rich primary corner (more user content).
     let primary_cache =
         fs::read_to_string(env.corner_root().join("registry_cache.json")).unwrap();
     let primary_value: serde_json::Value = serde_json::from_str(&primary_cache).unwrap();
@@ -1822,7 +1847,7 @@ fn sync_registry_rebuilds_caches_and_collapses_split_brain() {
         legacy_matches.len()
     );
 
-    // locate should now resolve to the legacy corner with the fresh core_paths.
+    // locate should now resolve to the rich primary corner.
     let locate = env.run_spocket(
         &project,
         &["locate", "--path", project.to_string_lossy().as_ref()],
@@ -1830,7 +1855,7 @@ fn sync_registry_rebuilds_caches_and_collapses_split_brain() {
     assert_success(&locate);
     let locate_value: serde_json::Value = serde_json::from_slice(&locate.stdout).unwrap();
     let resolved = PathBuf::from(locate_value.get("corner_dir").unwrap().as_str().unwrap());
-    assert_eq!(resolved, legacy_corner);
+    assert_eq!(resolved, primary_corner);
     let core_paths = locate_value.get("core_paths").unwrap().as_array().unwrap();
     assert_eq!(core_paths.len(), 1);
     assert_eq!(
@@ -1839,10 +1864,11 @@ fn sync_registry_rebuilds_caches_and_collapses_split_brain() {
     );
 }
 
-/// When `corner augment` updates a corner in a non-preferred root, the
-/// preferred root's cache must not keep a stale duplicate entry for the same
-/// hash. This is the split-brain propagation path: the augment prunes the
-/// duplicate so future lookups cannot pick the wrong corner.
+/// When `corner augment` updates a corner, the other registry root's cache
+/// must not keep a stale duplicate entry for the same hash. This is the
+/// split-brain propagation path: the augment prunes the duplicate so future
+/// lookups cannot pick the wrong corner. The corner with more user content
+/// wins the dedupe.
 #[test]
 fn augment_in_legacy_root_prunes_duplicate_from_primary_cache() {
     let env = TestEnv::new("augment-prunes-duplicate");
@@ -1853,19 +1879,13 @@ fn augment_in_legacy_root_prunes_duplicate_from_primary_cache() {
     fs::create_dir_all(env.corner_root()).unwrap();
     fs::create_dir_all(env.legacy_safe_pocket_root()).unwrap();
 
-    // Seed a split-brain: same hash in both roots, legacy corner owns the
-    // hash (birth_hash matches).
+    // Seed a split-brain: same hash in both roots. The primary corner has
+    // more user content, so it wins the dedupe.
     let hash = "cafebabecafe";
     let legacy_corner = env.legacy_safe_pocket_root().join(hash);
     let primary_corner = env.corner_root().join(hash);
 
-    write_synthetic_corner(
-        &legacy_corner,
-        "legacyhash000",
-        &[project.clone()],
-        Some(hash),
-        Some(hash),
-    );
+    // Primary corner: rich (more user content).
     write_synthetic_corner(
         &primary_corner,
         "primaryhash0",
@@ -1873,6 +1893,25 @@ fn augment_in_legacy_root_prunes_duplicate_from_primary_cache() {
         Some("other00000000"),
         Some(hash),
     );
+    fs::create_dir_all(primary_corner.join("FEATURES/dailies")).unwrap();
+    for i in 0..5 {
+        fs::write(
+            primary_corner.join("FEATURES/dailies").join(format!("day_{i}.md")),
+            "content",
+        )
+        .unwrap();
+    }
+
+    // Legacy corner: empty (less user content), birth_hash matches dir name.
+    write_synthetic_corner(
+        &legacy_corner,
+        "legacyhash000",
+        &[project.clone()],
+        Some(hash),
+        Some(hash),
+    );
+    fs::create_dir_all(legacy_corner.join("FEATURES")).unwrap();
+    fs::write(legacy_corner.join("FEATURES/00.md"), "minimal").unwrap();
 
     write_synthetic_cache(
         &env.legacy_safe_pocket_root(),
@@ -1884,8 +1923,8 @@ fn augment_in_legacy_root_prunes_duplicate_from_primary_cache() {
     );
 
     // Run `corner augment --add extra` from the project directory. The lookup
-    // should resolve to the legacy corner (birth_hash matches), augment it in
-    // place, and prune the duplicate entry from the primary root's cache.
+    // should resolve to the primary corner (more user content), augment it in
+    // place, and prune the duplicate entry from the legacy root's cache.
     let augment = env.run_spocket(
         &project,
         &[
@@ -1897,19 +1936,18 @@ fn augment_in_legacy_root_prunes_duplicate_from_primary_cache() {
     );
     assert_success(&augment);
 
-    // The primary cache should no longer carry an entry whose `path` points
-    // at the primary corner. The augment upserts a fresh entry (pointing at
-    // the legacy corner) under the same hash, which is fine — the stale
-    // duplicate pointing at the primary corner is what must be gone.
+    // The augment upserts to the preferred root (primary), so the primary
+    // cache KEEPS an entry for this hash — but it points at the primary
+    // corner with the AUGMENTED core_paths, not the stale pre-augment entry.
     let primary_cache =
         fs::read_to_string(env.corner_root().join("registry_cache.json")).unwrap();
     assert!(
         !primary_cache
-            .contains(&format!("\"path\": \"{}\"", primary_corner.display())),
-        "expected primary cache to be pruned of the primary corner entry, got:\n{primary_cache}"
+            .contains(&format!("\"path\": \"{}\"", legacy_corner.display())),
+        "expected primary cache to have no entry pointing at the legacy corner, got:\n{primary_cache}"
     );
 
-    // The legacy root's cache should also be pruned of the duplicate hash so a
+    // The legacy root's cache should be pruned of the duplicate hash so a
     // future `load_cache_or_rebuild` cannot resurrect the stale entry.
     let legacy_cache =
         fs::read_to_string(env.legacy_safe_pocket_root().join("registry_cache.json")).unwrap();
@@ -1918,7 +1956,7 @@ fn augment_in_legacy_root_prunes_duplicate_from_primary_cache() {
         "expected legacy cache to be pruned of hash {hash} after augment upsert, got:\n{legacy_cache}"
     );
 
-    // locate should resolve to the legacy corner with the augmented core_paths.
+    // locate should resolve to the primary corner with the augmented core_paths.
     let locate = env.run_spocket(
         &project,
         &["locate", "--path", project.to_string_lossy().as_ref()],
@@ -1926,7 +1964,7 @@ fn augment_in_legacy_root_prunes_duplicate_from_primary_cache() {
     assert_success(&locate);
     let locate_value: serde_json::Value = serde_json::from_slice(&locate.stdout).unwrap();
     let resolved = PathBuf::from(locate_value.get("corner_dir").unwrap().as_str().unwrap());
-    assert_eq!(resolved, legacy_corner);
+    assert_eq!(resolved, primary_corner);
     let core_paths = locate_value.get("core_paths").unwrap().as_array().unwrap();
     let resolved_paths: Vec<PathBuf> = core_paths
         .iter()

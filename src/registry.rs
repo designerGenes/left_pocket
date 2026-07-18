@@ -254,35 +254,107 @@ fn pick_dedupe_survivor(
     refreshed: &[Option<RegistryEntry>],
     preferred_root: &Path,
 ) -> Option<RegistryEntry> {
-    // 1. birth_hash matches the directory name (the corner "owns" this hash).
+    // 1. Most user content. When the same corner hash lives in multiple roots,
+    //    the corner with more real user content (FEATURES, observations, tools,
+    //    etc.) is almost certainly the "real" working corner. A freshly created
+    //    accidental duplicate will have near-empty content directories. This is
+    //    the primary signal — birth_hash matching was tried and rejected because
+    //    it picks the freshly created corner over the migrated one with history.
+    let mut best_content: Option<(usize, RegistryEntry)> = None;
     for fresh in refreshed.iter().flatten() {
-        if fresh.birth_hash.as_deref() == Some(fresh.hash.as_str()) {
-            return Some(fresh.clone());
+        let count = count_corner_content(&fresh.path);
+        match &best_content {
+            None => best_content = Some((count, fresh.clone())),
+            Some((prev_count, _)) => {
+                if count > *prev_count {
+                    best_content = Some((count, fresh.clone()));
+                }
+            }
         }
     }
-
-    // 2. Cache is fresh: cached manifest_hash matches on-disk manifest hash.
-    for (cache_entry, fresh) in group.iter().zip(refreshed.iter()) {
-        let Some(fresh) = fresh else {
-            continue;
-        };
-        if fresh.manifest_hash == cache_entry.manifest_hash {
-            return Some(fresh.clone());
-        }
+    if let Some((_, survivor)) = best_content {
+        return Some(survivor);
     }
 
-    // 3. Lives in the preferred root.
+    // 2. Lives in the preferred root.
     for fresh in refreshed.iter().flatten() {
         if fresh.path.starts_with(preferred_root) {
             return Some(fresh.clone());
         }
     }
 
-    // 4. Any refreshable entry, then the raw cache entry.
+    // 3. Any refreshable entry, then the raw cache entry.
     if let Some(fresh) = refreshed.iter().flatten().next() {
         return Some(fresh.clone());
     }
     group.first().cloned()
+}
+
+/// Count user-content files in a corner directory.
+///
+/// Walks the corner recursively but EXCLUDES:
+///   - `.git` directories (version control internals, not user content)
+///   - `.opencode` directories (generated agent/plugin files, not user content)
+///   - Directories that contain a `manifest.json` (nested corner copies)
+///   - `.DS_Store` files (macOS filesystem metadata)
+///
+/// This is the split-brain tiebreaker: the corner with more user content
+/// (FEATURES, observations, tools, graphify-out, etc.) is the "real" working
+/// corner, while an accidentally created duplicate will have near-empty
+/// content directories.
+///
+/// Capped at `CONTENT_COUNT_CAP` files to avoid pathological cases; once the
+/// cap is reached the exact count doesn't matter because both corners are
+/// "large" and the preferred-root / refreshable fallbacks take over.
+const CONTENT_COUNT_CAP: usize = 10_000;
+fn count_corner_content(corner_dir: &Path) -> usize {
+    let mut count = 0usize;
+    count_corner_content_recursive(corner_dir, &mut count);
+    count
+}
+
+fn count_corner_content_recursive(dir: &Path, count: &mut usize) {
+    if *count >= CONTENT_COUNT_CAP {
+        return;
+    }
+
+    let entries = match fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(_) => return,
+    };
+
+    for entry in entries.flatten() {
+        if *count >= CONTENT_COUNT_CAP {
+            return;
+        }
+
+        let path = entry.path();
+        let file_type = match entry.file_type() {
+            Ok(ft) => ft,
+            Err(_) => continue,
+        };
+
+        if file_type.is_dir() {
+            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            // Skip non-user-content directories.
+            if name == ".git" || name == ".opencode" {
+                continue;
+            }
+            // Skip nested corner copies: a directory that contains a
+            // manifest.json is itself a corner, not user content.
+            if path.join("manifest.json").exists() {
+                continue;
+            }
+            count_corner_content_recursive(&path, count);
+        } else if file_type.is_file() {
+            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            if name == ".DS_Store" {
+                continue;
+            }
+            *count += 1;
+        }
+        // Symlinks are ignored — they don't represent local content.
+    }
 }
 
 /// Refresh a registry entry by reloading its manifest from disk.
@@ -1176,13 +1248,14 @@ mod tests {
     }
 
     #[test]
-    fn dedupe_corners_prefers_birth_hash_match() {
+    fn dedupe_corners_prefers_more_user_content() {
         // Two corners with the same dir-name hash in different roots.
-        // The one whose on-disk birth_hash matches the dir name should win,
-        // even if the other entry is in the preferred root and its cache is
-        // fresh.
-        let primary_root = std::env::temp_dir().join("spocket_dedupe_birth_primary");
-        let legacy_root = std::env::temp_dir().join("spocket_dedupe_birth_legacy");
+        // The one with more user content (FEATURES, observations, etc.)
+        // should win, even if the other one's birth_hash matches the dir
+        // name. This is the real-world split-brain: an old migrated corner
+        // with lots of history vs. a freshly created accidental duplicate.
+        let primary_root = std::env::temp_dir().join("spocket_dedupe_content_primary");
+        let legacy_root = std::env::temp_dir().join("spocket_dedupe_content_legacy");
         let _ = fs::remove_dir_all(&primary_root);
         let _ = fs::remove_dir_all(&legacy_root);
         fs::create_dir_all(&primary_root).unwrap();
@@ -1192,10 +1265,23 @@ mod tests {
         let primary_corner = primary_root.join(hash);
         let legacy_corner = legacy_root.join(hash);
 
-        // Primary corner: birth_hash does NOT match dir name, cache is fresh.
+        // Primary corner: lots of user content, birth_hash does NOT match.
         write_manifest_at(&primary_corner, "primaryhm000", Some("other00000000"));
-        // Legacy corner: birth_hash MATCHES dir name (owns the hash).
+        fs::create_dir_all(primary_corner.join("FEATURES/dailies")).unwrap();
+        for i in 0..10 {
+            fs::write(
+                primary_corner.join("FEATURES/dailies").join(format!("day_{i}.md")),
+                "content",
+            )
+            .unwrap();
+        }
+        fs::create_dir_all(primary_corner.join("observations")).unwrap();
+        fs::write(primary_corner.join("observations").join("note.md"), "content").unwrap();
+
+        // Legacy corner: near-empty, but birth_hash MATCHES the dir name.
         write_manifest_at(&legacy_corner, "legacyhash00", Some(hash));
+        fs::create_dir_all(legacy_corner.join("FEATURES")).unwrap();
+        fs::write(legacy_corner.join("FEATURES/00.md"), "minimal").unwrap();
 
         let entries = vec![
             fresh_entry(hash, primary_corner.clone(), "primaryhm000", Some("other00000000")),
@@ -1204,17 +1290,23 @@ mod tests {
 
         let result = dedupe_corners(entries, &primary_root);
         assert_eq!(result.len(), 1, "expected duplicate to collapse to one entry");
-        assert_eq!(result[0].path, legacy_corner, "expected legacy corner to win via birth_hash match");
-        assert_eq!(result[0].manifest_hash, "legacyhash00");
+        assert_eq!(
+            result[0].path, primary_corner,
+            "expected corner with more user content to win, got {}",
+            result[0].path.display()
+        );
 
         let _ = fs::remove_dir_all(&primary_root);
         let _ = fs::remove_dir_all(&legacy_root);
     }
 
     #[test]
-    fn dedupe_corners_falls_back_to_fresh_cache_when_no_birth_hash_match() {
-        let primary_root = std::env::temp_dir().join("spocket_dedupe_fresh_primary");
-        let legacy_root = std::env::temp_dir().join("spocket_dedupe_fresh_legacy");
+    fn dedupe_corners_excludes_opencode_and_nested_corners_from_content_count() {
+        // .opencode/ has thousands of generated files in both corners, so it
+        // must NOT count toward the content total. A nested corner directory
+        // (a dir containing manifest.json) must also be excluded.
+        let primary_root = std::env::temp_dir().join("spocket_dedupe_excl_primary");
+        let legacy_root = std::env::temp_dir().join("spocket_dedupe_excl_legacy");
         let _ = fs::remove_dir_all(&primary_root);
         let _ = fs::remove_dir_all(&legacy_root);
         fs::create_dir_all(&primary_root).unwrap();
@@ -1224,30 +1316,50 @@ mod tests {
         let primary_corner = primary_root.join(hash);
         let legacy_corner = legacy_root.join(hash);
 
-        // Neither corner's birth_hash matches the dir name.
-        // Primary cache is STALE (claims manifest_hash "stalehash000", on-disk "primaryhm001").
-        write_manifest_at(&primary_corner, "primaryhm001", Some("other00000001"));
-        // Legacy cache is FRESH (claims manifest_hash "legacyhash01", on-disk "legacyhash01").
-        write_manifest_at(&legacy_corner, "legacyhash01", Some("other00000002"));
+        // Primary corner: 2 real user files + 100 .opencode files.
+        write_manifest_at(&primary_corner, "primaryhm001", Some(hash));
+        fs::create_dir_all(primary_corner.join("FEATURES")).unwrap();
+        fs::write(primary_corner.join("FEATURES/real.md"), "content").unwrap();
+        fs::write(primary_corner.join("README.md"), "content").unwrap();
+        fs::create_dir_all(primary_corner.join(".opencode")).unwrap();
+        for i in 0..100 {
+            fs::write(primary_corner.join(".opencode").join(format!("agent_{i}.md")), "x").unwrap();
+        }
 
+        // Legacy corner: 1 real user file + a nested corner copy with 50 files.
+        write_manifest_at(&legacy_corner, "legacyhash01", Some("other00000001"));
+        fs::create_dir_all(legacy_corner.join("FEATURES")).unwrap();
+        fs::write(legacy_corner.join("FEATURES/real.md"), "content").unwrap();
+        // Nested corner copy — must be excluded from the count.
+        let nested = legacy_corner.join("nestedcorner");
+        fs::create_dir_all(&nested).unwrap();
+        fs::write(nested.join("manifest.json"), "{}").unwrap();
+        for i in 0..50 {
+            fs::write(nested.join(format!("file_{i}.md")), "x").unwrap();
+        }
+
+        // Primary has 2 real files; legacy has 1 real file (the 50 nested
+        // files don't count). Primary should win.
         let entries = vec![
-            fresh_entry(hash, primary_corner.clone(), "stalehash000", Some("other00000001")),
-            fresh_entry(hash, legacy_corner.clone(), "legacyhash01", Some("other00000002")),
+            fresh_entry(hash, primary_corner.clone(), "primaryhm001", Some(hash)),
+            fresh_entry(hash, legacy_corner.clone(), "legacyhash01", Some("other00000001")),
         ];
 
         let result = dedupe_corners(entries, &primary_root);
         assert_eq!(result.len(), 1);
-        assert_eq!(result[0].path, legacy_corner, "expected fresh-cache entry to win");
-        assert_eq!(result[0].manifest_hash, "legacyhash01");
+        assert_eq!(
+            result[0].path, primary_corner,
+            "expected corner with more real user content (excluding .opencode and nested corners) to win"
+        );
 
         let _ = fs::remove_dir_all(&primary_root);
         let _ = fs::remove_dir_all(&legacy_root);
     }
 
     #[test]
-    fn dedupe_corners_falls_back_to_preferred_root_when_both_stale() {
-        let primary_root = std::env::temp_dir().join("spocket_dedupe_preferred_primary");
-        let legacy_root = std::env::temp_dir().join("spocket_dedupe_preferred_legacy");
+    fn dedupe_corners_falls_back_to_preferred_root_when_content_is_equal() {
+        let primary_root = std::env::temp_dir().join("spocket_dedupe_pref_primary");
+        let legacy_root = std::env::temp_dir().join("spocket_dedupe_pref_legacy");
         let _ = fs::remove_dir_all(&primary_root);
         let _ = fs::remove_dir_all(&legacy_root);
         fs::create_dir_all(&primary_root).unwrap();
@@ -1257,18 +1369,22 @@ mod tests {
         let primary_corner = primary_root.join(hash);
         let legacy_corner = legacy_root.join(hash);
 
-        // Both caches stale, neither birth_hash matches.
-        write_manifest_at(&primary_corner, "primaryhm002", Some("other00000003"));
-        write_manifest_at(&legacy_corner, "legacyhash02", Some("other00000004"));
+        // Both corners have the same amount of content.
+        write_manifest_at(&primary_corner, "primaryhm002", Some("other00000002"));
+        write_manifest_at(&legacy_corner, "legacyhash02", Some("other00000003"));
+        fs::create_dir_all(primary_corner.join("FEATURES")).unwrap();
+        fs::write(primary_corner.join("FEATURES/00.md"), "x").unwrap();
+        fs::create_dir_all(legacy_corner.join("FEATURES")).unwrap();
+        fs::write(legacy_corner.join("FEATURES/00.md"), "x").unwrap();
 
         let entries = vec![
-            fresh_entry(hash, primary_corner.clone(), "stalehash001", Some("other00000003")),
-            fresh_entry(hash, legacy_corner.clone(), "stalehash002", Some("other00000004")),
+            fresh_entry(hash, primary_corner.clone(), "primaryhm002", Some("other00000002")),
+            fresh_entry(hash, legacy_corner.clone(), "legacyhash02", Some("other00000003")),
         ];
 
         let result = dedupe_corners(entries, &primary_root);
         assert_eq!(result.len(), 1);
-        assert_eq!(result[0].path, primary_corner, "expected preferred root to win when all else is equal");
+        assert_eq!(result[0].path, primary_corner, "expected preferred root to win when content is equal");
 
         let _ = fs::remove_dir_all(&primary_root);
         let _ = fs::remove_dir_all(&legacy_root);
@@ -1300,6 +1416,50 @@ mod tests {
         assert_eq!(refreshed.hash, "abc123");
         assert_eq!(refreshed.manifest_hash, "newhash000000");
         assert_eq!(refreshed.birth_hash.as_deref(), Some("abc123"));
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn count_corner_content_counts_user_files() {
+        let root = std::env::temp_dir().join("spocket_count_content_test");
+        let _ = fs::remove_dir_all(&root);
+        let corner = root.join("abc123");
+        fs::create_dir_all(corner.join("FEATURES/dailies")).unwrap();
+        fs::create_dir_all(corner.join("observations")).unwrap();
+        fs::create_dir_all(corner.join(".opencode")).unwrap();
+        fs::write(corner.join("FEATURES/dailies/day1.md"), "x").unwrap();
+        fs::write(corner.join("FEATURES/dailies/day2.md"), "x").unwrap();
+        fs::write(corner.join("observations/note.md"), "x").unwrap();
+        fs::write(corner.join("README.md"), "x").unwrap();
+        // .opencode files must NOT count.
+        fs::write(corner.join(".opencode/agent.md"), "x").unwrap();
+        // .DS_Store must NOT count.
+        fs::write(corner.join(".DS_Store"), "x").unwrap();
+
+        let count = count_corner_content(&corner);
+        assert_eq!(count, 4, "expected 4 user files (2 dailies + 1 observation + 1 README)");
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn count_corner_content_excludes_nested_corner_dirs() {
+        let root = std::env::temp_dir().join("spocket_count_nested_test");
+        let _ = fs::remove_dir_all(&root);
+        let corner = root.join("abc123");
+        fs::create_dir_all(corner.join("FEATURES")).unwrap();
+        fs::write(corner.join("FEATURES/real.md"), "x").unwrap();
+
+        // Nested corner — must NOT count.
+        let nested = corner.join("nestedcorner");
+        fs::create_dir_all(&nested).unwrap();
+        fs::write(nested.join("manifest.json"), "{}").unwrap();
+        fs::write(nested.join("file1.md"), "x").unwrap();
+        fs::write(nested.join("file2.md"), "x").unwrap();
+
+        let count = count_corner_content(&corner);
+        assert_eq!(count, 1, "expected only 1 real file, nested corner excluded");
 
         let _ = fs::remove_dir_all(&root);
     }

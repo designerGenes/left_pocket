@@ -13,7 +13,7 @@ mod workspace;
 
 use anyhow::{anyhow, bail, Context, Result};
 use chrono::{Duration, Utc};
-use clap::{CommandFactory, Parser};
+use clap::{CommandFactory, FromArgMatches};
 use clap_complete::generate;
 use colored::Colorize;
 use std::fs;
@@ -52,13 +52,35 @@ fn main() {
     }
 }
 
+/// Parse CLI arguments, injecting `branding::LOGO` as `before_help` on every
+/// command and subcommand so the logo appears above all `--help` output.
+///
+/// This mirrors what `Cli::parse()` does internally (build command, get
+/// matches, construct struct from matches) but lets us decorate the command
+/// tree first. clap still owns `--help`/`--version`/error handling and exits.
+fn parse_cli_with_logo() -> Cli {
+    let mut cmd = Cli::command();
+    set_logo_on_all(&mut cmd);
+    let matches = cmd.get_matches();
+    Cli::from_arg_matches(&matches).unwrap_or_else(|e| e.exit())
+}
+
+/// Recursively set `before_help` to the logo on `cmd` and all its subcommands.
+fn set_logo_on_all(cmd: &mut clap::Command) {
+    *cmd = std::mem::take(cmd).before_help(crate::branding::LOGO);
+    for sub in cmd.get_subcommands_mut() {
+        set_logo_on_all(sub);
+    }
+}
+
 fn run() -> Result<()> {
-    let cli = Cli::parse();
+    let cli = parse_cli_with_logo();
 
     let _ = VERBOSE.set(cli.verbose);
     let _ = SUPPRESS_OPEN.set(cli.silent || cli.simulate_runtime);
 
     if cli.short_version {
+        crate::branding::print_logo();
         println!("{}", env!("CARGO_PKG_VERSION"));
         return Ok(());
     }

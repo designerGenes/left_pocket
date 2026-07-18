@@ -1,3 +1,11 @@
+```
+╭────────╮
+│        │
+│     ╭──┤   corner
+│     │▓▓│
+╰─────┴──╯
+```
+
 # What is corner about
 
 Corner is about creating ephemeral borders around arbitrary files/folders, in a way that AI understands.  That's really it, but it has many more implications than may at first seem.

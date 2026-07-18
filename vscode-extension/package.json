@@ -16,20 +16,20 @@
   ],
   "activationEvents": [
     "onStartupFinished",
-    "onCommand:spocket.openDailyFeature",
-    "onCommand:spocket.newDailyFeature"
+    "onCommand:corner.openDailyFeature",
+    "onCommand:corner.newDailyFeature"
   ],
   "main": "./out/extension.js",
   "contributes": {
     "configuration": {
       "title": "Corner",
       "properties": {
-        "spocket.binaryPath": {
+        "corner.binaryPath": {
           "type": "string",
           "default": "corner",
           "description": "Path to the Corner binary"
         },
-        "spocket.dailyFeatureSubpath": {
+        "corner.dailyFeatureSubpath": {
           "type": "string",
           "default": "dailies",
           "description": "Subfolder under FEATURES where new daily feature files are created"
@@ -38,26 +38,26 @@
     },
     "commands": [
       {
-        "command": "spocket.openDailyFeature",
+        "command": "corner.openDailyFeature",
         "title": "Corner: Open Daily Feature"
       },
       {
-        "command": "spocket.newDailyFeature",
+        "command": "corner.newDailyFeature",
         "title": "Corner: New Daily Feature File"
       }
     ],
     "keybindings": [
       {
-        "command": "spocket.openDailyFeature",
+        "command": "corner.openDailyFeature",
         "key": "ctrl+alt+t",
         "mac": "ctrl+alt+t",
         "when": "workspaceFolderCount > 0"
       },
       {
-        "command": "spocket.newDailyFeature",
+        "command": "corner.newDailyFeature",
         "key": "ctrl+shift+alt+t",
         "mac": "ctrl+shift+alt+t",
-        "when": "workspaceFolderCount > 0 && spocket.inTodaysFeature"
+        "when": "workspaceFolderCount > 0 && corner.inTodaysFeature"
       }
     ]
   },

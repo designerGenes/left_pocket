@@ -1,3 +1,11 @@
+```
+╭────────╮
+│        │
+│     ╭──┤   corner
+│     │▓▓│
+╰─────┴──╯
+```
+
 # How to install
 
 1. Compile VS Code extension at {{PROJECT_ROOT}}/vscode-extension

@@ -7,6 +7,24 @@ pub const PRIMARY_BINARY_NAME: &str = "corner";
 pub const LEGACY_BINARY_NAMES: &[&str] = &["safe_pocket", "spocket"];
 pub const REPOSITORY_URL: &str = "https://github.com/designerGenes/corner";
 
+/// ASCII-art logo shown before `--help` and `-v` output.
+///
+/// The outer rectangle is 10 columns wide (right edge at column 9). A smaller
+/// inset rectangle (columns 6-9) houses the filled `▓▓` block on line 4, and
+/// the product name `corner` sits on line 3 after three spaces.
+pub const LOGO: &str = "\
+╭────────╮
+│        │
+│     ╭──┤   corner
+│     │▓▓│
+╰─────┴──╯";
+
+/// Print the logo to stdout followed by a blank line.
+pub fn print_logo() {
+    println!("{LOGO}");
+    println!();
+}
+
 pub const PRIMARY_ROOT_ENV_KEY: &str = "CORNER_ROOT";
 pub const LEGACY_ROOT_ENV_KEYS: &[&str] = &["SPOCKET_ROOT"];
 

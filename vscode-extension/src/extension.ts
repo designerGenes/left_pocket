@@ -386,7 +386,7 @@ async function newDailyFeature(): Promise<void> {
 }
 
 /**
- * Keep the `spocket.inTodaysFeature` context key in sync with the active editor
+ * Keep the `corner.inTodaysFeature` context key in sync with the active editor
  * so the shift+hotkey binding can be gated to today's feature file.
  */
 async function updateFeatureContext(): Promise<void> {
@@ -398,7 +398,7 @@ async function updateFeatureContext(): Promise<void> {
 
   await vscode.commands.executeCommand(
     "setContext",
-    "spocket.inTodaysFeature",
+    "corner.inTodaysFeature",
     inTodaysFeature
   );
 }
@@ -457,8 +457,8 @@ async function handleFolderChange(cornerDir: string): Promise<void> {
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   context.subscriptions.push(
-    vscode.commands.registerCommand("spocket.openDailyFeature", openDailyFeature),
-    vscode.commands.registerCommand("spocket.newDailyFeature", newDailyFeature),
+    vscode.commands.registerCommand("corner.openDailyFeature", openDailyFeature),
+    vscode.commands.registerCommand("corner.newDailyFeature", newDailyFeature),
     vscode.window.onDidChangeActiveTextEditor(() => {
       updateFeatureContext().catch((err) =>
         console.error("spocket updateFeatureContext failed:", err)

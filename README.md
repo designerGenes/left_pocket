@@ -1,3 +1,11 @@
+```
+╭────────╮
+│        │
+│     ╭──┤   corner
+│     │▓▓│
+╰─────┴──╯
+```
+
 # Corner
 
 **corner** (compatibility aliases: `safe_pocket`, `spocket`) — ad hoc VS Code workspace manager with AI copilot support.
