@@ -75,7 +75,7 @@ fn run() -> Result<()> {
     // the VS Code extension on every editor open/close and must be read-only
     // with respect to the templates directory. Re-seeding missing templates
     // there would silently resurrect template source files the user deleted,
-    // violating the unidirectional templates -> pocket flow.
+    // violating the unidirectional templates -> corner flow.
     let is_merge_cmd = matches!(
         cli.command,
         Some(
@@ -188,7 +188,7 @@ fn handle_command(command: Commands) -> Result<()> {
                 println!(
                     "  {} {}",
                     workspace.hash.bright_yellow(),
-                    format!("({})", workspace.pocket_dir.display()).dimmed()
+                    format!("({})", workspace.corner_dir.display()).dimmed()
                 );
 
                 for path in &workspace.core_paths {
@@ -201,11 +201,11 @@ fn handle_command(command: Commands) -> Result<()> {
             Ok(())
         }
 
-        Commands::Sync { target, pocket } => handle_sync(target, pocket),
+        Commands::Sync { target, corner } => handle_sync(target, corner),
 
-        Commands::RuntimeMergeStart { pocket } => handle_merge_start(pocket),
+        Commands::RuntimeMergeStart { corner } => handle_merge_start(corner),
 
-        Commands::RuntimeMergeStop { pocket } => handle_merge_stop(pocket),
+        Commands::RuntimeMergeStop { corner } => handle_merge_stop(corner),
 
         Commands::InstallDefaultAssets => handle_install_default_assets(),
 
@@ -215,7 +215,7 @@ fn handle_command(command: Commands) -> Result<()> {
             no_open,
         } => handle_augment(add, remove, no_open),
 
-        Commands::Mark { mark, pocket } => handle_mark(mark, pocket),
+        Commands::Mark { mark, corner } => handle_mark(mark, corner),
 
         Commands::Clean {
             scope,
@@ -228,8 +228,8 @@ fn handle_command(command: Commands) -> Result<()> {
         Commands::Heal {
             project,
             alias,
-            pocket,
-        } => handle_heal(project, alias, pocket),
+            corner,
+        } => handle_heal(project, alias, corner),
 
         Commands::Locate { path } => handle_locate(path),
 
@@ -254,22 +254,22 @@ fn handle_command(command: Commands) -> Result<()> {
         Commands::Worktree { action } => handle_worktree(action),
 
         Commands::DailyFeature {
-            pocket,
+            corner,
             new,
             subpath,
-        } => handle_daily_feature(pocket, new, subpath),
+        } => handle_daily_feature(corner, new, subpath),
 
         Commands::Task { args } => task::run_cli(args),
     }
 }
 
-fn handle_daily_feature(pocket: String, new: bool, subpath: Option<String>) -> Result<()> {
-    let pocket_dir = PathBuf::from(&pocket);
+fn handle_daily_feature(corner: String, new: bool, subpath: Option<String>) -> Result<()> {
+    let corner_dir = PathBuf::from(&corner);
 
-    if !pocket_dir.is_dir() {
+    if !corner_dir.is_dir() {
         let out = serde_json::json!({
             "status": "error",
-            "message": format!("Pocket directory does not exist: {}", pocket)
+            "message": format!("Corner directory does not exist: {}", corner)
         });
         println!("{}", serde_json::to_string(&out)?);
         return Ok(());
@@ -287,10 +287,10 @@ fn handle_daily_feature(pocket: String, new: bool, subpath: Option<String>) -> R
             .join("feature_tags.yaml")
     });
 
-    match feature::resolve_daily_feature(&pocket_dir, &subpath, new, &feature_tags_yaml) {
+    match feature::resolve_daily_feature(&corner_dir, &subpath, new, &feature_tags_yaml) {
         Ok(outcome) => {
-            let _ = event::append_pocket_event(
-                &pocket_dir,
+            let _ = event::append_corner_event(
+                &corner_dir,
                 if outcome.created {
                     "daily_feature.create"
                 } else {
@@ -326,7 +326,7 @@ fn migrate_post_install_root_state() -> Result<()> {
     let cache = registry::rebuild_current_cache()?;
     let current_root = crate::branding::current_registry_root()?;
 
-    for entry in cache.pockets {
+    for entry in cache.corners {
         if !entry.path.starts_with(&current_root) || !entry.path.is_dir() {
             continue;
         }
@@ -339,15 +339,15 @@ fn migrate_post_install_root_state() -> Result<()> {
             hash: entry.hash,
             core_paths: core_paths.clone(),
             sidecar_paths: vec![],
-            pocket_dir: entry.path.clone(),
+            corner_dir: entry.path.clone(),
             create_readmes: false,
             temporary: entry.temporary,
         };
         workspace.migrate_storage_references()?;
 
-        sync_root_env_file(&workspace.pocket_dir.join(".env"), &workspace.pocket_dir)?;
+        sync_root_env_file(&workspace.corner_dir.join(".env"), &workspace.corner_dir)?;
         for project_path in core_paths.iter().chain(manifest.worktrees.iter()) {
-            sync_root_env_file(&project_path.join(".env"), &workspace.pocket_dir)?;
+            sync_root_env_file(&project_path.join(".env"), &workspace.corner_dir)?;
         }
     }
 
@@ -356,7 +356,7 @@ fn migrate_post_install_root_state() -> Result<()> {
     Ok(())
 }
 
-fn sync_root_env_file(env_path: &Path, pocket_dir: &Path) -> Result<()> {
+fn sync_root_env_file(env_path: &Path, corner_dir: &Path) -> Result<()> {
     let mut lines = if env_path.exists() {
         fs::read_to_string(env_path)
             .with_context(|| format!("Failed to read env file: {}", env_path.display()))?
@@ -371,8 +371,8 @@ fn sync_root_env_file(env_path: &Path, pocket_dir: &Path) -> Result<()> {
         Vec::new()
     };
 
-    lines.push(format!("CORNER_ROOT={}", pocket_dir.display()));
-    lines.push(format!("SPOCKET_ROOT={}", pocket_dir.display()));
+    lines.push(format!("CORNER_ROOT={}", corner_dir.display()));
+    lines.push(format!("SPOCKET_ROOT={}", corner_dir.display()));
 
     let content = if lines.is_empty() {
         String::new()
@@ -476,7 +476,7 @@ fn handle_worktree(action: WorktreeAction) -> Result<()> {
 
     let workspace = Workspace::find_workspace_for_cwd(&cwd)?.ok_or_else(|| {
         anyhow!(
-            "No workspace found for current directory: {}\nRun this from inside a project directory that belongs to a Corner pocket.",
+            "No workspace found for current directory: {}\nRun this from inside a project directory that belongs to a corner.",
             cwd.display()
         )
     })?;
@@ -496,7 +496,7 @@ fn handle_worktree(action: WorktreeAction) -> Result<()> {
                 return Err(anyhow!("Path does not exist: {}", target_path.display()));
             }
 
-            let mut manifest = Manifest::load(&workspace.pocket_dir)?.unwrap_or_else(|| {
+            let mut manifest = Manifest::load(&workspace.corner_dir)?.unwrap_or_else(|| {
                 Manifest::new_with_options(
                     workspace.hash.clone(),
                     workspace.core_paths.clone(),
@@ -505,7 +505,7 @@ fn handle_worktree(action: WorktreeAction) -> Result<()> {
             });
 
             if manifest.add_worktree(target_path.clone()) {
-                manifest.save(&workspace.pocket_dir)?;
+                manifest.save(&workspace.corner_dir)?;
                 println!(
                     "{} {} -> {}",
                     "Worktree registered:".bright_green(),
@@ -527,7 +527,7 @@ fn handle_worktree(action: WorktreeAction) -> Result<()> {
             let config = Config::load()?;
             let target_path = config.resolve_path(&path)?;
 
-            let mut manifest = match Manifest::load(&workspace.pocket_dir)? {
+            let mut manifest = match Manifest::load(&workspace.corner_dir)? {
                 Some(m) => m,
                 None => {
                     return Err(anyhow!(
@@ -538,7 +538,7 @@ fn handle_worktree(action: WorktreeAction) -> Result<()> {
             };
 
             if manifest.remove_worktree(&target_path) {
-                manifest.save(&workspace.pocket_dir)?;
+                manifest.save(&workspace.corner_dir)?;
                 println!(
                     "{} {}",
                     "Worktree removed:".bright_green(),
@@ -556,7 +556,7 @@ fn handle_worktree(action: WorktreeAction) -> Result<()> {
         }
 
         WorktreeAction::List => {
-            let manifest = match Manifest::load(&workspace.pocket_dir)? {
+            let manifest = match Manifest::load(&workspace.corner_dir)? {
                 Some(m) => m,
                 None => {
                     return Err(anyhow!(
@@ -568,13 +568,13 @@ fn handle_worktree(action: WorktreeAction) -> Result<()> {
 
             println!(
                 "{} {}",
-                "Pocket:".bright_white().bold(),
+                "Corner:".bright_white().bold(),
                 workspace.hash.bright_yellow()
             );
             println!(
                 "  {} {}",
                 "Location:".dimmed(),
-                workspace.pocket_dir.display().to_string().bright_blue()
+                workspace.corner_dir.display().to_string().bright_blue()
             );
             println!();
 
@@ -684,15 +684,15 @@ fn find_existing_workspace_for_paths(paths: &[PathBuf]) -> Result<Option<Workspa
                 let relative = path.strip_prefix(&temporary_spocket_dir).unwrap();
                 if let Some(hash_component) = relative.components().next() {
                     let hash = hash_component.as_os_str().to_string_lossy().to_string();
-                    let pocket_dir = temporary_spocket_dir.join(&hash);
+                    let corner_dir = temporary_spocket_dir.join(&hash);
                     if let Some((_, core_paths)) =
-                        Workspace::load_manifest_or_backfill(&pocket_dir)?
+                        Workspace::load_manifest_or_backfill(&corner_dir)?
                     {
                         return Ok(Some(Workspace {
                             hash,
                             core_paths,
                             sidecar_paths: vec![],
-                            pocket_dir,
+                            corner_dir,
                             create_readmes: false,
                             temporary: true,
                         }));
@@ -707,15 +707,15 @@ fn find_existing_workspace_for_paths(paths: &[PathBuf]) -> Result<Option<Workspa
                     if hash == "temporary" {
                         continue;
                     }
-                    let pocket_dir = spocket_dir.join(&hash);
+                    let corner_dir = spocket_dir.join(&hash);
                     if let Some((_, core_paths)) =
-                        Workspace::load_manifest_or_backfill(&pocket_dir)?
+                        Workspace::load_manifest_or_backfill(&corner_dir)?
                     {
                         return Ok(Some(Workspace {
                             hash,
                             core_paths,
                             sidecar_paths: vec![],
-                            pocket_dir,
+                            corner_dir,
                             create_readmes: false,
                             temporary: false,
                         }));
@@ -744,15 +744,15 @@ fn repair_empty_workspace_paths(
         return Ok(());
     }
 
-    if let Some(mut manifest) = Manifest::load(&workspace.pocket_dir)? {
+    if let Some(mut manifest) = Manifest::load(&workspace.corner_dir)? {
         if manifest.core_paths.is_empty() {
-            manifest.update_paths(workspace.core_paths.clone(), &workspace.pocket_dir)?;
+            manifest.update_paths(workspace.core_paths.clone(), &workspace.corner_dir)?;
         }
     }
 
-    if let Some(workspace_file) = Workspace::find_workspace_file(&workspace.pocket_dir) {
+    if let Some(workspace_file) = Workspace::find_workspace_file(&workspace.corner_dir) {
         let (existing, file_paths) =
-            Workspace::read_workspace_file(&workspace_file, &workspace.pocket_dir)
+            Workspace::read_workspace_file(&workspace_file, &workspace.corner_dir)
                 .map(|(ws, paths)| (Some(ws), paths))
                 .unwrap_or((None, Vec::new()));
         if file_paths.is_empty() {
@@ -799,7 +799,7 @@ fn handle_workspace(cli: Cli) -> Result<()> {
 
         let mut workspace = Workspace::clone_from(&source_path, &core_paths, cli.temporary)?;
 
-        workspace.create_pocket_structure()?;
+        workspace.create_corner_structure()?;
 
         apply_session_tools(&cli.with_tools, &mut workspace)?;
         apply_project_tools(&cli.add_tools, &workspace)?;
@@ -813,7 +813,7 @@ fn handle_workspace(cli: Cli) -> Result<()> {
         if let Some(existing) = find_existing_workspace_for_paths(&core_paths)? {
             if !existing.temporary {
                 return Err(anyhow!(
-                    "A permanent Corner pocket already exists for these paths: {}\nUse `corner -i ...` to open it, or pass `--new` if you really want a separate temporary pocket.",
+                    "A permanent corner already exists for these paths: {}\nUse `corner -i ...` to open it, or pass `--new` if you really want a separate temporary corner.",
                     existing.hash
                 ));
             }
@@ -824,7 +824,7 @@ fn handle_workspace(cli: Cli) -> Result<()> {
         if let Some(mut existing) = find_existing_workspace_for_paths(&core_paths)? {
             if cli.temporary && !existing.temporary {
                 return Err(anyhow!(
-                    "Found a permanent Corner pocket for these paths: {}\nTemporary mode only reuses temporary pockets.",
+                    "Found a permanent corner for these paths: {}\nTemporary mode only reuses temporary corners.",
                     existing.hash
                 ));
             }
@@ -839,9 +839,9 @@ fn handle_workspace(cli: Cli) -> Result<()> {
             repair_empty_workspace_paths(&mut existing, &core_paths)?;
             existing.migrate_storage_references()?;
 
-            // If the CLI paths differ from this pocket's core_paths, the user is
+            // If the CLI paths differ from this corner's core_paths, the user is
             // opening via a registered worktree path. Inject those paths as sidecars
-            // so VS Code shows the worktree branch's files alongside the pocket.
+            // so VS Code shows the worktree branch's files alongside the corner.
             let existing_path_set: std::collections::HashSet<_> =
                 existing.core_paths.iter().collect();
             let extra_paths: Vec<PathBuf> = core_paths
@@ -859,14 +859,14 @@ fn handle_workspace(cli: Cli) -> Result<()> {
 
             let drift_result = existing.detect_and_resolve_drift()?;
             if let DriftResult::AcceptFile { new_core_paths } = drift_result {
-                let mut manifest = Manifest::load(&existing.pocket_dir)?.unwrap_or_else(|| {
+                let mut manifest = Manifest::load(&existing.corner_dir)?.unwrap_or_else(|| {
                     Manifest::new_with_options(
                         existing.hash.clone(),
                         existing.core_paths.clone(),
                         existing.temporary,
                     )
                 });
-                manifest.update_paths(new_core_paths.clone(), &existing.pocket_dir)?;
+                manifest.update_paths(new_core_paths.clone(), &existing.corner_dir)?;
                 existing.core_paths = new_core_paths;
             }
 
@@ -886,14 +886,14 @@ fn handle_workspace(cli: Cli) -> Result<()> {
     )?;
 
     if !workspace.exists() {
-        // Secondary lookup: check if any existing pocket's manifest matches these paths
-        // (handles pockets that evolved in-place via sync/augment)
+        // Secondary lookup: check if any existing corner's manifest matches these paths
+        // (handles corners that evolved in-place via sync/augment)
         if let Some(mut existing) = Workspace::find_workspace_by_manifest_paths(&core_paths)? {
             if existing.temporary == cli.temporary {
                 if verbose() {
                     println!(
                         "{} {} (matched by manifest)",
-                        "Found existing pocket:".bright_green(),
+                        "Found existing corner:".bright_green(),
                         existing.hash.bright_yellow()
                     );
                 }
@@ -914,17 +914,17 @@ fn handle_workspace(cli: Cli) -> Result<()> {
                 // Clone from selected workspace
                 println!("Cloning from: {}", selected.hash.bright_yellow());
 
-                // Copy safe pocket contents
-                if workspace.pocket_dir.exists() {
+                // Copy corner contents
+                if workspace.corner_dir.exists() {
                     registry::move_to_unhoused(
-                        &workspace.pocket_dir,
+                        &workspace.corner_dir,
                         "smart clone target replacement",
                     )?;
-                    registry::remove_pocket(&workspace.pocket_dir)?;
+                    registry::remove_corner(&workspace.corner_dir)?;
                 }
 
-                copy_dir_all(&selected.pocket_dir, &workspace.pocket_dir)
-                    .context("Failed to copy pocket contents")?;
+                copy_dir_all(&selected.corner_dir, &workspace.corner_dir)
+                    .context("Failed to copy corner contents")?;
 
                 // Create workspace file with new paths
                 workspace.create_workspace_file()?;
@@ -936,12 +936,12 @@ fn handle_workspace(cli: Cli) -> Result<()> {
                     selected.hash.clone(),
                     workspace.temporary,
                 );
-                manifest.save(&workspace.pocket_dir)?;
+                manifest.save(&workspace.corner_dir)?;
 
                 // Update parent's children list
-                if let Ok(Some(mut parent_manifest)) = Manifest::load(&selected.pocket_dir) {
+                if let Ok(Some(mut parent_manifest)) = Manifest::load(&selected.corner_dir) {
                     parent_manifest.add_child(workspace.hash.clone());
-                    let _ = parent_manifest.save(&selected.pocket_dir);
+                    let _ = parent_manifest.save(&selected.corner_dir);
                 }
 
                 println!(
@@ -988,7 +988,7 @@ fn handle_workspace(cli: Cli) -> Result<()> {
 
         match drift_result {
             DriftResult::AcceptFile { new_core_paths } => {
-                let mut manifest = match Manifest::load(&workspace.pocket_dir)? {
+                let mut manifest = match Manifest::load(&workspace.corner_dir)? {
                     Some(m) => m,
                     None => Manifest::new_with_options(
                         workspace.hash.clone(),
@@ -996,7 +996,7 @@ fn handle_workspace(cli: Cli) -> Result<()> {
                         workspace.temporary,
                     ),
                 };
-                manifest.update_paths(new_core_paths.clone(), &workspace.pocket_dir)?;
+                manifest.update_paths(new_core_paths.clone(), &workspace.corner_dir)?;
                 workspace.core_paths = new_core_paths;
                 println!(
                     "{} {}",
@@ -1029,7 +1029,7 @@ fn normalize_tool_name(name: &str) -> Result<String> {
 fn apply_session_tools(names: &[String], workspace: &mut Workspace) -> Result<()> {
     for name in names {
         let tool = normalize_tool_name(name)?;
-        let dir = workspace.pocket_dir.join(".session-tools").join(&tool);
+        let dir = workspace.corner_dir.join(".session-tools").join(&tool);
         prepare_tool_dir(&dir, &tool, workspace)?;
         if !workspace.sidecar_paths.contains(&dir) {
             workspace.sidecar_paths.push(dir);
@@ -1065,7 +1065,7 @@ fn project_tool_installed(tool: &str, workspace: &Workspace) -> bool {
     match tool {
         "gitleaks" => {
             workspace
-                .pocket_dir
+                .corner_dir
                 .join("tools/gitleaks/pre-commit-hook.sh")
                 .is_file()
                 && workspace.core_paths.iter().all(|project| {
@@ -1075,13 +1075,13 @@ fn project_tool_installed(tool: &str, workspace: &Workspace) -> bool {
         }
         "graphify" => {
             workspace
-                .pocket_dir
+                .corner_dir
                 .join("tools/graphify/README.md")
                 .is_file()
-                && workspace.pocket_dir.join("graphify-out").is_dir()
+                && workspace.corner_dir.join("graphify-out").is_dir()
         }
         "memgraph" => {
-            let dir = workspace.pocket_dir.join("tools/memgraph");
+            let dir = workspace.corner_dir.join("tools/memgraph");
             dir.join("scan-config.json").is_file()
                 && dir.join("docker-compose.yml").is_file()
                 && dir.join("schema.cypher").is_file()
@@ -1108,14 +1108,14 @@ fn prepare_tool_dir(dir: &Path, tool: &str, workspace: &Workspace) -> Result<()>
 fn tool_readme(tool: &str) -> String {
     match tool {
         "gitleaks" => "# gitleaks\n\nManaged by corner. Use `gitleaks detect --source <project>` to scan for secrets.\n".to_string(),
-        "graphify" => "# graphify\n\nManaged by corner. Graph output is stored in the pocket and may be bridged into the project.\n".to_string(),
-        "memgraph" => "# Memgraph relational memory\n\nManaged by corner. This directory contains a Memgraph configuration, Docker Compose file, Cypher schema, and a scanner for the pocket's FEATURES tree and relevant markdown context files.\n".to_string(),
+        "graphify" => "# graphify\n\nManaged by corner. Graph output is stored in the corner and may be bridged into the project.\n".to_string(),
+        "memgraph" => "# Memgraph relational memory\n\nManaged by corner. This directory contains a Memgraph configuration, Docker Compose file, Cypher schema, and a scanner for the corner's FEATURES tree and relevant markdown context files.\n".to_string(),
         _ => format!("# {tool}\n\nManaged by corner.\n"),
     }
 }
 
 fn install_gitleaks(workspace: &Workspace) -> Result<()> {
-    let tool_dir = workspace.pocket_dir.join("tools").join("gitleaks");
+    let tool_dir = workspace.corner_dir.join("tools").join("gitleaks");
     fs::create_dir_all(&tool_dir)
         .with_context(|| format!("Failed to create gitleaks tool dir: {}", tool_dir.display()))?;
     let readme = tool_dir.join("README.md");
@@ -1185,8 +1185,8 @@ fn git_hooks_dir(project: &Path) -> Option<PathBuf> {
 }
 
 fn install_graphify(workspace: &Workspace) -> Result<()> {
-    let tool_dir = workspace.pocket_dir.join("tools").join("graphify");
-    let graph_dir = workspace.pocket_dir.join("graphify-out");
+    let tool_dir = workspace.corner_dir.join("tools").join("graphify");
+    let graph_dir = workspace.corner_dir.join("graphify-out");
     fs::create_dir_all(&tool_dir)
         .with_context(|| format!("Failed to create graphify tool dir: {}", tool_dir.display()))?;
     fs::create_dir_all(&graph_dir).with_context(|| {
@@ -1216,7 +1216,7 @@ fn install_graphify(workspace: &Workspace) -> Result<()> {
 }
 
 fn install_memgraph(workspace: &Workspace) -> Result<()> {
-    let tool_dir = workspace.pocket_dir.join("tools").join("memgraph");
+    let tool_dir = workspace.corner_dir.join("tools").join("memgraph");
     prepare_tool_dir(&tool_dir, "memgraph", workspace)?;
     add_persistent_workspace_folder(workspace, &tool_dir, "[Tool] memgraph")
 }
@@ -1243,8 +1243,8 @@ fn write_memgraph_config(tool_dir: &Path, workspace: &Workspace) -> Result<()> {
         },
         "runtime": {
             "compose_project": memgraph_compose_project(workspace),
-            "pocket_hash": workspace.hash,
-            "pocket_path": workspace.pocket_dir.to_string_lossy().to_string(),
+            "corner_hash": workspace.hash,
+            "corner_path": workspace.corner_dir.to_string_lossy().to_string(),
             "bolt_port": memgraph_bolt_port(workspace),
             "lab_port": memgraph_lab_port(workspace),
             "import_cypher": tool_dir.join("import/load-markdown.cypher").to_string_lossy().to_string()
@@ -1276,9 +1276,9 @@ fn write_memgraph_config(tool_dir: &Path, workspace: &Workspace) -> Result<()> {
 }
 
 fn memgraph_scan_paths(workspace: &Workspace) -> Vec<PathBuf> {
-    let mut paths = vec![workspace.pocket_dir.join("FEATURES")];
+    let mut paths = vec![workspace.corner_dir.join("FEATURES")];
     for name in ["AGENTS.md", "GEMINI.md", "README.md", "Install.md"] {
-        let candidate = workspace.pocket_dir.join(name);
+        let candidate = workspace.corner_dir.join(name);
         if candidate.exists() || name == "AGENTS.md" {
             paths.push(candidate);
         }
@@ -1317,11 +1317,11 @@ config = json.loads(Path(sys.argv[1]).read_text())
 jsonl = Path(sys.argv[2])
 cypher = Path(sys.argv[3])
 runtime = config['runtime']
-pocket_hash = runtime['pocket_hash']
-pocket_path = runtime['pocket_path']
+corner_hash = runtime['corner_hash']
+corner_path = runtime['corner_path']
 bolt_url = config['bolt_url']
 lab_url = config['lab_url']
-stopwords = {'about','after','again','before','being','better','feature','features','graph','graphs','memgraph','project','safe','pocket','using','with','from','this','that','into'}
+stopwords = {'about','after','again','before','being','better','feature','features','graph','graphs','memgraph','project','safe','corner','using','with','from','this','that','into'}
 
 def q(value):
     return "'" + str(value).replace("\\", "\\\\").replace("'", "\\'") + "'"
@@ -1330,8 +1330,8 @@ def concepts(title):
     tokens = re.findall(r"[A-Za-z][A-Za-z0-9_-]+", title)
     return sorted({token.capitalize() for token in tokens if len(token) > 4 and token.lower() not in stopwords})
 
-lines = [f"MATCH (n {{pocket_hash: {q(pocket_hash)}}}) DETACH DELETE n;"]
-lines.append(f"MERGE (p:Pocket {{hash: {q(pocket_hash)}}}) SET p.path = {q(pocket_path)}, p.pocket_hash = {q(pocket_hash)}, p.bolt_url = {q(bolt_url)}, p.lab_url = {q(lab_url)};")
+lines = [f"MATCH (n {{corner_hash: {q(corner_hash)}}}) DETACH DELETE n;"]
+lines.append(f"MERGE (p:Corner {{hash: {q(corner_hash)}}}) SET p.path = {q(corner_path)}, p.corner_hash = {q(corner_hash)}, p.bolt_url = {q(bolt_url)}, p.lab_url = {q(lab_url)};")
 
 if jsonl.exists():
     for raw in jsonl.read_text(encoding='utf-8').splitlines():
@@ -1340,15 +1340,15 @@ if jsonl.exists():
         item = json.loads(raw)
         path = item['path']
         title = item.get('title') or Path(path).stem
-        rel = str(Path(path).relative_to(pocket_path)) if path.startswith(pocket_path) else path
-        lines.append(f"MERGE (f:File {{path: {q(path)}}}) SET f.language = 'markdown', f.title = {q(title)}, f.relative_path = {q(rel)}, f.bytes = {item.get('bytes', 0)}, f.pocket_hash = {q(pocket_hash)};")
-        lines.append(f"MATCH (p:Pocket {{hash: {q(pocket_hash)}}}), (f:File {{path: {q(path)}}}) MERGE (p)-[:CONTAINS]->(f);")
+        rel = str(Path(path).relative_to(corner_path)) if path.startswith(corner_path) else path
+        lines.append(f"MERGE (f:File {{path: {q(path)}}}) SET f.language = 'markdown', f.title = {q(title)}, f.relative_path = {q(rel)}, f.bytes = {item.get('bytes', 0)}, f.corner_hash = {q(corner_hash)};")
+        lines.append(f"MATCH (p:Corner {{hash: {q(corner_hash)}}}), (f:File {{path: {q(path)}}}) MERGE (p)-[:CONTAINS]->(f);")
         if rel.startswith('FEATURES/'):
-            lines.append(f"MERGE (feat:Feature {{name: {q(title)}, pocket_hash: {q(pocket_hash)}}}) SET feat.status = 'tracked', feat.description = {q(rel)}, feat.source_path = {q(path)};")
-            lines.append(f"MATCH (f:File {{path: {q(path)}}}), (feat:Feature {{name: {q(title)}, pocket_hash: {q(pocket_hash)}}}) MERGE (f)-[:IMPLEMENTS]->(feat);")
+            lines.append(f"MERGE (feat:Feature {{name: {q(title)}, corner_hash: {q(corner_hash)}}}) SET feat.status = 'tracked', feat.description = {q(rel)}, feat.source_path = {q(path)};")
+            lines.append(f"MATCH (f:File {{path: {q(path)}}}), (feat:Feature {{name: {q(title)}, corner_hash: {q(corner_hash)}}}) MERGE (f)-[:IMPLEMENTS]->(feat);")
             for concept in concepts(title):
-                lines.append(f"MERGE (c:Concept {{name: {q(concept)}, pocket_hash: {q(pocket_hash)}}});")
-                lines.append(f"MATCH (feat:Feature {{name: {q(title)}, pocket_hash: {q(pocket_hash)}}}), (c:Concept {{name: {q(concept)}, pocket_hash: {q(pocket_hash)}}}) MERGE (feat)-[:REQUIRES]->(c);")
+                lines.append(f"MERGE (c:Concept {{name: {q(concept)}, corner_hash: {q(corner_hash)}}});")
+                lines.append(f"MATCH (feat:Feature {{name: {q(title)}, corner_hash: {q(corner_hash)}}}), (c:Concept {{name: {q(concept)}, corner_hash: {q(corner_hash)}}}) MERGE (feat)-[:REQUIRES]->(c);")
 
 cypher.write_text('\n'.join(lines) + '\n', encoding='utf-8')
 PY
@@ -1435,7 +1435,7 @@ fn add_persistent_workspace_folder(workspace: &Workspace, path: &Path, name: &st
         .with_context(|| format!("Failed to read {}", workspace_file.display()))?;
     let existing_workspace: VSCodeWorkspace = serde_json::from_str(&text)
         .with_context(|| format!("Failed to parse {}", workspace_file.display()))?;
-    let (_, file_paths) = Workspace::read_workspace_file(&workspace_file, &workspace.pocket_dir)?;
+    let (_, file_paths) = Workspace::read_workspace_file(&workspace_file, &workspace.corner_dir)?;
     if file_paths.is_empty() && !workspace.core_paths.is_empty() {
         workspace.write_workspace_file_preserving(Some(&existing_workspace))?;
         text = fs::read_to_string(&workspace_file)
@@ -1481,18 +1481,18 @@ fn handle_completion_spec() -> Result<()> {
     Ok(())
 }
 
-fn handle_mark(mark: MarkChoice, pocket: String) -> Result<()> {
+fn handle_mark(mark: MarkChoice, corner: String) -> Result<()> {
     match mark {
-        MarkChoice::Temporary => mark_temporary(pocket),
+        MarkChoice::Temporary => mark_temporary(corner),
     }
 }
 
-fn mark_temporary(pocket: String) -> Result<()> {
-    let workspace = resolve_workspace_reference(&pocket)?;
-    let manifest_path = workspace.pocket_dir.join("manifest.json");
+fn mark_temporary(corner: String) -> Result<()> {
+    let workspace = resolve_workspace_reference(&corner)?;
+    let manifest_path = workspace.corner_dir.join("manifest.json");
 
-    let mut manifest = Manifest::load(&workspace.pocket_dir)?
-        .ok_or_else(|| anyhow!("No manifest found in pocket: {}", manifest_path.display()))?;
+    let mut manifest = Manifest::load(&workspace.corner_dir)?
+        .ok_or_else(|| anyhow!("No manifest found in corner: {}", manifest_path.display()))?;
 
     if manifest.temporary {
         println!(
@@ -1506,24 +1506,24 @@ fn mark_temporary(pocket: String) -> Result<()> {
     let target_dir = registry::temporary_registry_dir()?.join(&workspace.hash);
     if target_dir.exists() {
         bail!(
-            "Cannot mark pocket temporary because target already exists: {}",
+            "Cannot mark corner temporary because target already exists: {}",
             target_dir.display()
         );
     }
 
     fs::create_dir_all(target_dir.parent().unwrap_or_else(|| Path::new("/")))
         .context("Failed to create temporary registry directory")?;
-    fs::rename(&workspace.pocket_dir, &target_dir).with_context(|| {
+    fs::rename(&workspace.corner_dir, &target_dir).with_context(|| {
         format!(
-            "Failed to move pocket into temporary registry: {} -> {}",
-            workspace.pocket_dir.display(),
+            "Failed to move corner into temporary registry: {} -> {}",
+            workspace.corner_dir.display(),
             target_dir.display()
         )
     })?;
 
     manifest.temporary = true;
     manifest.save(&target_dir)?;
-    registry::remove_pocket(&workspace.pocket_dir)?;
+    registry::remove_corner(&workspace.corner_dir)?;
 
     println!(
         "{} {}",
@@ -1545,7 +1545,7 @@ fn handle_clean(
     let entries: Vec<RegistryEntry> = if let Some(scope) = scope {
         match scope {
             CleanScope::Temporary => cache
-                .pockets
+                .corners
                 .into_iter()
                 .filter(|entry| entry.temporary)
                 .collect(),
@@ -1553,12 +1553,12 @@ fn handle_clean(
     } else if let Some(age) = older_than {
         let cutoff = parse_age_cutoff(&age)?;
         cache
-            .pockets
+            .corners
             .into_iter()
             .filter(|entry| entry.created_at < cutoff)
             .collect()
     } else if all {
-        cache.pockets
+        cache.corners
     } else {
         bail!("Specify `temporary`, `--older-than`, or `--all`.");
     };
@@ -1575,15 +1575,15 @@ fn handle_clean(
     let count = entries.len();
     for entry in entries {
         if hard {
-            delete_pocket_dir(&entry.path)?;
+            delete_corner_dir(&entry.path)?;
         }
-        registry::remove_pocket(&entry.path)?;
+        registry::remove_corner(&entry.path)?;
     }
 
     if hard {
         println!(
-            "{} {} pocket(s)",
-            "Deleted pockets:".bright_green(),
+            "{} {} corner(s)",
+            "Deleted corners:".bright_green(),
             count.to_string().bright_yellow()
         );
     } else {
@@ -1625,7 +1625,7 @@ fn confirm_hard_clean(entries: &[RegistryEntry], yes: bool) -> Result<()> {
     println!(
         "{}",
         format!(
-            "Hard clean will delete pocket directories from {}. Project folders are preserved.",
+            "Hard clean will delete corner directories from {}. Project folders are preserved.",
             registry::registry_root()?.display()
         )
         .bright_yellow()
@@ -1648,11 +1648,11 @@ fn confirm_hard_clean(entries: &[RegistryEntry], yes: bool) -> Result<()> {
     }
 }
 
-fn delete_pocket_dir(path: &Path) -> Result<()> {
+fn delete_corner_dir(path: &Path) -> Result<()> {
     let known_roots = crate::branding::known_registry_roots()?;
     if !known_roots.iter().any(|root| path.starts_with(root)) {
         bail!(
-            "Refusing to delete path outside known pocket roots: {}",
+            "Refusing to delete path outside known corner roots: {}",
             path.display()
         );
     }
@@ -1667,7 +1667,7 @@ fn delete_pocket_dir(path: &Path) -> Result<()> {
 fn handle_heal(
     project: Option<String>,
     alias: Option<String>,
-    pocket: Option<String>,
+    corner: Option<String>,
 ) -> Result<()> {
     let config = Config::load()?;
     let project_ref = match (project, alias) {
@@ -1688,63 +1688,63 @@ fn handle_heal(
         bail!("Project path does not exist: {}", project_path.display());
     }
 
-    let pocket_ref = match pocket {
-        Some(pocket) => pocket,
-        None => prompt_heal_pocket(&project_path)?,
+    let corner_ref = match corner {
+        Some(corner) => corner,
+        None => prompt_heal_corner(&project_path)?,
     };
-    let source = resolve_workspace_reference(&pocket_ref)?;
+    let source = resolve_workspace_reference(&corner_ref)?;
     let target =
         Workspace::new_with_options(vec![project_path.clone()], vec![], false, source.temporary)?;
 
-    if source.pocket_dir == target.pocket_dir {
+    if source.corner_dir == target.corner_dir {
         let existing_ws =
-            Workspace::find_workspace_file(&source.pocket_dir).and_then(|workspace_file| {
-                Workspace::read_workspace_file(&workspace_file, &source.pocket_dir)
+            Workspace::find_workspace_file(&source.corner_dir).and_then(|workspace_file| {
+                Workspace::read_workspace_file(&workspace_file, &source.corner_dir)
                     .ok()
                     .map(|(ws, _)| ws)
             });
         target.write_workspace_file_preserving(existing_ws.as_ref())?;
 
-        let mut manifest = Manifest::load(&source.pocket_dir)?.ok_or_else(|| {
+        let mut manifest = Manifest::load(&source.corner_dir)?.ok_or_else(|| {
             anyhow!(
-                "No manifest found in pocket: {}",
-                source.pocket_dir.display()
+                "No manifest found in corner: {}",
+                source.corner_dir.display()
             )
         })?;
         manifest.hash = target.hash.clone();
         manifest.temporary = target.temporary;
-        manifest.update_paths(vec![project_path], &source.pocket_dir)?;
-        let _ = event::append_pocket_event(
-            &source.pocket_dir,
+        manifest.update_paths(vec![project_path], &source.corner_dir)?;
+        let _ = event::append_corner_event(
+            &source.corner_dir,
             "heal.in_place",
             serde_json::json!({ "core_paths": manifest.core_paths }),
         );
         println!(
             "{} {}",
             "Healed in place:".bright_green(),
-            source.pocket_dir.display().to_string().bright_blue()
+            source.corner_dir.display().to_string().bright_blue()
         );
         return Ok(());
     }
 
-    if target.pocket_dir.exists() {
-        registry::move_to_unhoused(&target.pocket_dir, "heal target replacement")?;
-        registry::remove_pocket(&target.pocket_dir)?;
+    if target.corner_dir.exists() {
+        registry::move_to_unhoused(&target.corner_dir, "heal target replacement")?;
+        registry::remove_corner(&target.corner_dir)?;
     }
 
-    if let Some(parent) = target.pocket_dir.parent() {
-        fs::create_dir_all(parent).context("Failed to create target pocket parent")?;
+    if let Some(parent) = target.corner_dir.parent() {
+        fs::create_dir_all(parent).context("Failed to create target corner parent")?;
     }
 
-    fs::rename(&source.pocket_dir, &target.pocket_dir).or_else(|_| {
-        copy_dir_all(&source.pocket_dir, &target.pocket_dir)?;
-        fs::remove_dir_all(&source.pocket_dir)?;
+    fs::rename(&source.corner_dir, &target.corner_dir).or_else(|_| {
+        copy_dir_all(&source.corner_dir, &target.corner_dir)?;
+        fs::remove_dir_all(&source.corner_dir)?;
         Ok::<(), anyhow::Error>(())
     })?;
 
-    registry::remove_pocket(&source.pocket_dir)?;
+    registry::remove_corner(&source.corner_dir)?;
 
-    // The pocket directory name is the task prefix; migrate any tracked tasks
+    // The corner directory name is the task prefix; migrate any tracked tasks
     // from the old name to the new one so the built-in task tracker keeps
     // working after the rename.
     match task::reprefix_global(&source.hash, &target.hash) {
@@ -1763,7 +1763,7 @@ fn handle_heal(
         }
     }
 
-    let workspace_file = Workspace::find_workspace_file(&target.pocket_dir);
+    let workspace_file = Workspace::find_workspace_file(&target.corner_dir);
     if let Some(old_file) = workspace_file {
         let new_file = target.workspace_file_path();
         if old_file != new_file && old_file.exists() {
@@ -1778,7 +1778,7 @@ fn handle_heal(
     }
 
     target.create_workspace_file()?;
-    let mut manifest = Manifest::load(&target.pocket_dir)?.unwrap_or_else(|| {
+    let mut manifest = Manifest::load(&target.corner_dir)?.unwrap_or_else(|| {
         Manifest::new_with_options(
             target.hash.clone(),
             target.core_paths.clone(),
@@ -1788,9 +1788,9 @@ fn handle_heal(
     manifest.hash = target.hash.clone();
     manifest.core_paths = target.core_paths.clone();
     manifest.temporary = target.temporary;
-    manifest.save(&target.pocket_dir)?;
-    let _ = event::append_pocket_event(
-        &target.pocket_dir,
+    manifest.save(&target.corner_dir)?;
+    let _ = event::append_corner_event(
+        &target.corner_dir,
         "heal.replace",
         serde_json::json!({
             "source_hash": source.hash,
@@ -1801,27 +1801,27 @@ fn handle_heal(
 
     println!(
         "{} {} -> {}",
-        "Healed pocket:".bright_green(),
+        "Healed corner:".bright_green(),
         source.hash.bright_yellow(),
-        target.pocket_dir.display().to_string().bright_blue()
+        target.corner_dir.display().to_string().bright_blue()
     );
     Ok(())
 }
 
-fn prompt_heal_pocket(project_path: &Path) -> Result<String> {
+fn prompt_heal_corner(project_path: &Path) -> Result<String> {
     let mut candidates = Workspace::rank_heal_candidates(project_path)?;
     if candidates.is_empty() {
-        bail!("No pockets found to heal from. Use --pocket <id-or-path>.");
+        bail!("No corners found to heal from. Use --corner <id-or-path>.");
     }
 
-    println!("{}", "Pockets available for healing:".bright_white().bold());
+    println!("{}", "Corners available for healing:".bright_white().bold());
     for (index, (workspace, score)) in candidates.iter().enumerate() {
         println!(
             "  {}. {} {} {}",
             (index + 1).to_string().bright_yellow(),
             workspace.hash.bright_blue(),
             format!("score {:.2}", score).dimmed(),
-            workspace.pocket_dir.display().to_string().dimmed()
+            workspace.corner_dir.display().to_string().dimmed()
         );
         for path in &workspace.core_paths {
             println!("     - {}", path.display().to_string().dimmed());
@@ -1832,20 +1832,20 @@ fn prompt_heal_pocket(project_path: &Path) -> Result<String> {
         "0".bright_yellow(),
         "Enter an id/path manually".dimmed()
     );
-    print!("{} ", "Select pocket to use [0-N]:".bright_white());
+    print!("{} ", "Select corner to use [0-N]:".bright_white());
     io::stdout().flush()?;
 
     let mut input = String::new();
     io::stdin().read_line(&mut input)?;
     let input = input.trim();
     if input.is_empty() || input == "0" {
-        print!("{} ", "Pocket id/path:".bright_white());
+        print!("{} ", "Corner id/path:".bright_white());
         io::stdout().flush()?;
         let mut manual = String::new();
         io::stdin().read_line(&mut manual)?;
         let manual = manual.trim();
         if manual.is_empty() {
-            bail!("No pocket selected.");
+            bail!("No corner selected.");
         }
         return Ok(manual.to_string());
     }
@@ -1875,7 +1875,7 @@ fn handle_locate(path: String) -> Result<()> {
             let out = serde_json::json!({
                 "status": "found",
                 "hash": workspace.hash,
-                "pocket_dir": workspace.pocket_dir,
+                "corner_dir": workspace.corner_dir,
                 "core_paths": workspace.core_paths,
                 "temporary": workspace.temporary,
             });
@@ -1898,7 +1898,7 @@ fn handle_backup(repo: String, schedule: String) -> Result<()> {
     let script_path = registry::registry_root()?.join("backup.sh");
     let source_dir = registry::registry_root()?;
 
-    fs::create_dir_all(&source_dir).context("Failed to create pocket registry root")?;
+    fs::create_dir_all(&source_dir).context("Failed to create corner registry root")?;
 
     if !backup_repo.exists() {
         let output = std::process::Command::new("git")
@@ -1914,7 +1914,7 @@ fn handle_backup(repo: String, schedule: String) -> Result<()> {
     }
 
     let script = format!(
-        "#!/bin/sh\nset -eu\nrsync -a --delete --exclude '.git/' --exclude 'backup.sh' '{source}/' '{backup}/'\ncd '{backup}'\ngit add .\nif ! git diff --cached --quiet; then\n  git commit -m 'Back up pockets'\n  git push\nfi\n",
+        "#!/bin/sh\nset -eu\nrsync -a --delete --exclude '.git/' --exclude 'backup.sh' '{source}/' '{backup}/'\ncd '{backup}'\ngit add .\nif ! git diff --cached --quiet; then\n  git commit -m 'Back up corners'\n  git push\nfi\n",
         source = source_dir.display(),
         backup = backup_repo.display()
     );
@@ -1976,13 +1976,13 @@ fn handle_backup(repo: String, schedule: String) -> Result<()> {
 fn handle_sync_registry_git() -> Result<()> {
     let count = registry::sync_registry_git_state()?;
     println!(
-        "{} {} pocket snapshot(s)",
+        "{} {} corner snapshot(s)",
         "Registry git snapshot refreshed:".bright_green(),
         count.to_string().bright_yellow()
     );
     let _ = event::append_registry_event(
         "registry.snapshot.sync",
-        serde_json::json!({ "pockets": count }),
+        serde_json::json!({ "corners": count }),
     );
     Ok(())
 }
@@ -1996,10 +1996,10 @@ fn resolve_workspace_reference(reference: &str) -> Result<Workspace> {
         config.resolve_path(reference)?
     };
 
-    if resolved.is_dir() && registry::is_registry_pocket_dir(&resolved)? {
+    if resolved.is_dir() && registry::is_registry_corner_dir(&resolved)? {
         let manifest = Manifest::load(&resolved)?.ok_or_else(|| {
             anyhow!(
-                "No manifest found in pocket directory: {}",
+                "No manifest found in corner directory: {}",
                 resolved.display()
             )
         })?;
@@ -2012,7 +2012,7 @@ fn resolve_workspace_reference(reference: &str) -> Result<Workspace> {
                 .to_string(),
             core_paths: manifest.core_paths.clone(),
             sidecar_paths: vec![],
-            pocket_dir: resolved,
+            corner_dir: resolved,
             create_readmes: false,
             temporary: manifest.temporary,
         });
@@ -2024,23 +2024,23 @@ fn resolve_workspace_reference(reference: &str) -> Result<Workspace> {
         return Ok(workspace);
     }
 
-    for entry in registry::load_cache_or_rebuild()?.pockets {
+    for entry in registry::load_cache_or_rebuild()?.corners {
         if entry.hash == reference {
             return Ok(Workspace {
                 hash: entry.hash,
                 core_paths: entry.core_paths,
                 sidecar_paths: vec![],
-                pocket_dir: entry.path,
+                corner_dir: entry.path,
                 create_readmes: false,
                 temporary: entry.temporary,
             });
         }
     }
 
-    Err(anyhow!("No pocket found for reference: {}", reference))
+    Err(anyhow!("No corner found for reference: {}", reference))
 }
 
-fn handle_sync(target: Option<String>, pocket: Option<String>) -> Result<()> {
+fn handle_sync(target: Option<String>, corner: Option<String>) -> Result<()> {
     // Dispatch to system-wide sync targets when a TARGET is given.
     if let Some(target) = target.as_deref() {
         match target.to_ascii_lowercase().as_str() {
@@ -2049,42 +2049,42 @@ fn handle_sync(target: Option<String>, pocket: Option<String>) -> Result<()> {
             other => {
                 return Err(anyhow!(
                     "Unknown sync target '{other}'. Valid targets: agents, all.\n\
-                     (Omit the target and pass --pocket for the manifest sync.)"
+                     (Omit the target and pass --corner for the manifest sync.)"
                 ));
             }
         }
     }
 
-    let pocket = pocket.ok_or_else(|| {
+    let corner = corner.ok_or_else(|| {
         anyhow!(
-            "`sync` requires either a TARGET (agents, all) or --pocket <PATH> for the manifest sync."
+            "`sync` requires either a TARGET (agents, all) or --corner <PATH> for the manifest sync."
         )
     })?;
-    let pocket_dir = PathBuf::from(&pocket);
+    let corner_dir = PathBuf::from(&corner);
 
-    if !pocket_dir.is_dir() {
+    if !corner_dir.is_dir() {
         let out = serde_json::json!({
             "status": "error",
-            "message": format!("Pocket directory does not exist: {}", pocket)
+            "message": format!("Corner directory does not exist: {}", corner)
         });
         println!("{}", serde_json::to_string(&out)?);
         return Ok(());
     }
 
     // Find the workspace file
-    let workspace_file = match Workspace::find_workspace_file(&pocket_dir) {
+    let workspace_file = match Workspace::find_workspace_file(&corner_dir) {
         Some(f) => f,
         None => {
             let out = serde_json::json!({
                 "status": "error",
-                "message": "No workspace file found in pocket directory"
+                "message": "No workspace file found in corner directory"
             });
             println!("{}", serde_json::to_string(&out)?);
             return Ok(());
         }
     };
 
-    let workspace_hash = pocket_dir
+    let workspace_hash = corner_dir
         .file_name()
         .and_then(|name| name.to_str())
         .unwrap_or("")
@@ -2093,14 +2093,14 @@ fn handle_sync(target: Option<String>, pocket: Option<String>) -> Result<()> {
         hash: workspace_hash.clone(),
         core_paths: vec![],
         sidecar_paths: vec![],
-        pocket_dir: pocket_dir.clone(),
+        corner_dir: corner_dir.clone(),
         create_readmes: false,
-        temporary: pocket_dir.starts_with(Workspace::temporary_spocket_dir()?),
+        temporary: corner_dir.starts_with(Workspace::temporary_spocket_dir()?),
     };
     migration_workspace.migrate_storage_references()?;
 
     // Load or backfill manifest
-    let (mut manifest, manifest_paths) = match Workspace::load_manifest_or_backfill(&pocket_dir)? {
+    let (mut manifest, manifest_paths) = match Workspace::load_manifest_or_backfill(&corner_dir)? {
         Some(result) => result,
         None => {
             let out = serde_json::json!({
@@ -2113,16 +2113,16 @@ fn handle_sync(target: Option<String>, pocket: Option<String>) -> Result<()> {
     };
 
     // Read current paths from workspace file. If the editor reports a transient
-    // pocket-only workspace but the manifest still knows the project folders,
+    // corner-only workspace but the manifest still knows the project folders,
     // repair the workspace file instead of attempting to erase the manifest.
     let (existing_workspace, mut file_paths) =
-        Workspace::read_workspace_file(&workspace_file, &pocket_dir)?;
+        Workspace::read_workspace_file(&workspace_file, &corner_dir)?;
     if file_paths.is_empty() && !manifest_paths.is_empty() {
         let repair_workspace = Workspace {
             hash: workspace_hash.clone(),
             core_paths: manifest_paths.clone(),
             sidecar_paths: vec![],
-            pocket_dir: pocket_dir.clone(),
+            corner_dir: corner_dir.clone(),
             create_readmes: false,
             temporary: manifest.temporary,
         };
@@ -2159,7 +2159,7 @@ fn handle_sync(target: Option<String>, pocket: Option<String>) -> Result<()> {
 
     // Paths differ — update manifest in place
     let old_hash = manifest.hash.clone();
-    manifest.update_paths(file_paths, &pocket_dir)?;
+    manifest.update_paths(file_paths, &corner_dir)?;
 
     let out = serde_json::json!({
         "status": "synced",
@@ -2172,23 +2172,23 @@ fn handle_sync(target: Option<String>, pocket: Option<String>) -> Result<()> {
     Ok(())
 }
 
-/// Synchronize the unified agent definitions into the pocket for the current
-/// working directory (rendered OpenCode agents under `<pocket>/.opencode/agent`).
+/// Synchronize the unified agent definitions into the corner for the current
+/// working directory (rendered OpenCode agents under `<corner>/.opencode/agent`).
 fn handle_sync_agents() -> Result<()> {
     template::ensure_default_assets()?;
 
     let cwd = std::env::current_dir().context("Failed to get current working directory")?;
     let workspace = Workspace::find_workspace_for_cwd(&cwd)?.ok_or_else(|| {
         anyhow!(
-            "No Corner pocket found for the current directory: {}\n\
+            "No corner found for the current directory: {}\n\
              Agents are now installed per-project. Run this from inside a workspace \
-             directory (or its pocket) so the agents can be written to \
-             `<pocket>/.opencode/agent`.",
+             directory (or its corner) so the agents can be written to \
+             `<corner>/.opencode/agent`.",
             cwd.display()
         )
     })?;
 
-    let target = agents::pocket_agent_dir(&workspace.pocket_dir);
+    let target = agents::corner_agent_dir(&workspace.corner_dir);
     let report = agents::sync_agents_into(&target)?;
     print_agents_sync_report(&report, &target);
 
@@ -2277,7 +2277,7 @@ fn handle_augment(add: Vec<String>, remove: Vec<String>, no_open: bool) -> Resul
 
     let workspace = Workspace::find_workspace_for_cwd(&cwd)?
         .ok_or_else(|| anyhow!(
-            "No workspace found for current directory: {}\nRun this from inside a workspace directory or a pocket directory.",
+            "No workspace found for current directory: {}\nRun this from inside a workspace directory or a corner directory.",
             cwd.display()
         ))?;
 
@@ -2355,25 +2355,25 @@ fn handle_augment(add: Vec<String>, remove: Vec<String>, no_open: bool) -> Resul
     let workspace_file = workspace.workspace_file_path();
     let existing_ws = if workspace_file.exists() {
         workspace.migrate_storage_references()?;
-        let (ws, _) = Workspace::read_workspace_file(&workspace_file, &workspace.pocket_dir)?;
+        let (ws, _) = Workspace::read_workspace_file(&workspace_file, &workspace.corner_dir)?;
         Some(ws)
     } else {
         None
     };
 
-    // In-place update: rewrite workspace file + manifest, pocket dir stays put
+    // In-place update: rewrite workspace file + manifest, corner dir stays put
     let updated_workspace = Workspace {
         hash: workspace.hash.clone(),
         core_paths: new_paths.clone(),
         sidecar_paths: workspace.sidecar_paths.clone(),
-        pocket_dir: workspace.pocket_dir.clone(),
+        corner_dir: workspace.corner_dir.clone(),
         create_readmes: false,
         temporary: workspace.temporary,
     };
     updated_workspace.write_workspace_file_preserving(existing_ws.as_ref())?;
 
     // Update manifest in place
-    let mut manifest = match Manifest::load(&workspace.pocket_dir)? {
+    let mut manifest = match Manifest::load(&workspace.corner_dir)? {
         Some(m) => m,
         None => Manifest::new_with_options(
             workspace.hash.clone(),
@@ -2381,10 +2381,10 @@ fn handle_augment(add: Vec<String>, remove: Vec<String>, no_open: bool) -> Resul
             workspace.temporary,
         ),
     };
-    manifest.update_paths(new_paths, &workspace.pocket_dir)?;
+    manifest.update_paths(new_paths, &workspace.corner_dir)?;
 
     println!(
-        "{} {} (pocket dir unchanged)",
+        "{} {} (corner dir unchanged)",
         "Workspace updated in place:".bright_green(),
         manifest.hash.bright_yellow()
     );
@@ -2395,7 +2395,7 @@ fn handle_augment(add: Vec<String>, remove: Vec<String>, no_open: bool) -> Resul
         println!(
             "  {} {}",
             "Location:".dimmed(),
-            workspace.pocket_dir.display().to_string().bright_blue()
+            workspace.corner_dir.display().to_string().bright_blue()
         );
     }
 
@@ -2403,12 +2403,12 @@ fn handle_augment(add: Vec<String>, remove: Vec<String>, no_open: bool) -> Resul
 }
 
 fn open_with_merge(ws: &Workspace) -> Result<()> {
-    // Keep the unified agents in sync inside the pocket whenever it is opened.
+    // Keep the unified agents in sync inside the corner whenever it is opened.
     // Best-effort: a failure here must never block opening the workspace.
-    match agents::sync_agents_into_pocket(&ws.pocket_dir) {
+    match agents::sync_agents_into_corner(&ws.corner_dir) {
         Ok(report) if report.changed() => {
             if verbose() {
-                print_agents_sync_report(&report, &agents::pocket_agent_dir(&ws.pocket_dir));
+                print_agents_sync_report(&report, &agents::corner_agent_dir(&ws.corner_dir));
             }
         }
         Ok(_) => {}
@@ -2419,8 +2419,8 @@ fn open_with_merge(ws: &Workspace) -> Result<()> {
         }
     }
 
-    if let Ok(ctx) = build_template_context(&ws.pocket_dir) {
-        if let Err(e) = template::apply_merge_at_runtime(&ws.pocket_dir, &ctx) {
+    if let Ok(ctx) = build_template_context(&ws.corner_dir) {
+        if let Err(e) = template::apply_merge_at_runtime(&ws.corner_dir, &ctx) {
             eprintln!(
                 "{} {}",
                 "Warning: merge-at-runtime failed:".bright_yellow(),
@@ -2449,7 +2449,7 @@ fn open_with_merge(ws: &Workspace) -> Result<()> {
 }
 
 fn print_memgraph_connection_details(ws: &Workspace) {
-    let tool_dir = ws.pocket_dir.join("tools/memgraph");
+    let tool_dir = ws.corner_dir.join("tools/memgraph");
     if !tool_dir.join("scan-config.json").is_file() {
         return;
     }
@@ -2469,7 +2469,7 @@ fn print_memgraph_connection_details(ws: &Workspace) {
 }
 
 fn run_memgraph_standard_operation(ws: &Workspace) {
-    let tool_dir = ws.pocket_dir.join("tools/memgraph");
+    let tool_dir = ws.corner_dir.join("tools/memgraph");
     if !tool_dir.is_dir() {
         return;
     }
@@ -2477,9 +2477,9 @@ fn run_memgraph_standard_operation(ws: &Workspace) {
     let _ = write_memgraph_config(&tool_dir, ws);
 
     let scan_changed =
-        memgraph_state_outdated(&tool_dir, &ws.pocket_dir, ".safe_pocket_scan_state.json");
+        memgraph_state_outdated(&tool_dir, &ws.corner_dir, ".safe_pocket_scan_state.json");
     let import_needed =
-        memgraph_state_outdated(&tool_dir, &ws.pocket_dir, ".safe_pocket_import_state.json");
+        memgraph_state_outdated(&tool_dir, &ws.corner_dir, ".safe_pocket_import_state.json");
     let scanner = tool_dir.join("scan-safe-pocket.sh");
     let mut scanner_ok = !scan_changed;
     if scan_changed && scanner.is_file() {
@@ -2490,7 +2490,7 @@ fn run_memgraph_standard_operation(ws: &Workspace) {
         {
             Ok(out) if out.status.success() => {
                 scanner_ok = true;
-                write_memgraph_state(&tool_dir, ".safe_pocket_scan_state.json", &ws.pocket_dir);
+                write_memgraph_state(&tool_dir, ".safe_pocket_scan_state.json", &ws.corner_dir);
             }
             Ok(out) => eprintln!(
                 "{} {}",
@@ -2530,7 +2530,7 @@ fn run_memgraph_standard_operation(ws: &Workspace) {
                                 write_memgraph_state(
                                     &tool_dir,
                                     ".safe_pocket_import_state.json",
-                                    &ws.pocket_dir,
+                                    &ws.corner_dir,
                                 );
                             }
                             Ok(import_out) => eprintln!(
@@ -2573,12 +2573,12 @@ fn stop_legacy_memgraph_compose_project(tool_dir: &Path) {
         .output();
 }
 
-fn stop_memgraph_standard_operation(pocket_dir: &Path) {
-    let tool_dir = pocket_dir.join("tools/memgraph");
+fn stop_memgraph_standard_operation(corner_dir: &Path) {
+    let tool_dir = corner_dir.join("tools/memgraph");
     if !tool_dir.join("docker-compose.yml").is_file() {
         return;
     }
-    let hash = pocket_dir
+    let hash = corner_dir
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("safe-pocket");
@@ -2592,8 +2592,8 @@ fn memgraph_compose_project(ws: &Workspace) -> String {
     format!("spocket-{}", ws.hash)
 }
 
-fn memgraph_state_outdated(tool_dir: &Path, pocket_dir: &Path, state_name: &str) -> bool {
-    let latest = memgraph_latest_input_mtime(pocket_dir);
+fn memgraph_state_outdated(tool_dir: &Path, corner_dir: &Path, state_name: &str) -> bool {
+    let latest = memgraph_latest_input_mtime(corner_dir);
     let state_path = tool_dir.join(state_name);
     let previous = fs::read_to_string(state_path)
         .ok()
@@ -2605,26 +2605,26 @@ fn memgraph_state_outdated(tool_dir: &Path, pocket_dir: &Path, state_name: &str)
     previous != Some(latest)
 }
 
-fn write_memgraph_state(tool_dir: &Path, state_name: &str, pocket_dir: &Path) {
+fn write_memgraph_state(tool_dir: &Path, state_name: &str, corner_dir: &Path) {
     let _ = fs::write(
         tool_dir.join(state_name),
-        serde_json::json!({ "last_input_mtime_ns": memgraph_latest_input_mtime(pocket_dir) })
+        serde_json::json!({ "last_input_mtime_ns": memgraph_latest_input_mtime(corner_dir) })
             .to_string(),
     );
 }
 
-fn memgraph_latest_input_mtime(pocket_dir: &Path) -> u64 {
+fn memgraph_latest_input_mtime(corner_dir: &Path) -> u64 {
     let mut latest = 0;
-    for path in memgraph_scan_paths_for_pocket(pocket_dir) {
+    for path in memgraph_scan_paths_for_corner(corner_dir) {
         collect_latest_markdown_mtime(&path, &mut latest);
     }
     latest
 }
 
-fn memgraph_scan_paths_for_pocket(pocket_dir: &Path) -> Vec<PathBuf> {
-    let mut paths = vec![pocket_dir.join("FEATURES")];
+fn memgraph_scan_paths_for_corner(corner_dir: &Path) -> Vec<PathBuf> {
+    let mut paths = vec![corner_dir.join("FEATURES")];
     for name in ["AGENTS.md", "GEMINI.md", "README.md", "Install.md"] {
-        let candidate = pocket_dir.join(name);
+        let candidate = corner_dir.join(name);
         if candidate.exists() || name == "AGENTS.md" {
             paths.push(candidate);
         }
@@ -2651,9 +2651,9 @@ fn collect_latest_markdown_mtime(path: &Path, latest: &mut u64) {
     }
 }
 
-fn build_template_context(pocket_dir: &std::path::Path) -> Result<template::TemplateContext> {
-    let manifest = Manifest::load(pocket_dir)?
-        .ok_or_else(|| anyhow!("No manifest found in pocket: {}", pocket_dir.display()))?;
+fn build_template_context(corner_dir: &std::path::Path) -> Result<template::TemplateContext> {
+    let manifest = Manifest::load(corner_dir)?
+        .ok_or_else(|| anyhow!("No manifest found in corner: {}", corner_dir.display()))?;
 
     let project_root = manifest
         .core_paths
@@ -2661,7 +2661,7 @@ fn build_template_context(pocket_dir: &std::path::Path) -> Result<template::Temp
         .cloned()
         .unwrap_or_else(|| PathBuf::from("<unknown>"));
 
-    let spocket_name = pocket_dir
+    let spocket_name = corner_dir
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("")
@@ -2681,7 +2681,7 @@ fn build_template_context(pocket_dir: &std::path::Path) -> Result<template::Temp
     });
 
     Ok(template::TemplateContext {
-        spocket_root: pocket_dir.to_path_buf(),
+        spocket_root: corner_dir.to_path_buf(),
         project_root,
         spocket_name,
         global_observations_path: global_obs,
@@ -2689,17 +2689,17 @@ fn build_template_context(pocket_dir: &std::path::Path) -> Result<template::Temp
     })
 }
 
-fn handle_merge_start(pocket: String) -> Result<()> {
-    let pocket_dir = PathBuf::from(&pocket);
+fn handle_merge_start(corner: String) -> Result<()> {
+    let corner_dir = PathBuf::from(&corner);
 
-    if !pocket_dir.is_dir() {
-        return Err(anyhow!("Pocket directory does not exist: {}", pocket));
+    if !corner_dir.is_dir() {
+        return Err(anyhow!("Corner directory does not exist: {}", corner));
     }
 
-    let ctx = build_template_context(&pocket_dir)?;
-    let count = template::apply_merge_at_runtime(&pocket_dir, &ctx)?;
-    let _ = event::append_pocket_event(
-        &pocket_dir,
+    let ctx = build_template_context(&corner_dir)?;
+    let count = template::apply_merge_at_runtime(&corner_dir, &ctx)?;
+    let _ = event::append_corner_event(
+        &corner_dir,
         "merge.start",
         serde_json::json!({ "files_changed": count }),
     );
@@ -2717,18 +2717,18 @@ fn handle_merge_start(pocket: String) -> Result<()> {
     Ok(())
 }
 
-fn handle_merge_stop(pocket: String) -> Result<()> {
-    let pocket_dir = PathBuf::from(&pocket);
+fn handle_merge_stop(corner: String) -> Result<()> {
+    let corner_dir = PathBuf::from(&corner);
 
-    if !pocket_dir.is_dir() {
-        return Err(anyhow!("Pocket directory does not exist: {}", pocket));
+    if !corner_dir.is_dir() {
+        return Err(anyhow!("Corner directory does not exist: {}", corner));
     }
 
-    let ctx = build_template_context(&pocket_dir)?;
-    let count = template::strip_merge_at_runtime(&pocket_dir, &ctx)?;
-    stop_memgraph_standard_operation(&pocket_dir);
-    let _ = event::append_pocket_event(
-        &pocket_dir,
+    let ctx = build_template_context(&corner_dir)?;
+    let count = template::strip_merge_at_runtime(&corner_dir, &ctx)?;
+    stop_memgraph_standard_operation(&corner_dir);
+    let _ = event::append_corner_event(
+        &corner_dir,
         "merge.stop",
         serde_json::json!({ "files_changed": count }),
     );
@@ -2751,17 +2751,17 @@ fn handle_upgrade(path: String) -> Result<()> {
     let resolved = config.resolve_path(&path)?;
 
     // The path might be:
-    // 1. A pocket directory directly (e.g. ~/.safe_pocket/abc123)
-    // 2. A project directory that has an associated pocket
-    let is_direct_pocket = crate::branding::known_registry_roots()?
+    // 1. A corner directory directly (e.g. ~/.safe_pocket/abc123)
+    // 2. A project directory that has an associated corner
+    let is_direct_corner = crate::branding::known_registry_roots()?
         .iter()
         .any(|root| resolved.starts_with(root) || resolved.starts_with(&root.join("temporary")))
         && resolved.is_dir();
 
-    let pocket_dir = if is_direct_pocket {
+    let corner_dir = if is_direct_corner {
         resolved
     } else {
-        // Try to find the pocket for this project path
+        // Try to find the corner for this project path
         let workspace = Workspace::find_workspace_containing(&resolved)?
             .or_else(|| {
                 // Also try find_workspace_for_cwd
@@ -2769,19 +2769,19 @@ fn handle_upgrade(path: String) -> Result<()> {
             })
             .ok_or_else(|| {
                 anyhow!(
-                    "No Corner pocket found for path: {}\n\
-                     Provide either a pocket directory or a project directory with an existing pocket.",
+                    "No corner found for path: {}\n\
+                     Provide either a corner directory or a project directory with an existing corner.",
                     resolved.display()
                 )
             })?;
-        workspace.pocket_dir
+        workspace.corner_dir
     };
 
-    let result = template::upgrade_pocket(&pocket_dir);
+    let result = template::upgrade_corner(&corner_dir);
     if result.is_ok() {
-        let _ = event::append_pocket_event(
-            &pocket_dir,
-            "pocket.upgrade",
+        let _ = event::append_corner_event(
+            &corner_dir,
+            "corner.upgrade",
             serde_json::json!({ "path": path }),
         );
     }

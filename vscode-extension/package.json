@@ -1,6 +1,6 @@
 {
   "name": "spocket",
-  "displayName": "Corner - Pocket Sync",
+  "displayName": "Corner",
   "description": "Real-time sync between VS Code workspace folders and Corner manifests",
   "version": "2.0.1",
   "publisher": "jadennation",

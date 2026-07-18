@@ -43,7 +43,7 @@ pub struct Workspace {
     pub hash: String,
     pub core_paths: Vec<PathBuf>,
     pub sidecar_paths: Vec<PathBuf>,
-    pub pocket_dir: PathBuf,
+    pub corner_dir: PathBuf,
     pub create_readmes: bool,
     pub temporary: bool,
 }
@@ -57,17 +57,17 @@ impl Workspace {
         registry::temporary_registry_dir()
     }
 
-    /// Find the .code-workspace file in a pocket directory.
+    /// Find the .code-workspace file in a corner directory.
     /// Looks for `<dirname>.code-workspace` first, falls back to any `.code-workspace` file.
-    pub fn find_workspace_file(pocket_dir: &Path) -> Option<PathBuf> {
-        let dir_name = pocket_dir.file_name()?.to_str()?;
-        let primary = pocket_dir.join(format!("{}.code-workspace", dir_name));
+    pub fn find_workspace_file(corner_dir: &Path) -> Option<PathBuf> {
+        let dir_name = corner_dir.file_name()?.to_str()?;
+        let primary = corner_dir.join(format!("{}.code-workspace", dir_name));
         if primary.exists() {
             return Some(primary);
         }
 
         // Fallback: find any .code-workspace file
-        if let Ok(entries) = fs::read_dir(pocket_dir) {
+        if let Ok(entries) = fs::read_dir(corner_dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
                 if path.extension().and_then(|e| e.to_str()) == Some("code-workspace") {
@@ -79,29 +79,29 @@ impl Workspace {
         None
     }
 
-    /// Load manifest from a pocket directory, backfilling from workspace file if needed.
+    /// Load manifest from a corner directory, backfilling from workspace file if needed.
     /// Returns (manifest, core_paths) where core_paths come from the manifest (or workspace file on backfill).
     pub fn load_manifest_or_backfill(
-        pocket_dir: &Path,
+        corner_dir: &Path,
     ) -> Result<Option<(Manifest, Vec<PathBuf>)>> {
-        let dir_name = pocket_dir
+        let dir_name = corner_dir
             .file_name()
             .and_then(|n| n.to_str())
             .unwrap_or("")
             .to_string();
 
-        if let Some(manifest) = Manifest::load(pocket_dir)? {
+        if let Some(manifest) = Manifest::load(corner_dir)? {
             let core_paths = manifest.core_paths.clone();
             return Ok(Some((manifest, core_paths)));
         }
 
         // No manifest — try to backfill from workspace file
-        if Self::find_workspace_file(pocket_dir).is_none() {
+        if Self::find_workspace_file(corner_dir).is_none() {
             return Ok(None);
         }
 
         // Use dir name as hash for backfill
-        let manifest = Manifest::backfill(pocket_dir, &dir_name)?;
+        let manifest = Manifest::backfill(corner_dir, &dir_name)?;
         let core_paths = manifest.core_paths.clone();
         Ok(Some((manifest, core_paths)))
     }
@@ -122,7 +122,7 @@ impl Workspace {
         temporary: bool,
     ) -> Result<Self> {
         let hash = hash_paths(&core_paths);
-        let pocket_dir = if temporary {
+        let corner_dir = if temporary {
             Self::temporary_spocket_dir()?.join(&hash)
         } else {
             Self::spocket_dir()?.join(&hash)
@@ -132,19 +132,19 @@ impl Workspace {
             hash,
             core_paths,
             sidecar_paths,
-            pocket_dir,
+            corner_dir,
             create_readmes,
             temporary,
         })
     }
 
     pub fn workspace_file_path(&self) -> PathBuf {
-        self.pocket_dir
+        self.corner_dir
             .join(format!("{}.code-workspace", self.hash))
     }
 
     pub fn exists(&self) -> bool {
-        self.pocket_dir.exists() && self.workspace_file_path().exists()
+        self.corner_dir.exists() && self.workspace_file_path().exists()
     }
 
     pub fn create(&self) -> Result<()> {
@@ -157,16 +157,16 @@ impl Workspace {
         }
 
         if crate::verbose() {
-            println!("{}", "Creating new Corner pocket...".bright_white());
+            println!("{}", "Creating new corner...".bright_white());
         }
 
-        fs::create_dir_all(&self.pocket_dir).context("Failed to create pocket directory")?;
+        fs::create_dir_all(&self.corner_dir).context("Failed to create corner directory")?;
 
         let manifest =
             Manifest::new_with_options(self.hash.clone(), self.core_paths.clone(), self.temporary);
-        manifest.save(&self.pocket_dir)?;
+        manifest.save(&self.corner_dir)?;
 
-        self.create_pocket_structure()?;
+        self.create_corner_structure()?;
         self.create_workspace_file()?;
         self.init_git()?;
 
@@ -179,15 +179,15 @@ impl Workspace {
             println!(
                 "  {} {}",
                 "Location:".dimmed(),
-                self.pocket_dir.display().to_string().bright_blue()
+                self.corner_dir.display().to_string().bright_blue()
             );
         }
 
         Ok(())
     }
 
-    pub(crate) fn create_pocket_structure(&self) -> Result<()> {
-        fs::create_dir_all(&self.pocket_dir).context("Failed to create pocket directory")?;
+    pub(crate) fn create_corner_structure(&self) -> Result<()> {
+        fs::create_dir_all(&self.corner_dir).context("Failed to create corner directory")?;
 
         let primary_project_path = self
             .core_paths
@@ -209,25 +209,25 @@ impl Workspace {
         });
 
         let ctx = crate::template::TemplateContext {
-            spocket_root: self.pocket_dir.clone(),
+            spocket_root: self.corner_dir.clone(),
             project_root: primary_project_path.clone(),
             spocket_name: self.hash.clone(),
             global_observations_path: global_obs,
             config_root,
         };
 
-        // Apply templates (non-interactive for new pockets — no overwrite prompts)
+        // Apply templates (non-interactive for new corners — no overwrite prompts)
         crate::template::apply_templates(
-            &self.pocket_dir,
+            &self.corner_dir,
             &ctx,
             Some(&primary_project_path),
             false, // non-interactive
         )?;
 
-        // Render the unified agent definitions into the pocket so OpenCode finds
-        // them per-project (`<pocket>/.opencode/agent`). Best-effort: never fail
-        // pocket creation over agent rendering.
-        if let Err(e) = crate::agents::sync_agents_into_pocket(&self.pocket_dir) {
+        // Render the unified agent definitions into the corner so OpenCode finds
+        // them per-project (`<corner>/.opencode/agent`). Best-effort: never fail
+        // corner creation over agent rendering.
+        if let Err(e) = crate::agents::sync_agents_into_corner(&self.corner_dir) {
             if crate::verbose() {
                 eprintln!("{} {}", "Warning: agent render failed:".bright_yellow(), e);
             }
@@ -235,11 +235,11 @@ impl Workspace {
 
         // ── Files not covered by templates ────────────────────────────────────
         // These are structural files that aren't meaningful as user-editable
-        // templates but are still needed in every pocket.
+        // templates but are still needed in every corner.
 
         // Root README.md
         if self.create_readmes {
-            let readme = self.pocket_dir.join("README.md");
+            let readme = self.corner_dir.join("README.md");
             if !readme.exists() {
                 let core_paths_list = self
                     .core_paths
@@ -274,7 +274,7 @@ impl Workspace {
         // .github/prompts/README.md
         if self.create_readmes {
             let prompts_readme = self
-                .pocket_dir
+                .corner_dir
                 .join(".github")
                 .join("prompts")
                 .join("README.md");
@@ -301,13 +301,13 @@ impl Workspace {
         }
 
         // .env (empty)
-        let env_file = self.pocket_dir.join(".env");
+        let env_file = self.corner_dir.join(".env");
         if !env_file.exists() {
             fs::write(&env_file, "").context("Failed to create .env")?;
         }
 
         // FEATURES/00.md
-        let features_dir = self.pocket_dir.join("FEATURES");
+        let features_dir = self.corner_dir.join("FEATURES");
         fs::create_dir_all(&features_dir).context("Failed to create FEATURES directory")?;
         let features_file = features_dir.join("00.md");
         if !features_file.exists() {
@@ -319,7 +319,7 @@ impl Workspace {
         }
 
         // observations/ directory
-        let observations_dir = self.pocket_dir.join("observations");
+        let observations_dir = self.corner_dir.join("observations");
         fs::create_dir_all(&observations_dir).context("Failed to create observations directory")?;
 
         if self.create_readmes {
@@ -347,17 +347,17 @@ impl Workspace {
     }
 
     /// Read and parse a workspace file, returning the parsed struct and the extracted core paths.
-    /// Filters out the pocket directory folder using path prefix matching.
+    /// Filters out the corner directory folder using path prefix matching.
     /// Relative paths in the workspace file are resolved relative to the workspace file's
     /// parent directory, then canonicalized.
     pub fn read_workspace_file(
         workspace_file: &Path,
-        pocket_dir: &Path,
+        corner_dir: &Path,
     ) -> Result<(VSCodeWorkspace, Vec<PathBuf>)> {
         let storage_roots = crate::branding::known_registry_roots()?;
 
         // The workspace file's parent is used as the base for resolving relative paths.
-        let workspace_parent = workspace_file.parent().unwrap_or(pocket_dir);
+        let workspace_parent = workspace_file.parent().unwrap_or(corner_dir);
 
         let content =
             fs::read_to_string(workspace_file).context("Failed to read workspace file")?;
@@ -383,7 +383,7 @@ impl Workspace {
                     })
                 }
             })
-            .filter(|p| !p.starts_with(pocket_dir))
+            .filter(|p| !p.starts_with(corner_dir))
             .filter(|p| !storage_roots.iter().any(|root| p.starts_with(root)))
             .collect();
 
@@ -393,12 +393,12 @@ impl Workspace {
     fn workspace_storage_paths_need_migration(&self, workspace: &VSCodeWorkspace) -> Result<bool> {
         let storage_roots = crate::branding::known_registry_roots()?;
 
-        let mut has_current_pocket_entry = false;
+        let mut has_current_corner_entry = false;
 
         for folder in &workspace.folders {
             let path = PathBuf::from(&folder.path);
-            if path == self.pocket_dir {
-                has_current_pocket_entry = true;
+            if path == self.corner_dir {
+                has_current_corner_entry = true;
                 continue;
             }
 
@@ -407,7 +407,7 @@ impl Workspace {
             }
         }
 
-        Ok(!has_current_pocket_entry)
+        Ok(!has_current_corner_entry)
     }
 
     pub fn migrate_storage_references(&self) -> Result<()> {
@@ -416,7 +416,7 @@ impl Workspace {
             return Ok(());
         }
 
-        let (workspace, _) = Self::read_workspace_file(&workspace_path, &self.pocket_dir)?;
+        let (workspace, _) = Self::read_workspace_file(&workspace_path, &self.corner_dir)?;
         if self.workspace_storage_paths_need_migration(&workspace)? {
             self.write_workspace_file_preserving(Some(&workspace))?;
             println!(
@@ -447,9 +447,9 @@ impl Workspace {
             });
         }
 
-        // Add the safe pocket itself
+        // Add the corner itself
         folders.push(WorkspaceFolder {
-            path: self.pocket_dir.to_string_lossy().to_string(),
+            path: self.corner_dir.to_string_lossy().to_string(),
             name: Some(crate::branding::workspace_folder_name(&self.hash)),
         });
 
@@ -489,7 +489,7 @@ impl Workspace {
     fn init_git(&self) -> Result<()> {
         let output = Command::new("git")
             .args(["init"])
-            .current_dir(&self.pocket_dir)
+            .current_dir(&self.corner_dir)
             .output()
             .context("Failed to execute git init")?;
 
@@ -511,12 +511,12 @@ impl Workspace {
             return Ok(DriftResult::InSync);
         }
 
-        let (workspace, file_paths) = Self::read_workspace_file(&workspace_path, &self.pocket_dir)?;
+        let (workspace, file_paths) = Self::read_workspace_file(&workspace_path, &self.corner_dir)?;
 
         // Use manifest paths as the reference so that accepting drift (option 1) is permanent.
         // After option 1 updates the manifest, file_paths == manifest.core_paths and we return
         // InSync on the next invocation even though self.core_paths (CLI args) may differ.
-        let reference_paths = match Manifest::load(&self.pocket_dir)? {
+        let reference_paths = match Manifest::load(&self.corner_dir)? {
             Some(m) if m.core_paths.is_empty() && !self.core_paths.is_empty() => {
                 self.core_paths.clone()
             }
@@ -566,7 +566,7 @@ impl Workspace {
 
         println!();
         println!(
-            "  {}  Accept workspace file as truth (migrate pocket)",
+            "  {}  Accept workspace file as truth (migrate corner)",
             "1.".bright_yellow()
         );
         println!(
@@ -623,7 +623,7 @@ impl Workspace {
 
             original_workspace_json =
                 Some(fs::read_to_string(&workspace_path).context("Failed to read workspace file")?);
-            let (mut workspace, _) = Self::read_workspace_file(&workspace_path, &self.pocket_dir)?;
+            let (mut workspace, _) = Self::read_workspace_file(&workspace_path, &self.corner_dir)?;
 
             // Add sidecars
             for path in &self.sidecar_paths {
@@ -701,17 +701,17 @@ impl Workspace {
         let target_workspace =
             Self::new_with_options(target_paths.to_vec(), vec![], false, temporary)?;
 
-        // Copy safe pocket contents
-        if target_workspace.pocket_dir.exists() {
+        // Copy corner contents
+        if target_workspace.corner_dir.exists() {
             crate::registry::move_to_unhoused(
-                &target_workspace.pocket_dir,
+                &target_workspace.corner_dir,
                 "clone target replacement",
             )?;
-            crate::registry::remove_pocket(&target_workspace.pocket_dir)?;
+            crate::registry::remove_corner(&target_workspace.corner_dir)?;
         }
 
-        copy_dir_all(&source_workspace.pocket_dir, &target_workspace.pocket_dir)
-            .context("Failed to copy safe pocket contents")?;
+        copy_dir_all(&source_workspace.corner_dir, &target_workspace.corner_dir)
+            .context("Failed to copy corner contents")?;
 
         // Update workspace file with new paths
         target_workspace.create_workspace_file()?;
@@ -723,12 +723,12 @@ impl Workspace {
             source_workspace.hash.clone(),
             temporary,
         );
-        manifest.save(&target_workspace.pocket_dir)?;
+        manifest.save(&target_workspace.corner_dir)?;
 
         // Update parent's children list
-        if let Ok(Some(mut parent_manifest)) = Manifest::load(&source_workspace.pocket_dir) {
+        if let Ok(Some(mut parent_manifest)) = Manifest::load(&source_workspace.corner_dir) {
             parent_manifest.add_child(target_workspace.hash.clone());
-            let _ = parent_manifest.save(&source_workspace.pocket_dir);
+            let _ = parent_manifest.save(&source_workspace.corner_dir);
         }
 
         println!(
@@ -745,8 +745,8 @@ impl Workspace {
     }
 
     /// Find the workspace that "owns" the current directory.
-    /// Checks if cwd is inside a pocket dir, or inside/equal to any workspace's core_paths.
-    /// When multiple pockets match, prefers the one where all core_paths exist on disk.
+    /// Checks if cwd is inside a corner dir, or inside/equal to any workspace's core_paths.
+    /// When multiple corners match, prefers the one where all core_paths exist on disk.
     pub fn find_workspace_for_cwd(cwd: &Path) -> Result<Option<Self>> {
         for spocket_dir in crate::branding::known_registry_roots()? {
             let temporary_spocket_dir = spocket_dir.join("temporary");
@@ -755,15 +755,15 @@ impl Workspace {
                 if let Ok(relative) = cwd.strip_prefix(&temporary_spocket_dir) {
                     if let Some(hash_component) = relative.components().next() {
                         let dir_name = hash_component.as_os_str().to_string_lossy().to_string();
-                        let pocket_dir = temporary_spocket_dir.join(&dir_name);
+                        let corner_dir = temporary_spocket_dir.join(&dir_name);
 
-                        if let Some((_, core_paths)) = Self::load_manifest_or_backfill(&pocket_dir)?
+                        if let Some((_, core_paths)) = Self::load_manifest_or_backfill(&corner_dir)?
                         {
                             return Ok(Some(Self {
                                 hash: dir_name,
                                 core_paths,
                                 sidecar_paths: vec![],
-                                pocket_dir,
+                                corner_dir,
                                 create_readmes: false,
                                 temporary: true,
                             }));
@@ -779,18 +779,18 @@ impl Workspace {
                         if dir_name == "temporary" {
                             continue;
                         }
-                        let pocket_dir = spocket_dir.join(&dir_name);
+                        let corner_dir = spocket_dir.join(&dir_name);
 
-                        if let Some((_, core_paths)) = Self::load_manifest_or_backfill(&pocket_dir)?
+                        if let Some((_, core_paths)) = Self::load_manifest_or_backfill(&corner_dir)?
                         {
-                            let temporary = Manifest::load(&pocket_dir)?
+                            let temporary = Manifest::load(&corner_dir)?
                                 .map(|manifest| manifest.temporary)
                                 .unwrap_or(false);
                             return Ok(Some(Self {
                                 hash: dir_name,
                                 core_paths,
                                 sidecar_paths: vec![],
-                                pocket_dir,
+                                corner_dir,
                                 create_readmes: false,
                                 temporary,
                             }));
@@ -806,13 +806,13 @@ impl Workspace {
         })
     }
 
-    /// Secondary lookup: scan all pocket manifests for one whose current `hash`
+    /// Secondary lookup: scan all corner manifests for one whose current `hash`
     /// matches `hash_paths(target_paths)`. Handles the case where paths evolved
     /// in-place (via sync or augment) and the directory name no longer matches.
     pub fn find_workspace_by_manifest_paths(target_paths: &[PathBuf]) -> Result<Option<Self>> {
         let target_hash = hash_paths(target_paths);
 
-        for entry in registry::load_cache_or_rebuild()?.pockets {
+        for entry in registry::load_cache_or_rebuild()?.corners {
             if entry.manifest_hash == target_hash || hash_paths(&entry.core_paths) == target_hash {
                 return Ok(Some(workspace_from_registry_entry(entry)));
             }
@@ -823,7 +823,7 @@ impl Workspace {
 
     pub fn list_all() -> Result<Vec<Self>> {
         Ok(registry::load_cache_or_rebuild()?
-            .pockets
+            .corners
             .into_iter()
             .map(workspace_from_registry_entry)
             .collect())
@@ -904,7 +904,7 @@ impl Workspace {
                 }
             }
 
-            if let Ok(metadata) = fs::metadata(&workspace.pocket_dir) {
+            if let Ok(metadata) = fs::metadata(&workspace.corner_dir) {
                 if let Ok(modified) = metadata.modified() {
                     let modified: chrono::DateTime<chrono::Utc> = modified.into();
                     let age_days = (now - modified).num_days().max(0) as f64;
@@ -1010,7 +1010,7 @@ where
 {
     let mut best: Option<(Workspace, bool)> = None;
 
-    for entry in registry::load_cache_or_rebuild()?.pockets {
+    for entry in registry::load_cache_or_rebuild()?.corners {
         if !matches(&entry) {
             continue;
         }
@@ -1036,7 +1036,7 @@ fn workspace_from_registry_entry(entry: RegistryEntry) -> Workspace {
         hash: entry.hash,
         core_paths: entry.core_paths,
         sidecar_paths: vec![],
-        pocket_dir: entry.path,
+        corner_dir: entry.path,
         create_readmes: false,
         temporary: entry.temporary,
     }
@@ -1129,7 +1129,7 @@ mod tests {
 
         assert!(workspace.temporary);
         assert!(workspace
-            .pocket_dir
+            .corner_dir
             .starts_with(Workspace::temporary_spocket_dir().unwrap()));
     }
 }

@@ -6,9 +6,9 @@ import * as os from "os";
 
 let statusBarItem: vscode.StatusBarItem | undefined;
 let syncInProgress = false;
-let activePocketDir: string | undefined;
+let activeCornerDir: string | undefined;
 
-const POCKET_ROOT_NAMES = [".corner", ".safe_pocket", ".spocket"];
+const CORNER_ROOT_NAMES = [".corner", ".safe_pocket", ".spocket"];
 const CONFIG_ROOT_NAMES = ["corner", "safe_pocket", "spocket"];
 
 interface SyncResult {
@@ -23,12 +23,12 @@ interface SyncResult {
 
 interface LocateResult {
   status: "found" | "not_found";
-  pocket_dir?: string;
+  corner_dir?: string;
   message?: string;
 }
 
-function getPocketRoots(): string[] {
-  return POCKET_ROOT_NAMES.map((name) => path.join(os.homedir(), name));
+function getCornerRoots(): string[] {
+  return CORNER_ROOT_NAMES.map((name) => path.join(os.homedir(), name));
 }
 
 function isSpocketWorkspace(
@@ -39,7 +39,7 @@ function isSpocketWorkspace(
   }
 
   const filePath = workspaceFile.fsPath;
-  for (const spocketDir of getPocketRoots()) {
+  for (const spocketDir of getCornerRoots()) {
     if (filePath.startsWith(spocketDir)) {
       return path.dirname(filePath);
     }
@@ -66,11 +66,11 @@ function getBinaryPath(): string {
   return "corner";
 }
 
-function runSync(pocketDir: string): Promise<SyncResult> {
+function runSync(cornerDir: string): Promise<SyncResult> {
   return new Promise((resolve) => {
     const binary = getBinaryPath();
 
-    execFile(binary, ["sync", "--pocket", pocketDir], (error, stdout) => {
+    execFile(binary, ["sync", "--corner", cornerDir], (error, stdout) => {
       if (error) {
         resolve({
           status: "error",
@@ -94,11 +94,11 @@ function runSync(pocketDir: string): Promise<SyncResult> {
 
 function runMergeCommand(
   action: "runtime-merge-start" | "runtime-merge-stop",
-  pocketDir: string
+  cornerDir: string
 ): Promise<void> {
   return new Promise((resolve) => {
     const binary = getBinaryPath();
-    execFile(binary, [action, "--pocket", pocketDir], (error) => {
+    execFile(binary, [action, "--corner", cornerDir], (error) => {
       if (error) {
         console.error(`spocket ${action} failed: ${error.message}`);
       }
@@ -107,7 +107,7 @@ function runMergeCommand(
   });
 }
 
-function locatePocketDir(workspacePath: string): Promise<string | undefined> {
+function locateCornerDir(workspacePath: string): Promise<string | undefined> {
   return new Promise((resolve) => {
     const binary = getBinaryPath();
 
@@ -120,7 +120,7 @@ function locatePocketDir(workspacePath: string): Promise<string | undefined> {
 
       try {
         const result: LocateResult = JSON.parse(stdout.trim());
-        resolve(result.status === "found" ? result.pocket_dir : undefined);
+        resolve(result.status === "found" ? result.corner_dir : undefined);
       } catch {
         console.error(`Failed to parse locate output: ${stdout}`);
         resolve(undefined);
@@ -129,15 +129,15 @@ function locatePocketDir(workspacePath: string): Promise<string | undefined> {
   });
 }
 
-async function resolveActivePocketDir(): Promise<string | undefined> {
-  if (activePocketDir) {
-    return activePocketDir;
+async function resolveActiveCornerDir(): Promise<string | undefined> {
+  if (activeCornerDir) {
+    return activeCornerDir;
   }
 
-  const workspacePocket = isSpocketWorkspace(vscode.workspace.workspaceFile);
-  if (workspacePocket) {
-    activePocketDir = workspacePocket;
-    return workspacePocket;
+  const workspaceCorner = isSpocketWorkspace(vscode.workspace.workspaceFile);
+  if (workspaceCorner) {
+    activeCornerDir = workspaceCorner;
+    return workspaceCorner;
   }
 
   for (const folder of vscode.workspace.workspaceFolders ?? []) {
@@ -145,9 +145,9 @@ async function resolveActivePocketDir(): Promise<string | undefined> {
       continue;
     }
 
-    const located = await locatePocketDir(folder.uri.fsPath);
+    const located = await locateCornerDir(folder.uri.fsPath);
     if (located) {
-      activePocketDir = located;
+      activeCornerDir = located;
       return located;
     }
   }
@@ -233,12 +233,12 @@ interface DailyFeatureResult {
 }
 
 function runDailyFeature(
-  pocketDir: string,
+  cornerDir: string,
   isNew: boolean
 ): Promise<DailyFeatureResult> {
   return new Promise((resolve) => {
     const binary = getBinaryPath();
-    const args = ["daily-feature", "--pocket", pocketDir];
+    const args = ["daily-feature", "--corner", cornerDir];
     if (isNew) {
       args.push("--new");
     }
@@ -281,17 +281,17 @@ function featureTagsYamlPath(): string {
 
 /**
  * Determine whether `fsPath` is "today's" feature file: a markdown file living
- * under the pocket's FEATURES directory whose name parses to today's date.
+ * under the corner's FEATURES directory whose name parses to today's date.
  */
 function isTodaysFeatureFile(
-  pocketDir: string,
+  cornerDir: string,
   fsPath: string | undefined
 ): boolean {
   if (!fsPath) {
     return false;
   }
 
-  const featuresDir = path.join(pocketDir, "FEATURES");
+  const featuresDir = path.join(cornerDir, "FEATURES");
   if (fsPath !== featuresDir && !fsPath.startsWith(featuresDir + path.sep)) {
     return false;
   }
@@ -336,20 +336,20 @@ async function openFeatureTagsYaml(): Promise<void> {
  * - Otherwise, open (or create) today's daily feature file.
  */
 async function openDailyFeature(): Promise<void> {
-  const pocketDir = await resolveActivePocketDir();
+  const cornerDir = await resolveActiveCornerDir();
 
-  if (!pocketDir) {
-    vscode.window.showWarningMessage("Corner: no active pocket workspace.");
+  if (!cornerDir) {
+    vscode.window.showWarningMessage("Corner: no active corner workspace.");
     return;
   }
 
   const activePath = vscode.window.activeTextEditor?.document.uri.fsPath;
-  if (isTodaysFeatureFile(pocketDir, activePath)) {
+  if (isTodaysFeatureFile(cornerDir, activePath)) {
     await openFeatureTagsYaml();
     return;
   }
 
-  const result = await runDailyFeature(pocketDir, false);
+  const result = await runDailyFeature(cornerDir, false);
   if (result.status !== "ok" || !result.path) {
     vscode.window.showWarningMessage(
       `Corner: failed to open daily feature: ${result.message ?? "unknown error"}`
@@ -366,14 +366,14 @@ async function openDailyFeature(): Promise<void> {
  * file for today.
  */
 async function newDailyFeature(): Promise<void> {
-  const pocketDir = await resolveActivePocketDir();
+  const cornerDir = await resolveActiveCornerDir();
 
-  if (!pocketDir) {
-    vscode.window.showWarningMessage("Corner: no active pocket workspace.");
+  if (!cornerDir) {
+    vscode.window.showWarningMessage("Corner: no active corner workspace.");
     return;
   }
 
-  const result = await runDailyFeature(pocketDir, true);
+  const result = await runDailyFeature(cornerDir, true);
   if (result.status !== "ok" || !result.path) {
     vscode.window.showWarningMessage(
       `Corner: failed to create daily feature: ${result.message ?? "unknown error"}`
@@ -390,10 +390,10 @@ async function newDailyFeature(): Promise<void> {
  * so the shift+hotkey binding can be gated to today's feature file.
  */
 async function updateFeatureContext(): Promise<void> {
-  const pocketDir = activePocketDir ?? (await resolveActivePocketDir());
+  const cornerDir = activeCornerDir ?? (await resolveActiveCornerDir());
   const activePath = vscode.window.activeTextEditor?.document.uri.fsPath;
-  const inTodaysFeature = pocketDir
-    ? isTodaysFeatureFile(pocketDir, activePath)
+  const inTodaysFeature = cornerDir
+    ? isTodaysFeatureFile(cornerDir, activePath)
     : false;
 
   await vscode.commands.executeCommand(
@@ -403,7 +403,7 @@ async function updateFeatureContext(): Promise<void> {
   );
 }
 
-async function handleFolderChange(pocketDir: string): Promise<void> {
+async function handleFolderChange(cornerDir: string): Promise<void> {
   if (syncInProgress) {
     return;
   }
@@ -412,7 +412,7 @@ async function handleFolderChange(pocketDir: string): Promise<void> {
   updateStatusBar("$(sync~spin) Corner syncing...");
 
   try {
-    const result = await runSync(pocketDir);
+    const result = await runSync(cornerDir);
 
     switch (result.status) {
       case "unchanged":
@@ -466,13 +466,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     })
   );
 
-  const pocketDir = await resolveActivePocketDir();
+  const cornerDir = await resolveActiveCornerDir();
 
-  if (!pocketDir) {
+  if (!cornerDir) {
     return;
   }
 
-  activePocketDir = pocketDir;
+  activeCornerDir = cornerDir;
 
   await updateFeatureContext();
 
@@ -481,18 +481,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     100
   );
   statusBarItem.text = "$(check) Corner";
-  statusBarItem.tooltip = `Pocket: ${path.basename(pocketDir)}`;
+  statusBarItem.tooltip = `Corner: ${path.basename(cornerDir)}`;
   statusBarItem.show();
   context.subscriptions.push(statusBarItem);
 
   const disposable = vscode.workspace.onDidChangeWorkspaceFolders(() => {
-    handleFolderChange(pocketDir);
+    handleFolderChange(cornerDir);
   });
   context.subscriptions.push(disposable);
 
-  handleFolderChange(pocketDir);
+  handleFolderChange(cornerDir);
 
-  runMergeCommand("runtime-merge-start", pocketDir).catch((err) =>
+  runMergeCommand("runtime-merge-start", cornerDir).catch((err) =>
     console.error("spocket runtime-merge-start failed:", err)
   );
 }
@@ -501,7 +501,7 @@ export function deactivate(): Thenable<void> | void {
   statusBarItem?.dispose();
   statusBarItem = undefined;
 
-  if (activePocketDir) {
-    return runMergeCommand("runtime-merge-stop", activePocketDir);
+  if (activeCornerDir) {
+    return runMergeCommand("runtime-merge-stop", activeCornerDir);
   }
 }

@@ -3,11 +3,11 @@
 
 # Global Observations
 
-Some applications will be frequently interacted with. Rather than having every project that needs Copilot to interact with those apps learn about the apps each time, we can have a global set of observations that are shared across all pockets. Whenever you intend to interact with an app, first check inside the global observations folder for a directory named like {{GLOBAL_OBSERVATIONS_PATH}}/name_of_app, to see if there are any relevant observations about the app from previous sessions. If there are, you can use those observations to inform your interactions with the app. If there aren't, you can create new observations based on your interactions with the app and save them to the global observations folder for future use.
+Some applications will be frequently interacted with. Rather than having every project that needs Copilot to interact with those apps learn about the apps each time, we can have a global set of observations that are shared across all corners. Whenever you intend to interact with an app, first check inside the global observations folder for a directory named like {{GLOBAL_OBSERVATIONS_PATH}}/name_of_app, to see if there are any relevant observations about the app from previous sessions. If there are, you can use those observations to inform your interactions with the app. If there aren't, you can create new observations based on your interactions with the app and save them to the global observations folder for future use.
 
 # Observations Logging
 
-As you work, you will inevitably discover significant insights about the project, codebase, patterns, bugs, conventions, and other noteworthy findings. You are required to actively log these as observation files in the pocket folder.
+As you work, you will inevitably discover significant insights about the project, codebase, patterns, bugs, conventions, and other noteworthy findings. You are required to actively log these as observation files in the corner folder.
 
 ## What qualifies as an Observation
 
@@ -29,7 +29,7 @@ Always write observation files to:
 {{CORNER_ROOT}}/observations/
 ```
 
-This is the pocket folder. Writing here is explicitly permitted for observation logging.
+This is the corner folder. Writing here is explicitly permitted for observation logging.
 
 ## Naming Convention
 

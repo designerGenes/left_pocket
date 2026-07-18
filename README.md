@@ -2,7 +2,7 @@
 
 **corner** (compatibility aliases: `safe_pocket`, `spocket`) — ad hoc VS Code workspace manager with AI copilot support.
 
-Keep "meta" files (copilot instructions, prompts, observations, feature notes) in a dedicated pocket directory (`~/.corner/<hash>/`) so they never pollute your project repo, yet VS Code opens them together with your project as a single multi-root workspace.
+Keep "meta" files (copilot instructions, prompts, observations, feature notes) in a dedicated corner directory (`~/.corner/<hash>/`) so they never pollute your project repo, yet VS Code opens them together with your project as a single multi-root workspace.
 
 Corner prefers the new roots `~/.corner/` and `~/.config/corner/`, but it falls back to legacy `~/.safe_pocket/`, `~/.spocket/`, `~/.config/safe_pocket/`, and `~/.config/spocket/` locations when the matching files or directories only exist there.
 
@@ -17,10 +17,10 @@ corner -i .
 # Create a workspace spanning two projects
 corner -i ~/dev/frontend -i ~/dev/backend
 
-# Upgrade pocket templates to match latest config
+# Upgrade corner templates to match latest config
 corner -u ~/dev/myproject
 
-# Check which pocket a project belongs to
+# Check which corner a project belongs to
 corner locate --path ~/dev/myproject
 
 # Generate shell completions (zsh)
@@ -39,10 +39,10 @@ corner
 │  ├─ -s, --sidecar PATH      Add temporary sidecar (session only)
 │  ├─ --with TOOL             Add tool for this session only
 │  ├─ --add TOOL              Install tool for future sessions
-│  ├─ -u, --upgrade PATH      Upgrade pocket templates
-│  ├─ --clone-from PATH       Clone pocket from another project
+│  ├─ -u, --upgrade PATH      Upgrade corner templates
+│  ├─ --clone-from PATH       Clone corner from another project
 │  ├─ --temporary             Use ~/.corner/temporary
-│  ├─ --force-new             Create new pocket even if one exists
+│  ├─ --force-new             Create new corner even if one exists
 │  ├─ --no-readme             Skip README generation
 │  ├─ --simulate-runtime      Inject runtime content without launching VS Code
 │  ├─ --silent                Setup workspace without opening VS Code
@@ -52,7 +52,7 @@ corner
 ├─ register NAME="PATH"        Register directory alias
 ├─ unregister NAME             Remove directory alias
 ├─ list-aliases                List all aliases
-├─ list-workspaces             List all known pockets
+├─ list-workspaces             List all known corners
 │
 ├─ sync [TARGET]               Sync assets or manifest
 │  └─ TARGET: agents | all
@@ -62,25 +62,25 @@ corner
 │  ├─ --remove PATH            Remove directory
 │  └─ --no-open                Don't open VS Code
 │
-├─ mark MARK POCKET            Mark pocket with metadata
+├─ mark MARK CORNER            Mark corner with metadata
 │  └─ MARK: temporary
 │
-├─ clean [SCOPE]               Clean pockets in bulk
+├─ clean [SCOPE]               Clean corners in bulk
 │  ├─ SCOPE: temporary
-│  ├─ --older-than AGE         Clean pockets older than AGE
-│  ├─ --all                    Clean all pockets
+│  ├─ --older-than AGE         Clean corners older than AGE
+│  ├─ --all                    Clean all corners
 │  ├─ --hard                   Delete directories (not just registry)
 │  └─ -y, --yes                Skip confirmation
 │
-├─ heal                         Reconnect project to existing pocket
+├─ heal                         Reconnect project to existing corner
 │  ├─ --project PATH           Project directory
 │  ├─ --alias ALIAS            Alias name (instead of path)
-│  └─ --pocket POCKET          Pocket directory
+│  └─ --corner CORNER          Corner directory
 │
-├─ locate                       Find pocket for a path
+├─ locate                       Find corner for a path
 │  └─ --path PATH              Project path (default: .)
 │
-├─ sync-registry-git            Refresh git snapshot of all pockets
+├─ sync-registry-git            Refresh git snapshot of all corners
 │
 ├─ backup                       Configure automatic backup
 │  ├─ --repo GIT_URL           Git remote for backups
@@ -92,11 +92,11 @@ corner
 ├─ completion-spec              Machine-readable completion model
 │
 ├─ daily-feature                Manage daily feature notes
-│  ├─ --pocket PATH            Pocket directory
+│  ├─ --corner PATH            Corner directory
 │  ├─ --new                    Always create new file
 │  └─ --subpath PATH           Subfolder for daily files
 │
-├─ worktree ACTION              Manage git worktrees sharing this pocket
+├─ worktree ACTION              Manage git worktrees sharing this corner
 │  ├─ add [PATH]               Register worktree
 │  ├─ remove PATH              Unregister worktree
 │  └─ list                     List all worktrees
@@ -157,7 +157,7 @@ corner -i . --with gitleaks --with graphify
 ```
 
 #### `--add TOOL` (repeatable)
-Install a tool into the project and pocket for future sessions. If already installed, this is a no-op.
+Install a tool into the project and corner for future sessions. If already installed, this is a no-op.
 
 Supported tools: `gitleaks`, `graphify`, `memgraph`
 
@@ -166,16 +166,16 @@ corner -i . --add graphify
 ```
 
 #### `--clone-from PATH`
-Clone the pocket from the workspace containing this path. Copies all meta files (copilot instructions, prompts, observations, etc.) from the source pocket into the new one, then tracks lineage in both manifests. Useful when starting a new project that should inherit AI configuration from a related one.
+Clone the corner from the workspace containing this path. Copies all meta files (copilot instructions, prompts, observations, etc.) from the source corner into the new one, then tracks lineage in both manifests. Useful when starting a new project that should inherit AI configuration from a related one.
 
 ```bash
 corner -i ~/dev/new-project --clone-from ~/dev/existing-project
 ```
 
 #### `-u`, `--upgrade PATH`
-Upgrade an existing pocket to match current templates (does not open VS Code). Reads every template from the preferred config root, starting with `~/.config/corner/templates/` and falling back to legacy config roots when needed, then expands variables and writes the result to the pocket. If a file already exists with different content, you are shown a diff and asked to confirm.
+Upgrade an existing corner to match current templates (does not open VS Code). Reads every template from the preferred config root, starting with `~/.config/corner/templates/` and falling back to legacy config roots when needed, then expands variables and writes the result to the corner. If a file already exists with different content, you are shown a diff and asked to confirm.
 
-PATH may be either the pocket directory itself or any project directory whose pocket you want to upgrade.
+PATH may be either the corner directory itself or any project directory whose corner you want to upgrade.
 
 ```bash
 corner -u ~/dev/myproject
@@ -183,14 +183,14 @@ corner -u ~/.corner/abc123
 ```
 
 #### `--new`
-Force creation of a new workspace even if one already exists. By default, if a project already belongs to an existing pocket, that pocket is opened instead of creating a duplicate.
+Force creation of a new workspace even if one already exists. By default, if a project already belongs to an existing corner, that corner is opened instead of creating a duplicate.
 
 ```bash
 corner -i . --new
 ```
 
 #### `--temporary`
-Create or reuse the pocket under `~/.corner/temporary/`. Temporary pockets are tracked separately so test suites and other short-lived workflows can be cleaned up without touching normal pockets.
+Create or reuse the corner under `~/.corner/temporary/`. Temporary corners are tracked separately so test suites and other short-lived workflows can be cleaned up without touching normal corners.
 
 ```bash
 corner -i . --temporary
@@ -259,7 +259,7 @@ corner list-aliases
 ```
 
 #### `list-workspaces`
-List all known pockets with their project paths and status.
+List all known corners with their project paths and status.
 
 ```bash
 corner list-workspaces
@@ -272,21 +272,21 @@ corner list-workspaces
 #### `sync [TARGET]`
 Sync system-wide assets or the manifest.
 
-**With a TARGET**, synchronizes system-wide Corner assets that every pocket draws from:
+**With a TARGET**, synchronizes system-wide Corner assets that every corner draws from:
 
 - `agents` — Write unified agent definitions from `~/.config/corner/templates/agents/` into the places OpenCode looks for agents
 - `all` — Run every system-wide sync (currently agents only)
 
-**Without a TARGET** (legacy form used by VS Code extension), updates the pocket manifest to reflect the current .code-workspace folders and prints JSON. Requires `--pocket`. You rarely need to run this manually.
+**Without a TARGET** (legacy form used by VS Code extension), updates the corner manifest to reflect the current .code-workspace folders and prints JSON. Requires `--corner`. You rarely need to run this manually.
 
 ```bash
 corner sync agents      # Write agent definitions
 corner sync all         # Sync everything
-corner sync --pocket ~/.corner/abc123  # Manifest sync (internal)
+corner sync --corner ~/.corner/abc123  # Manifest sync (internal)
 ```
 
 #### `augment`
-Add or remove project directories from the current workspace in-place. Rewrites the .code-workspace file and manifest without moving the pocket directory. Run from inside a pocket or project directory that belongs to an existing workspace.
+Add or remove project directories from the current workspace in-place. Rewrites the .code-workspace file and manifest without moving the corner directory. Run from inside a corner or project directory that belongs to an existing workspace.
 
 ```bash
 corner augment --add ~/dev/new-service
@@ -299,18 +299,18 @@ corner augment --add ~/dev/new-service --no-open
 - `--remove PATH` — Project directory to remove from the workspace (repeatable)
 - `--no-open` — Update workspace without opening VS Code afterwards
 
-#### `mark MARK POCKET`
-Mark an existing pocket with additional metadata.
+#### `mark MARK CORNER`
+Mark an existing corner with additional metadata.
 
 ```bash
 corner mark temporary ~/.corner/abc123
 ```
 
 **Mark types:**
-- `temporary` — Mark pocket as temporary
+- `temporary` — Mark corner as temporary
 
 #### `locate`
-Locate the pocket associated with a project or pocket path. Outputs JSON for editor integrations.
+Locate the corner associated with a project or corner path. Outputs JSON for editor integrations.
 
 ```bash
 corner locate --path ~/dev/myproject
@@ -321,43 +321,43 @@ corner locate --path ~/dev/myproject
 
 ---
 
-### Pocket Maintenance
+### Corner Maintenance
 
 #### `heal`
-Reconnect a project directory to an existing pocket. Moves the selected pocket's contents into the deterministic pocket path for the PROJECT. If that target pocket already exists, it is moved aside under `~/.corner/unhoused/`, with fallback to legacy roots before replacement.
+Reconnect a project directory to an existing corner. Moves the selected corner's contents into the deterministic corner path for the PROJECT. If that target corner already exists, it is moved aside under `~/.corner/unhoused/`, with fallback to legacy roots before replacement.
 
 ```bash
-corner heal --project ~/dev/app --pocket abc123
-corner heal --project . --pocket ~/.corner/oldhash
-corner heal --alias myproject --pocket ~/.corner/xyz789
+corner heal --project ~/dev/app --corner abc123
+corner heal --project . --corner ~/.corner/oldhash
+corner heal --alias myproject --corner ~/.corner/xyz789
 ```
 
 **Options:**
 - `--project PATH` — Project directory (conflicts with `--alias`)
 - `--alias ALIAS` — Alias name (conflicts with `--project`)
-- `--pocket POCKET` — Pocket directory to move
+- `--corner CORNER` — Corner directory to move
 
 #### `clean [SCOPE]`
-Remove registry entries or pocket directories in bulk.
+Remove registry entries or corner directories in bulk.
 
 ```bash
-corner clean temporary              # Remove temporary pockets
-corner clean --all --hard           # Delete all pockets
-corner clean --older-than "7 days"  # Remove old pockets
+corner clean temporary              # Remove temporary corners
+corner clean --all --hard           # Delete all corners
+corner clean --older-than "7 days"  # Remove old corners
 corner clean temporary -y           # Skip confirmation
 ```
 
 **Scopes:**
-- `temporary` — Remove temporary pockets only
+- `temporary` — Remove temporary corners only
 
 **Options:**
-- `--older-than AGE` — Remove pockets older than AGE (e.g., "7 days", "2 weeks")
-- `--all` — Remove all pockets
+- `--older-than AGE` — Remove corners older than AGE (e.g., "7 days", "2 weeks")
+- `--all` — Remove all corners
 - `--hard` — Delete directories (not just registry entries)
 - `-y`, `--yes` — Skip confirmation
 
 #### `sync-registry-git`
-Refresh the top-level `~/.corner` git snapshot. Copies every pocket into `~/.corner/snapshots` without nested `.git` directories so the registry root repository can version all pocket contents together.
+Refresh the top-level `~/.corner` git snapshot. Copies every corner into `~/.corner/snapshots` without nested `.git` directories so the registry root repository can version all corner contents together.
 
 ```bash
 corner sync-registry-git
@@ -419,13 +419,13 @@ Resolve (and create) today's daily feature file for the VS Code hotkey. Outputs 
 Newly created files are seeded with feature tags whose definition in `feature_tags.yaml` sets `place_automatically: true`.
 
 ```bash
-corner daily-feature --pocket ~/.corner/abc123
-corner daily-feature --pocket ~/.corner/abc123 --new
-corner daily-feature --pocket ~/.corner/abc123 --subpath dailies
+corner daily-feature --corner ~/.corner/abc123
+corner daily-feature --corner ~/.corner/abc123 --new
+corner daily-feature --corner ~/.corner/abc123 --subpath dailies
 ```
 
 **Options:**
-- `--pocket PATH` — Pocket directory containing the FEATURES folder (required)
+- `--corner PATH` — Corner directory containing the FEATURES folder (required)
 - `--new` — Always create a new numbered daily feature file
 - `--subpath PATH` — Subfolder under FEATURES where new daily files are created
 
@@ -434,23 +434,23 @@ corner daily-feature --pocket ~/.corner/abc123 --subpath dailies
 ### Worktree Management
 
 #### `worktree`
-Manage git worktrees that share this pocket. Worktrees are additional project directories (typically git worktrees of the same repo) that share the same pocket — meaning the same copilot instructions, FEATURES notes, and observations apply to all of them.
+Manage git worktrees that share this corner. Worktrees are additional project directories (typically git worktrees of the same repo) that share the same corner — meaning the same copilot instructions, FEATURES notes, and observations apply to all of them.
 
 ```bash
-# Register a worktree to share the pocket for the current directory
+# Register a worktree to share the corner for the current directory
 corner worktree add ~/dev/my-project-feature-x
 
 # Remove a previously registered worktree
 corner worktree remove ~/dev/my-project-feature-x
 
-# List all worktrees sharing this pocket
+# List all worktrees sharing this corner
 corner worktree list
 ```
 
 **Subcommands:**
 
 ##### `worktree add [PATH]`
-Register a worktree directory to share this pocket. Run from inside the main project directory (or any directory that already belongs to a pocket). Corner will also suggest any git worktrees it detects in the same repo if PATH is not provided explicitly.
+Register a worktree directory to share this corner. Run from inside the main project directory (or any directory that already belongs to a corner). Corner will also suggest any git worktrees it detects in the same repo if PATH is not provided explicitly.
 
 ```bash
 corner worktree add ~/dev/my-project-feature-x
@@ -458,14 +458,14 @@ corner worktree add  # auto-suggest git worktrees
 ```
 
 ##### `worktree remove PATH`
-Unregister a worktree directory from this pocket.
+Unregister a worktree directory from this corner.
 
 ```bash
 corner worktree remove ~/dev/my-project-feature-x
 ```
 
 ##### `worktree list`
-List all worktrees registered to this pocket.
+List all worktrees registered to this corner.
 
 ```bash
 corner worktree list
@@ -476,7 +476,7 @@ corner worktree list
 ### Task Tracking
 
 #### `task`
-Built-in issue tracker (replaces Beads). Tasks live in a global SQLite database at `~/.corner/global_data/tasks.db`, with fallback to legacy registry roots when needed. Tasks are grouped per pocket by a prefix derived from the pocket directory name. When run from inside a registered project, the correct prefix is detected automatically.
+Built-in issue tracker (replaces Beads). Tasks live in a global SQLite database at `~/.corner/global_data/tasks.db`, with fallback to legacy registry roots when needed. Tasks are grouped per corner by a prefix derived from the corner directory name. When run from inside a registered project, the correct prefix is detected automatically.
 
 Task IDs are formatted as `<prefix>-<hash>` (e.g., `27472722730d-AB12CD`).
 
@@ -583,7 +583,7 @@ corner task 27472722730d-AB12CD describe --raw  # JSON output
 - `--raw` — Machine-readable JSON output
 
 ##### `task reprefix`
-Rename task prefix (when a pocket is reorganized or renamed).
+Rename task prefix (when a corner is reorganized or renamed).
 
 ```bash
 corner task reprefix --from 27472722730d --to abc123def456
@@ -614,15 +614,15 @@ corner -i api -i frontend
 
 ### Templates
 
-Customize files written into every new pocket by editing templates in `~/.config/corner/templates/`, with fallback to legacy config roots when those directories already exist. Each template file must begin with:
+Customize files written into every new corner by editing templates in `~/.config/corner/templates/`, with fallback to legacy config roots when those directories already exist. Each template file must begin with:
 
 ```
 #SPOCKET_TEMPLATE_DESTINATION: <relative-path>
 ```
 
 Supported variables:
-- `{{CORNER_ROOT}}` / `{{SPOCKET_ROOT}}` — Absolute path to the pocket directory (`CORNER_*` preferred)
-- `{{CORNER_NAME}}` / `{{SPOCKET_NAME}}` — Hash-based pocket identifier (`CORNER_*` preferred)
+- `{{CORNER_ROOT}}` / `{{SPOCKET_ROOT}}` — Absolute path to the corner directory (`CORNER_*` preferred)
+- `{{CORNER_NAME}}` / `{{SPOCKET_NAME}}` — Hash-based corner identifier (`CORNER_*` preferred)
 - `{{CORNER_CONFIG_ROOT}}` / `{{SPOCKET_CONFIG_ROOT}}` — Preferred config root with fallback support
 - `{{CORNER_REGISTRY_ROOT}}` / `{{SPOCKET_REGISTRY_ROOT}}` — Preferred registry root with fallback support
 - `{{PROJECT_ROOT}}` — Absolute path to the first included project
@@ -631,7 +631,7 @@ Directory structure is controlled by `~/.config/corner/directory_structure.yaml`
 
 ### Directory Structure
 
-The default pocket directory structure is:
+The default corner directory structure is:
 
 ```
 ~/.corner/<hash>/
@@ -643,18 +643,18 @@ The default pocket directory structure is:
 │  └── dailies/
 ├── observations/        # Session notes
 ├── README.md
-└── manifest.json        # Pocket metadata
+└── manifest.json        # Corner metadata
 ```
 
 Customize by editing `~/.config/corner/directory_structure.yaml`.
 
 ---
 
-## Pocket Directory Location
+## Corner Directory Location
 
-Pockets are stored in `~/.corner/<hash>/` where `<hash>` is derived from the project directory path, ensuring deterministic pocket association across sessions. If a Corner root does not exist yet, the runtime falls back to legacy `~/.safe_pocket/` and `~/.spocket/` roots.
+Corners are stored in `~/.corner/<hash>/` where `<hash>` is derived from the project directory path, ensuring deterministic corner association across sessions. If a Corner root does not exist yet, the runtime falls back to legacy `~/.safe_pocket/` and `~/.spocket/` roots.
 
-View all pockets:
+View all corners:
 
 ```bash
 corner list-workspaces
@@ -664,10 +664,10 @@ corner list-workspaces
 
 ## Environment Variables
 
-- `CORNER_ROOT` — Preferred path to the pocket directory
+- `CORNER_ROOT` — Preferred path to the corner directory
 - `SPOCKET_ROOT` — Legacy compatibility alias for `CORNER_ROOT`
 - `PROJECT_ROOT` — (internal) Path to the first included project
-- `CORNER_NAME` / `SPOCKET_NAME` — Internal pocket hash identifier (template variables)
+- `CORNER_NAME` / `SPOCKET_NAME` — Internal corner hash identifier (template variables)
 
 ---
 
@@ -685,19 +685,19 @@ corner -i . --temporary --silent
 corner -i ~/dev/api -i ~/dev/frontend
 ```
 
-### Switch a project to a different pocket
+### Switch a project to a different corner
 
 ```bash
-corner heal --project ~/dev/app --pocket ~/.corner/new-hash
+corner heal --project ~/dev/app --corner ~/.corner/new-hash
 ```
 
-### Upgrade all pocket templates
+### Upgrade all corner templates
 
 ```bash
 corner sync agents
 ```
 
-### Clean up old temporary pockets
+### Clean up old temporary corners
 
 ```bash
 corner clean temporary --hard -y
@@ -717,6 +717,6 @@ corner completions zsh > ~/.zsh/completions/_corner
 ## See Also
 
 - `~/.corner/aliases` — Preferred alias registry file
-- `~/.corner/snapshots/` — Preferred git snapshot of all pockets
+- `~/.corner/snapshots/` — Preferred git snapshot of all corners
 - `~/.corner/global_data/tasks.db` — Preferred global tasks database
 - `~/.config/corner/` — Preferred user configuration and templates

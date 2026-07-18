@@ -135,45 +135,45 @@ impl TestEnv {
             return Vec::new();
         }
 
-        let mut pockets = Vec::new();
+        let mut corners = Vec::new();
         for root in [registry.clone(), registry.join("temporary")] {
             if !root.exists() {
                 continue;
             }
 
-            pockets.extend(
+            corners.extend(
                 fs::read_dir(root)
-                    .expect("failed to read safe pocket registry")
+                    .expect("failed to read corner registry")
                     .filter_map(Result::ok)
                     .map(|entry| entry.path())
                     .filter(|path| path.is_dir())
                     .filter(|path| path.join("manifest.json").is_file()),
             );
         }
-        pockets.sort();
-        pockets
+        corners.sort();
+        corners
     }
 
-    fn only_pocket(&self) -> PathBuf {
-        let pockets = self.safe_pockets();
-        assert_eq!(pockets.len(), 1, "expected exactly one safe pocket");
-        pockets
+    fn only_corner(&self) -> PathBuf {
+        let corners = self.safe_pockets();
+        assert_eq!(corners.len(), 1, "expected exactly one corner");
+        corners
             .into_iter()
             .next()
-            .expect("safe pocket should exist")
+            .expect("corner should exist")
     }
 
     fn workspace_file(&self) -> PathBuf {
-        let pocket = self.only_pocket();
-        let name = pocket.file_name().unwrap().to_string_lossy().to_string();
-        pocket.join(format!("{name}.code-workspace"))
+        let corner = self.only_corner();
+        let name = corner.file_name().unwrap().to_string_lossy().to_string();
+        corner.join(format!("{name}.code-workspace"))
     }
 
     fn registry_file(&self, name: &str) -> PathBuf {
         self.corner_root().join(name)
     }
 
-    fn assert_no_registry_entry_for(&self, pocket: &Path) {
+    fn assert_no_registry_entry_for(&self, corner: &Path) {
         let cache_path = self.registry_file("registry_cache.json");
         if !cache_path.exists() {
             return;
@@ -181,9 +181,9 @@ impl TestEnv {
 
         let cache = fs::read_to_string(&cache_path).expect("failed to read registry cache");
         assert!(
-            !cache.contains(&pocket.display().to_string()),
-            "registry cache should not retain cleaned pocket {}",
-            pocket.display()
+            !cache.contains(&corner.display().to_string()),
+            "registry cache should not retain cleaned corner {}",
+            corner.display()
         );
     }
 }
@@ -332,13 +332,13 @@ fn install_default_assets_migrates_renamed_root_state() {
     let locate_before = env.run_spocket(&project, &["locate", "--path", "."]);
     assert_success(&locate_before);
     let before_value: serde_json::Value = serde_json::from_slice(&locate_before.stdout).unwrap();
-    let legacy_pocket = PathBuf::from(before_value.get("pocket_dir").unwrap().as_str().unwrap());
-    let hash = legacy_pocket.file_name().unwrap().to_string_lossy().to_string();
-    let legacy_workspace = legacy_pocket.join(format!("{hash}.code-workspace"));
+    let legacy_corner = PathBuf::from(before_value.get("corner_dir").unwrap().as_str().unwrap());
+    let hash = legacy_corner.file_name().unwrap().to_string_lossy().to_string();
+    let legacy_workspace = legacy_corner.join(format!("{hash}.code-workspace"));
 
     fs::rename(env.legacy_safe_pocket_root(), env.corner_root()).unwrap();
-    let renamed_pocket = env.corner_root().join(&hash);
-    let renamed_workspace = renamed_pocket.join(format!("{hash}.code-workspace"));
+    let renamed_corner = env.corner_root().join(&hash);
+    let renamed_workspace = renamed_corner.join(format!("{hash}.code-workspace"));
 
     let stale_env = fs::read_to_string(project.join(".env")).unwrap();
     assert!(stale_env.contains(".safe_pocket"));
@@ -354,19 +354,19 @@ fn install_default_assets_migrates_renamed_root_state() {
     let locate_after = env.run_spocket(&project, &["locate", "--path", "."]);
     assert_success(&locate_after);
     let after_value: serde_json::Value = serde_json::from_slice(&locate_after.stdout).unwrap();
-    let migrated_pocket = PathBuf::from(after_value.get("pocket_dir").unwrap().as_str().unwrap());
-    assert_eq!(migrated_pocket, renamed_pocket);
+    let migrated_corner = PathBuf::from(after_value.get("corner_dir").unwrap().as_str().unwrap());
+    assert_eq!(migrated_corner, renamed_corner);
 
     let migrated_env = fs::read_to_string(project.join(".env")).unwrap();
-    assert!(migrated_env.contains(&format!("CORNER_ROOT={}", renamed_pocket.display())));
-    assert!(migrated_env.contains(&format!("SPOCKET_ROOT={}", renamed_pocket.display())));
+    assert!(migrated_env.contains(&format!("CORNER_ROOT={}", renamed_corner.display())));
+    assert!(migrated_env.contains(&format!("SPOCKET_ROOT={}", renamed_corner.display())));
 
     let migrated_workspace_text = fs::read_to_string(&renamed_workspace).unwrap();
-    assert!(migrated_workspace_text.contains(&renamed_pocket.display().to_string()));
+    assert!(migrated_workspace_text.contains(&renamed_corner.display().to_string()));
     assert!(!migrated_workspace_text.contains(".safe_pocket"));
 
     let migrated_cache = fs::read_to_string(env.corner_root().join("registry_cache.json")).unwrap();
-    assert!(migrated_cache.contains(&renamed_pocket.display().to_string()));
+    assert!(migrated_cache.contains(&renamed_corner.display().to_string()));
     assert!(!migrated_cache.contains(".safe_pocket"));
 }
 
@@ -395,18 +395,18 @@ fn outdated_commands_are_rejected() {
 }
 
 #[test]
-fn locate_reports_project_pocket_for_editor_integrations() {
+fn locate_reports_project_corner_for_editor_integrations() {
     let env = TestEnv::new("locate");
     let project = env.project("project");
     let mut summary = TestSummary::new(
-        "locate_reports_project_pocket_for_editor_integrations",
-        "`locate` returns machine-readable pocket metadata for a project path",
+        "locate_reports_project_corner_for_editor_integrations",
+        "`locate` returns machine-readable corner metadata for a project path",
         "the lookup uses a temporary registry that is deleted wholesale when the test environment drops",
     );
 
     assert_success(&env.run_spocket(&project, &["-i", "."]));
-    summary.step("Created a workspace so the registry had a project-to-pocket mapping".to_string());
-    let pocket = env.only_pocket();
+    summary.step("Created a workspace so the registry had a project-to-corner mapping".to_string());
+    let corner = env.only_corner();
 
     let output = env.run_spocket(&project, &["locate", "--path", "."]);
     assert_success(&output);
@@ -415,23 +415,23 @@ fn locate_reports_project_pocket_for_editor_integrations() {
     let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(value.get("status").and_then(|v| v.as_str()), Some("found"));
     assert_eq!(
-        value.get("pocket_dir").and_then(|v| v.as_str()),
-        Some(pocket.to_string_lossy().as_ref())
+        value.get("corner_dir").and_then(|v| v.as_str()),
+        Some(corner.to_string_lossy().as_ref())
     );
     summary.step(
-        "Verified that the reported pocket directory matched the created safe pocket".to_string(),
+        "Verified that the reported corner directory matched the created corner".to_string(),
     );
     summary.print();
 }
 
 #[test]
-fn add_tool_does_not_rebind_project_when_overlapping_pocket_exists() {
-    let env = TestEnv::new("overlap-pocket-binding");
+fn add_tool_does_not_rebind_project_when_overlapping_corner_exists() {
+    let env = TestEnv::new("overlap-corner-binding");
     let project = env.project("project");
     let extra = env.project("extra");
 
     assert_success(&env.run_spocket(&project, &["-i", ".", "--silent"]));
-    let primary_pocket = env.only_pocket();
+    let primary_corner = env.only_corner();
 
     let overlap = env.run_spocket(
         &project,
@@ -446,20 +446,20 @@ fn add_tool_does_not_rebind_project_when_overlapping_pocket_exists() {
     );
     assert_success(&overlap);
 
-    let pockets = env.safe_pockets();
-    assert_eq!(pockets.len(), 2, "expected an exact and overlapping pocket");
-    let overlapping_pocket = pockets
+    let corners = env.safe_pockets();
+    assert_eq!(corners.len(), 2, "expected an exact and overlapping corner");
+    let overlapping_corner = corners
         .iter()
-        .find(|p| **p != primary_pocket)
-        .expect("overlapping pocket should exist")
+        .find(|p| **p != primary_corner)
+        .expect("overlapping corner should exist")
         .to_path_buf();
 
     let locate_before = env.run_spocket(&project, &["locate", "--path", "."]);
     assert_success(&locate_before);
     let value_before: serde_json::Value = serde_json::from_slice(&locate_before.stdout).unwrap();
     assert_eq!(
-        value_before.get("pocket_dir").and_then(|v| v.as_str()),
-        Some(primary_pocket.to_string_lossy().as_ref())
+        value_before.get("corner_dir").and_then(|v| v.as_str()),
+        Some(primary_corner.to_string_lossy().as_ref())
     );
 
     let add = env.run_spocket(&project, &["-i", ".", "--add", "memgraph", "--silent"]);
@@ -469,36 +469,36 @@ fn add_tool_does_not_rebind_project_when_overlapping_pocket_exists() {
     assert_success(&locate_after);
     let value_after: serde_json::Value = serde_json::from_slice(&locate_after.stdout).unwrap();
     assert_eq!(
-        value_after.get("pocket_dir").and_then(|v| v.as_str()),
-        Some(primary_pocket.to_string_lossy().as_ref())
+        value_after.get("corner_dir").and_then(|v| v.as_str()),
+        Some(primary_corner.to_string_lossy().as_ref())
     );
 
-    assert!(primary_pocket
+    assert!(primary_corner
         .join("tools/memgraph/scan-config.json")
         .is_file());
     assert!(
-        !overlapping_pocket.join("tools/memgraph").exists(),
-        "overlapping pocket should not be mutated by --add from the exact project pocket"
+        !overlapping_corner.join("tools/memgraph").exists(),
+        "overlapping corner should not be mutated by --add from the exact project corner"
     );
 }
 
 #[test]
-fn heal_alias_replaces_deterministic_target_with_selected_pocket() {
+fn heal_alias_replaces_deterministic_target_with_selected_corner() {
     let env = TestEnv::new("heal-alias");
     let source_project = env.project("source-project");
     let target_project = env.project("target-project");
     let mut summary = TestSummary::new(
-        "heal_alias_replaces_deterministic_target_with_selected_pocket",
-        "`heal --alias` moves the selected pocket into the deterministic target location and unhoused the replaced pocket",
-        "the isolated HOME is removed at teardown, and this test also verifies that the replaced pocket was moved out of the live registry path before cleanup",
+        "heal_alias_replaces_deterministic_target_with_selected_corner",
+        "`heal --alias` moves the selected corner into the deterministic target location and unhoused the replaced corner",
+        "the isolated HOME is removed at teardown, and this test also verifies that the replaced corner was moved out of the live registry path before cleanup",
     );
 
     assert_success(&env.run_spocket(&source_project, &["-i", "."]));
-    summary.step("Created the source pocket that will be healed into the target".to_string());
-    let source_pocket = env.only_pocket();
-    fs::write(source_pocket.join("FEATURES").join("carried.md"), "carried").unwrap();
+    summary.step("Created the source corner that will be healed into the target".to_string());
+    let source_corner = env.only_corner();
+    fs::write(source_corner.join("FEATURES").join("carried.md"), "carried").unwrap();
     summary.step(
-        "Added sentinel content inside the source pocket so the heal transfer is easy to detect"
+        "Added sentinel content inside the source corner so the heal transfer is easy to detect"
             .to_string(),
     );
 
@@ -511,7 +511,7 @@ fn heal_alias_replaces_deterministic_target_with_selected_pocket() {
 
     assert_success(&env.run_spocket(&target_project, &["-i", "."]));
     summary.step(
-        "Created the target project pocket so heal had a deterministic destination to replace"
+        "Created the target project corner so heal had a deterministic destination to replace"
             .to_string(),
     );
     let output = env.run_spocket(
@@ -520,43 +520,43 @@ fn heal_alias_replaces_deterministic_target_with_selected_pocket() {
             "heal",
             "--alias",
             "target",
-            "--pocket",
-            source_pocket.to_string_lossy().as_ref(),
+            "--corner",
+            source_corner.to_string_lossy().as_ref(),
         ],
     );
     assert_success(&output);
     summary.step(
-        "Ran `spocket heal --alias target --pocket <source>` to reconnect the target project"
+        "Ran `spocket heal --alias target --corner <source>` to reconnect the target project"
             .to_string(),
     );
 
     let locate = env.run_spocket(&target_project, &["locate", "--path", "."]);
     assert_success(&locate);
     let value: serde_json::Value = serde_json::from_slice(&locate.stdout).unwrap();
-    let healed_pocket = PathBuf::from(value.get("pocket_dir").unwrap().as_str().unwrap());
+    let healed_corner = PathBuf::from(value.get("corner_dir").unwrap().as_str().unwrap());
 
-    assert!(healed_pocket.join("FEATURES").join("carried.md").is_file());
-    assert!(healed_pocket.join("events.jsonl").is_file());
+    assert!(healed_corner.join("FEATURES").join("carried.md").is_file());
+    assert!(healed_corner.join("events.jsonl").is_file());
     assert!(env.corner_root().join("unhoused.log").is_file());
-    summary.step("Verified that the selected pocket content moved into place and the displaced target pocket was recorded in `unhoused.log`".to_string());
+    summary.step("Verified that the selected corner content moved into place and the displaced target corner was recorded in `unhoused.log`".to_string());
     summary.print();
 }
 
 #[test]
-fn heal_project_pocket_rewrites_in_place_workspace_file() {
+fn heal_project_corner_rewrites_in_place_workspace_file() {
     let env = TestEnv::new("heal-in-place-rewrite");
     let project = env.project("project");
 
     assert_success(&env.run_spocket(&project, &["-i", ".", "--temporary", "--silent"]));
-    let pocket = env.only_pocket();
+    let corner = env.only_corner();
     let workspace_file = env.workspace_file();
-    let name = pocket.file_name().unwrap().to_string_lossy().to_string();
+    let name = corner.file_name().unwrap().to_string_lossy().to_string();
 
     fs::write(
         &workspace_file,
         format!(
             "{{\n  \"folders\": [\n    {{\n      \"path\": \"{}\",\n      \"name\": \"[Corner] {name}\"\n    }}\n  ]\n}}\n",
-            pocket.display()
+            corner.display()
         ),
     )
     .unwrap();
@@ -567,8 +567,8 @@ fn heal_project_pocket_rewrites_in_place_workspace_file() {
             "heal",
             "--project",
             project.to_string_lossy().as_ref(),
-            "--pocket",
-            pocket.to_string_lossy().as_ref(),
+            "--corner",
+            corner.to_string_lossy().as_ref(),
         ],
     );
     assert_success(&output);
@@ -581,39 +581,68 @@ fn heal_project_pocket_rewrites_in_place_workspace_file() {
     assert_success(&locate);
     let value: serde_json::Value = serde_json::from_slice(&locate.stdout).unwrap();
     assert_eq!(
-        value.get("pocket_dir").and_then(|v| v.as_str()),
-        Some(pocket.to_string_lossy().as_ref())
+        value.get("corner_dir").and_then(|v| v.as_str()),
+        Some(corner.to_string_lossy().as_ref())
     );
 }
 
 #[test]
-fn clean_hard_removes_temporary_pocket_and_registry_entry() {
+fn legacy_pocket_flag_remains_accepted_as_hidden_alias() {
+    let env = TestEnv::new("legacy-pocket-flag");
+    let project = env.project("project");
+
+    assert_success(&env.run_spocket(&project, &["-i", ".", "--temporary", "--silent"]));
+    let corner = env.only_corner();
+
+    // The pre-rename flag spelling must keep working as a hidden alias.
+    let output = env.run_spocket(
+        &project,
+        &[
+            "daily-feature",
+            "--pocket",
+            corner.to_string_lossy().as_ref(),
+        ],
+    );
+    assert_success(&output);
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value.get("status").and_then(|v| v.as_str()), Some("ok"));
+
+    // The alias stays hidden: help advertises --corner, never --pocket.
+    let help = env.run_spocket(&project, &["heal", "--help"]);
+    assert_success(&help);
+    let text = String::from_utf8_lossy(&help.stdout);
+    assert!(text.contains("--corner"));
+    assert!(!text.contains("--pocket"));
+}
+
+#[test]
+fn clean_hard_removes_temporary_corner_and_registry_entry() {
     let env = TestEnv::new("clean-hard");
     let project = env.project("project");
     let mut summary = TestSummary::new(
-        "clean_hard_removes_temporary_pocket_and_registry_entry",
-        "`clean temporary --hard --yes` removes temporary pockets from live registry state while preserving an unhoused audit trail",
+        "clean_hard_removes_temporary_corner_and_registry_entry",
+        "`clean temporary --hard --yes` removes temporary corners from live registry state while preserving an unhoused audit trail",
         "the command itself cleans the live registry entry, then TestEnv removes the remaining temp HOME and project directories",
     );
 
     assert_success(&env.run_spocket(&project, &["-i", ".", "--temporary"]));
-    summary.step("Created a temporary pocket with `spocket -i . --temporary`".to_string());
+    summary.step("Created a temporary corner with `spocket -i . --temporary`".to_string());
 
-    let pocket = env.only_pocket();
-    assert!(pocket.starts_with(env.corner_root().join("temporary")));
+    let corner = env.only_corner();
+    assert!(corner.starts_with(env.corner_root().join("temporary")));
     summary
-        .step("Confirmed the created pocket lives under `~/.safe_pocket/temporary/`".to_string());
+        .step("Confirmed the created corner lives under `~/.safe_pocket/temporary/`".to_string());
 
     let output = env.run_spocket(&project, &["clean", "temporary", "--hard", "--yes"]);
     assert_success(&output);
-    assert_contains(&output, "Deleted pockets:");
-    summary.step("Ran `spocket clean temporary --hard --yes` to remove the temporary pocket without prompting".to_string());
+    assert_contains(&output, "Deleted corners:");
+    summary.step("Ran `spocket clean temporary --hard --yes` to remove the temporary corner without prompting".to_string());
 
     assert!(env.safe_pockets().is_empty());
-    env.assert_no_registry_entry_for(&pocket);
+    env.assert_no_registry_entry_for(&corner);
     assert!(env.registry_file("unhoused.log").is_file());
-    assert!(!pocket.exists());
-    summary.step("Verified that the live pocket directory disappeared, the registry cache no longer references it, and cleanup was logged in `unhoused.log`".to_string());
+    assert!(!corner.exists());
+    summary.step("Verified that the live corner directory disappeared, the registry cache no longer references it, and cleanup was logged in `unhoused.log`".to_string());
 
     let locate = env.run_spocket(&project, &["locate", "--path", "."]);
     assert_success(&locate);
@@ -623,7 +652,7 @@ fn clean_hard_removes_temporary_pocket_and_registry_entry() {
         Some("not_found")
     );
     summary.step(
-        "Confirmed the cleaned project no longer resolves to a pocket via `spocket locate`"
+        "Confirmed the cleaned project no longer resolves to a corner via `spocket locate`"
             .to_string(),
     );
 
@@ -691,11 +720,11 @@ fn silent_flag_skips_vscode_launch() {
     assert_success(&output);
     summary.step("Ran `spocket -i . --temporary --silent`".to_string());
 
-    // The pocket is still created (all steps ran)...
-    let pocket = env.only_pocket();
-    assert!(pocket.join("manifest.json").is_file());
+    // The corner is still created (all steps ran)...
+    let corner = env.only_corner();
+    assert!(corner.join("manifest.json").is_file());
     summary
-        .step("Confirmed the pocket and manifest were still created (all steps ran)".to_string());
+        .step("Confirmed the corner and manifest were still created (all steps ran)".to_string());
 
     // ...but VS Code was never opened.
     assert_eq!(
@@ -725,13 +754,13 @@ fn simulate_runtime_injects_content_without_launching_vscode() {
     assert_success(&output);
     summary.step("Ran `spocket -i . --temporary --simulate-runtime --silent`".to_string());
 
-    let pocket = env.only_pocket();
+    let corner = env.only_corner();
 
     // At least one destination file should carry runtime markers even though
     // VS Code was never opened.
     let candidates = [
-        pocket.join("AGENTS.md"),
-        pocket.join(".github").join("copilot-instructions.md"),
+        corner.join("AGENTS.md"),
+        corner.join(".github").join("copilot-instructions.md"),
     ];
     let injected = candidates.iter().filter(|p| p.is_file()).any(|p| {
         let body = fs::read_to_string(p).unwrap_or_default();
@@ -757,14 +786,14 @@ fn simulate_runtime_injects_content_without_launching_vscode() {
     summary.print();
 }
 
-/// The built-in task tracker replaces Beads. A freshly created pocket must not
+/// The built-in task tracker replaces Beads. A freshly created corner must not
 /// receive any `.beads` artifacts or redirect stubs.
 #[test]
-fn new_pocket_has_no_beads_artifacts() {
+fn new_corner_has_no_beads_artifacts() {
     let env = TestEnv::new("no-beads");
     let project = env.project("project");
     let mut summary = TestSummary::new(
-        "new_pocket_has_no_beads_artifacts",
+        "new_corner_has_no_beads_artifacts",
         "default workspace creation no longer initializes Beads anywhere",
         "the isolated HOME and temp root are removed recursively on drop",
     );
@@ -773,11 +802,11 @@ fn new_pocket_has_no_beads_artifacts() {
     assert_success(&output);
     summary.step("Opened a new workspace with `spocket -i .`".to_string());
 
-    let pocket = env.only_pocket();
-    assert!(!pocket.join(".beads").exists());
+    let corner = env.only_corner();
+    assert!(!corner.join(".beads").exists());
     assert!(!project.join(".beads").exists());
 
-    let manifest = fs::read_to_string(pocket.join("manifest.json")).unwrap();
+    let manifest = fs::read_to_string(corner.join("manifest.json")).unwrap();
     assert!(
         !manifest.contains("uses_beads"),
         "manifest should not carry the legacy uses_beads field"
@@ -815,8 +844,8 @@ fn runtime_agents_md_advertises_task_tracker() {
     assert_success(&output);
     summary.step("Ran `spocket -i . --temporary --simulate-runtime --silent`".to_string());
 
-    let pocket = env.only_pocket();
-    let agents = fs::read_to_string(pocket.join("AGENTS.md")).unwrap();
+    let corner = env.only_corner();
+    let agents = fs::read_to_string(corner.join("AGENTS.md")).unwrap();
     assert!(
         agents.contains("corner task"),
         "AGENTS.md should mention the built-in task tracker"
@@ -837,7 +866,7 @@ fn missing_template_destination_warning_is_verbose_only() {
     fs::create_dir_all(&template_dir).unwrap();
     fs::write(
         template_dir.join("conversation.feature.tag.yaml"),
-        "description: this is referenced by feature_tags.yaml, not a pocket template\n",
+        "description: this is referenced by feature_tags.yaml, not a corner template\n",
     )
     .unwrap();
 
@@ -869,13 +898,13 @@ fn daily_feature_loads_auto_tags_from_feature_tags_yaml() {
     .unwrap();
 
     assert_success(&env.run_spocket(&project, &["-i", ".", "--temporary", "--silent"]));
-    let pocket = env.only_pocket();
+    let corner = env.only_corner();
     let daily = env.run_spocket(
         &project,
         &[
             "daily-feature",
-            "--pocket",
-            pocket.to_string_lossy().as_ref(),
+            "--corner",
+            corner.to_string_lossy().as_ref(),
             "--new",
         ],
     );
@@ -911,8 +940,8 @@ fn with_tool_is_session_sidecar_only_and_add_tool_persists() {
         &["-i", ".", "--temporary", "--add", "graphify", "--silent"],
     );
     assert_success(&add_output);
-    let pocket = env.only_pocket();
-    assert!(pocket.join("graphify-out").is_dir());
+    let corner = env.only_corner();
+    assert!(corner.join("graphify-out").is_dir());
     assert!(project.join("graphify-out").exists());
     let workspace_text = fs::read_to_string(&workspace_file).unwrap();
     assert!(workspace_text.contains("[Tool] graphify"));
@@ -929,14 +958,14 @@ fn with_memgraph_lives_in_safe_pocket_session_tools_only() {
     );
     assert_success(&output);
 
-    let pocket = env.only_pocket();
-    let session_tool = pocket.join(".session-tools/memgraph");
+    let corner = env.only_corner();
+    let session_tool = corner.join(".session-tools/memgraph");
     assert!(session_tool.join("scan-config.json").is_file());
     assert!(session_tool.join("docker-compose.yml").is_file());
     assert!(session_tool.join("schema.cypher").is_file());
     assert!(session_tool.join("scan-safe-pocket.sh").is_file());
     assert!(
-        !pocket.join("tools/memgraph").exists(),
+        !corner.join("tools/memgraph").exists(),
         "--with memgraph should not persist into tools/"
     );
     let workspace_text = fs::read_to_string(env.workspace_file()).unwrap();
@@ -957,8 +986,8 @@ fn add_memgraph_configures_safe_pocket_markdown_scan() {
     );
     assert_success(&output);
 
-    let pocket = env.only_pocket();
-    let tool = pocket.join("tools/memgraph");
+    let corner = env.only_corner();
+    let tool = corner.join("tools/memgraph");
     assert!(tool.join("docker-compose.yml").is_file());
     let compose = fs::read_to_string(tool.join("docker-compose.yml")).unwrap();
     assert!(compose.contains("memgraph/memgraph-mage:latest"));
@@ -1027,19 +1056,19 @@ fn installed_memgraph_runs_scanner_when_opened() {
         &["-i", ".", "--temporary", "--add", "memgraph", "--silent"],
     );
     assert_success(&first);
-    let pocket = env.only_pocket();
-    let import = pocket.join("tools/memgraph/import/markdown-files.jsonl");
+    let corner = env.only_corner();
+    let import = corner.join("tools/memgraph/import/markdown-files.jsonl");
     assert!(import.is_file());
     let initial = fs::read_to_string(&import).unwrap();
     assert!(initial.contains("AGENTS.md") || initial.contains("00.md"));
 
-    fs::write(pocket.join("FEATURES/new-note.md"), "# New Note\n").unwrap();
+    fs::write(corner.join("FEATURES/new-note.md"), "# New Note\n").unwrap();
     let second = env.run_spocket(&project, &["-i", ".", "--temporary", "--silent"]);
     assert_success(&second);
     let updated = fs::read_to_string(&import).unwrap();
     assert!(updated.contains("new-note.md"));
 
-    let state = pocket.join("tools/memgraph/.safe_pocket_scan_state.json");
+    let state = corner.join("tools/memgraph/.safe_pocket_scan_state.json");
     assert!(state.is_file());
     let before = fs::read_to_string(&state).unwrap();
     let third = env.run_spocket(&project, &["-i", ".", "--temporary", "--silent"]);
@@ -1056,13 +1085,13 @@ fn runtime_merge_stop_handles_installed_memgraph() {
         &project,
         &["-i", ".", "--temporary", "--add", "memgraph", "--silent"],
     ));
-    let pocket = env.only_pocket();
+    let corner = env.only_corner();
     let output = env.run_spocket(
         &project,
         &[
             "runtime-merge-stop",
-            "--pocket",
-            pocket.to_string_lossy().as_ref(),
+            "--corner",
+            corner.to_string_lossy().as_ref(),
         ],
     );
     assert_success(&output);
@@ -1074,20 +1103,20 @@ fn add_memgraph_repairs_safe_pocket_only_workspace_file() {
     let project = env.project("project");
 
     assert_success(&env.run_spocket(&project, &["-i", ".", "--temporary", "--silent"]));
-    let pocket = env.only_pocket();
+    let corner = env.only_corner();
     let workspace_file = env.workspace_file();
-    let name = pocket.file_name().unwrap().to_string_lossy().to_string();
+    let name = corner.file_name().unwrap().to_string_lossy().to_string();
 
     fs::write(
         &workspace_file,
         format!(
             "{{\n  \"folders\": [\n    {{\n      \"path\": \"{}\",\n      \"name\": \"[Corner] {name}\"\n    }}\n  ]\n}}\n",
-            pocket.display()
+            corner.display()
         ),
     )
     .unwrap();
     fs::write(
-        pocket.join("manifest.json"),
+        corner.join("manifest.json"),
         format!(
             "{{\n  \"hash\": \"e3b0c44298fc\",\n  \"core_paths\": [],\n  \"created_at\": \"2026-06-06T16:17:52.221616Z\",\n  \"temporary\": true,\n  \"children\": [],\n  \"augmented_from\": \"{name}\",\n  \"version\": 1,\n  \"birth_hash\": \"{name}\"\n}}\n"
         ),
@@ -1106,10 +1135,10 @@ fn add_memgraph_repairs_safe_pocket_only_workspace_file() {
         "workspace file should recover the project folder"
     );
     assert!(workspace_text.contains("[Corner]"));
-    assert!(pocket.join("tools/memgraph/scan-config.json").is_file());
+    assert!(corner.join("tools/memgraph/scan-config.json").is_file());
 
     let manifest: serde_json::Value =
-        serde_json::from_str(&fs::read_to_string(pocket.join("manifest.json")).unwrap()).unwrap();
+        serde_json::from_str(&fs::read_to_string(corner.join("manifest.json")).unwrap()).unwrap();
     let core_paths = manifest
         .get("core_paths")
         .and_then(|v| v.as_array())
@@ -1127,15 +1156,15 @@ fn add_memgraph_repairs_workspace_file_when_manifest_is_already_good() {
     let project = env.project("project");
 
     assert_success(&env.run_spocket(&project, &["-i", ".", "--temporary", "--silent"]));
-    let pocket = env.only_pocket();
+    let corner = env.only_corner();
     let workspace_file = env.workspace_file();
-    let name = pocket.file_name().unwrap().to_string_lossy().to_string();
+    let name = corner.file_name().unwrap().to_string_lossy().to_string();
 
     fs::write(
         &workspace_file,
         format!(
             "{{\n  \"folders\": [\n    {{\n      \"path\": \"{}\",\n      \"name\": \"[Corner] {name}\"\n    }}\n  ]\n}}\n",
-            pocket.display()
+            corner.display()
         ),
     )
     .unwrap();
@@ -1151,31 +1180,31 @@ fn add_memgraph_repairs_workspace_file_when_manifest_is_already_good() {
         workspace_text.contains(&project.display().to_string()),
         "workspace file should recover the project folder even when manifest is already correct"
     );
-    assert!(pocket.join("tools/memgraph/scan-config.json").is_file());
+    assert!(corner.join("tools/memgraph/scan-config.json").is_file());
 }
 
 #[test]
-fn sync_pocket_repairs_workspace_file_from_manifest_paths() {
+fn sync_corner_repairs_workspace_file_from_manifest_paths() {
     let env = TestEnv::new("sync-repair-workspace");
     let project = env.project("project");
 
     assert_success(&env.run_spocket(&project, &["-i", ".", "--temporary", "--silent"]));
-    let pocket = env.only_pocket();
+    let corner = env.only_corner();
     let workspace_file = env.workspace_file();
-    let name = pocket.file_name().unwrap().to_string_lossy().to_string();
+    let name = corner.file_name().unwrap().to_string_lossy().to_string();
 
     fs::write(
         &workspace_file,
         format!(
             "{{\n  \"folders\": [\n    {{\n      \"path\": \"{}\",\n      \"name\": \"[Corner] {name}\"\n    }}\n  ]\n}}\n",
-            pocket.display()
+            corner.display()
         ),
     )
     .unwrap();
 
     let output = env.run_spocket(
         &project,
-        &["sync", "--pocket", pocket.to_string_lossy().as_ref()],
+        &["sync", "--corner", corner.to_string_lossy().as_ref()],
     );
     assert_success(&output);
     let result: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
@@ -1236,7 +1265,7 @@ fn add_gitleaks_writes_project_guard_files() {
     let hook_text = fs::read_to_string(&hook).unwrap();
     assert!(hook_text.contains("tools/gitleaks/pre-commit-hook.sh"));
     assert!(hook_text.contains(&project.display().to_string()));
-    let helper = env.only_pocket().join("tools/gitleaks/pre-commit-hook.sh");
+    let helper = env.only_corner().join("tools/gitleaks/pre-commit-hook.sh");
     assert!(helper.is_file());
     assert!(!fs::read_to_string(&helper)
         .unwrap()
@@ -1287,17 +1316,17 @@ fn task_list_bridges_project_and_safe_pocket_directories() {
     let env = TestEnv::new("task-bridge");
     let project = env.project("project");
     assert_success(&env.run_spocket(&project, &["-i", ".", "--temporary", "--silent"]));
-    let pocket = env.only_pocket();
+    let corner = env.only_corner();
     assert_success(&env.run_spocket(
         &project,
         &["task", "create", "--named", "Bridge me", "--priority", "1"],
     ));
 
     let from_project = env.run_spocket(&project, &["task", "list", "--raw"]);
-    let from_pocket = env.run_spocket(&pocket, &["task", "list", "--raw"]);
+    let from_corner = env.run_spocket(&corner, &["task", "list", "--raw"]);
     assert_success(&from_project);
-    assert_success(&from_pocket);
-    assert_eq!(from_project.stdout, from_pocket.stdout);
+    assert_success(&from_corner);
+    assert_eq!(from_project.stdout, from_corner.stdout);
 }
 
 #[test]
@@ -1313,7 +1342,7 @@ fn completion_spec_exposes_nested_commands_and_tools() {
     assert!(value.to_string().contains("worktree"));
 }
 
-/// When `heal` renames a safe pocket directory, the built-in task tracker must
+/// When `heal` renames a corner directory, the built-in task tracker must
 /// migrate that project's tasks from the old directory-name prefix to the new
 /// one so they remain discoverable from the project.
 #[test]
@@ -1323,20 +1352,20 @@ fn heal_reprefixes_tracked_tasks() {
     let target_project = env.project("target-project");
     let mut summary = TestSummary::new(
         "heal_reprefixes_tracked_tasks",
-        "`heal` migrates a project's tracked tasks to the renamed pocket's prefix",
+        "`heal` migrates a project's tracked tasks to the renamed corner's prefix",
         "the temporary HOME (including the global tasks.db under it) is removed on drop",
     );
 
-    // Create the source pocket and a task owned by its prefix.
+    // Create the source corner and a task owned by its prefix.
     assert_success(&env.run_spocket(&source_project, &["-i", "."]));
-    let source_pocket = env.only_pocket();
-    let source_prefix = source_pocket
+    let source_corner = env.only_corner();
+    let source_prefix = source_corner
         .file_name()
         .unwrap()
         .to_string_lossy()
         .to_string();
     summary.step(format!(
-        "Created the source pocket with prefix `{source_prefix}`"
+        "Created the source corner with prefix `{source_prefix}`"
     ));
 
     let created = env.run_spocket(
@@ -1356,37 +1385,37 @@ fn heal_reprefixes_tracked_tasks() {
         created_out.contains(&format!("{source_prefix}-")),
         "new task id should carry the source prefix, got: {created_out}"
     );
-    summary.step("Created a task whose id is prefixed by the source pocket name".to_string());
+    summary.step("Created a task whose id is prefixed by the source corner name".to_string());
 
-    // Register an alias and create the deterministic target pocket.
+    // Register an alias and create the deterministic target corner.
     assert_success(&env.run_spocket(
         &target_project,
         &["register", &format!("target={}", target_project.display())],
     ));
     assert_success(&env.run_spocket(&target_project, &["-i", "."]));
-    summary.step("Registered an alias and created the deterministic target pocket".to_string());
+    summary.step("Registered an alias and created the deterministic target corner".to_string());
 
-    // Heal the source pocket into the target's deterministic location.
+    // Heal the source corner into the target's deterministic location.
     let heal = env.run_spocket(
         &target_project,
         &[
             "heal",
             "--alias",
             "target",
-            "--pocket",
-            source_pocket.to_string_lossy().as_ref(),
+            "--corner",
+            source_corner.to_string_lossy().as_ref(),
         ],
     );
     assert_success(&heal);
     assert_contains(&heal, "Reprefixed");
     summary.step("Ran heal and saw the reprefix notice in its output".to_string());
 
-    // The healed pocket's name is the new prefix.
+    // The healed corner's name is the new prefix.
     let locate = env.run_spocket(&target_project, &["locate", "--path", "."]);
     assert_success(&locate);
     let value: serde_json::Value = serde_json::from_slice(&locate.stdout).unwrap();
-    let healed_pocket = PathBuf::from(value.get("pocket_dir").unwrap().as_str().unwrap());
-    let new_prefix = healed_pocket
+    let healed_corner = PathBuf::from(value.get("corner_dir").unwrap().as_str().unwrap());
+    let new_prefix = healed_corner
         .file_name()
         .unwrap()
         .to_string_lossy()
@@ -1412,7 +1441,7 @@ fn heal_reprefixes_tracked_tasks() {
         Some(new_prefix.as_str())
     );
     summary.step(
-        "Verified the task survived the heal and now carries the new pocket prefix".to_string(),
+        "Verified the task survived the heal and now carries the new corner prefix".to_string(),
     );
     summary.print();
 }
@@ -1438,12 +1467,12 @@ fn legacy_safe_pocket_registry_root_is_reused_when_corner_root_is_absent() {
     let locate = env.run_spocket(&project, &["locate", "--path", "."]);
     assert_success(&locate);
     let value: serde_json::Value = serde_json::from_slice(&locate.stdout).unwrap();
-    let pocket_dir = PathBuf::from(value.get("pocket_dir").unwrap().as_str().unwrap());
+    let corner_dir = PathBuf::from(value.get("corner_dir").unwrap().as_str().unwrap());
 
     assert!(
-        pocket_dir.starts_with(env.legacy_safe_pocket_root()),
+        corner_dir.starts_with(env.legacy_safe_pocket_root()),
         "expected legacy root fallback, got {}",
-        pocket_dir.display()
+        corner_dir.display()
     );
 }
 
@@ -1459,11 +1488,11 @@ fn corner_registry_root_takes_precedence_when_both_roots_exist() {
     let locate = env.run_spocket(&project, &["locate", "--path", "."]);
     assert_success(&locate);
     let value: serde_json::Value = serde_json::from_slice(&locate.stdout).unwrap();
-    let pocket_dir = PathBuf::from(value.get("pocket_dir").unwrap().as_str().unwrap());
+    let corner_dir = PathBuf::from(value.get("corner_dir").unwrap().as_str().unwrap());
 
     assert!(
-        pocket_dir.starts_with(env.corner_root()),
+        corner_dir.starts_with(env.corner_root()),
         "expected primary Corner root to win, got {}",
-        pocket_dir.display()
+        corner_dir.display()
     );
 }

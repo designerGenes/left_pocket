@@ -432,18 +432,18 @@ pub fn agents_template_dir() -> Result<PathBuf> {
 /// Path to the OpenCode agent directory (`$HOME/.config/opencode/agent`).
 ///
 /// This is the *global* location safe_pocket used to write into. Agents are now
-/// installed per-project (see [`pocket_agent_dir`]); this remains only so the
+/// installed per-project (see [`corner_agent_dir`]); this remains only so the
 /// legacy global files can be located, backed up, and removed.
 pub fn opencode_agent_dir() -> Result<PathBuf> {
     let home = dirs::home_dir().context("Failed to get home directory")?;
     Ok(home.join(".config").join("opencode").join("agent"))
 }
 
-/// Path to a pocket's project-local OpenCode agent directory
-/// (`<pocket>/.opencode/agent`). OpenCode discovers agents here when the pocket
+/// Path to a corner's project-local OpenCode agent directory
+/// (`<corner>/.opencode/agent`). OpenCode discovers agents here when the corner
 /// is opened as a workspace, so no global installation is required.
-pub fn pocket_agent_dir(pocket_dir: &Path) -> PathBuf {
-    pocket_dir.join(".opencode").join("agent")
+pub fn corner_agent_dir(corner_dir: &Path) -> PathBuf {
+    corner_dir.join(".opencode").join("agent")
 }
 
 /// Load all unified agent definitions from the templates directory.
@@ -511,11 +511,11 @@ impl SyncReport {
     }
 }
 
-/// Synchronize the unified agents into a pocket's project-local OpenCode agent
-/// directory (`<pocket>/.opencode/agent`). This is the per-project replacement
+/// Synchronize the unified agents into a corner's project-local OpenCode agent
+/// directory (`<corner>/.opencode/agent`). This is the per-project replacement
 /// for the old global sync.
-pub fn sync_agents_into_pocket(pocket_dir: &Path) -> Result<SyncReport> {
-    sync_agents_into(&pocket_agent_dir(pocket_dir))
+pub fn sync_agents_into_corner(corner_dir: &Path) -> Result<SyncReport> {
+    sync_agents_into(&corner_agent_dir(corner_dir))
 }
 
 /// Synchronize the unified agents into `target_dir`, rendering each into the
@@ -776,10 +776,10 @@ mod tests {
     }
 
     #[test]
-    fn test_pocket_agent_dir_is_project_local() {
-        let pocket = Path::new("/home/user/.safe_pocket/abc123");
+    fn test_corner_agent_dir_is_project_local() {
+        let corner = Path::new("/home/user/.safe_pocket/abc123");
         assert_eq!(
-            pocket_agent_dir(pocket),
+            corner_agent_dir(corner),
             Path::new("/home/user/.safe_pocket/abc123/.opencode/agent")
         );
     }

@@ -25,7 +25,7 @@ pub struct Manifest {
     /// The original directory name hash. None means same as `hash`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub birth_hash: Option<String>,
-    /// Additional worktree directories that share this safe pocket.
+    /// Additional worktree directories that share this corner.
     /// Registered via `corner worktree add <path>`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub worktrees: Vec<PathBuf>,
@@ -36,12 +36,12 @@ fn default_version() -> u32 {
 }
 
 impl Manifest {
-    fn sanitize_core_paths(core_paths: Vec<PathBuf>, pocket_dir: &Path) -> Result<Vec<PathBuf>> {
+    fn sanitize_core_paths(core_paths: Vec<PathBuf>, corner_dir: &Path) -> Result<Vec<PathBuf>> {
         let storage_dirs = crate::branding::known_registry_roots()?;
 
         Ok(core_paths
             .into_iter()
-            .filter(|path| !path.starts_with(pocket_dir))
+            .filter(|path| !path.starts_with(corner_dir))
             .filter(|path| {
                 !storage_dirs
                     .iter()
@@ -56,7 +56,7 @@ impl Manifest {
         self.birth_hash.as_deref().unwrap_or(&self.hash)
     }
 
-    /// Create a fresh manifest for a new pocket.
+    /// Create a fresh manifest for a new corner.
     #[allow(dead_code)]
     pub fn new(hash: String, core_paths: Vec<PathBuf>) -> Self {
         Self::new_with_options(hash, core_paths, false)
@@ -102,17 +102,17 @@ impl Manifest {
         }
     }
 
-    /// Load manifest from a pocket directory. Returns None if no manifest exists (backwards compat).
-    pub fn load(pocket_dir: &Path) -> Result<Option<Self>> {
-        Self::load_with_registry_update(pocket_dir, true)
+    /// Load manifest from a corner directory. Returns None if no manifest exists (backwards compat).
+    pub fn load(corner_dir: &Path) -> Result<Option<Self>> {
+        Self::load_with_registry_update(corner_dir, true)
     }
 
-    pub(crate) fn load_without_registry_update(pocket_dir: &Path) -> Result<Option<Self>> {
-        Self::load_with_registry_update(pocket_dir, false)
+    pub(crate) fn load_without_registry_update(corner_dir: &Path) -> Result<Option<Self>> {
+        Self::load_with_registry_update(corner_dir, false)
     }
 
-    fn load_with_registry_update(pocket_dir: &Path, update_registry: bool) -> Result<Option<Self>> {
-        let manifest_path = pocket_dir.join(MANIFEST_FILE);
+    fn load_with_registry_update(corner_dir: &Path, update_registry: bool) -> Result<Option<Self>> {
+        let manifest_path = corner_dir.join(MANIFEST_FILE);
 
         if !manifest_path.exists() {
             return Ok(None);
@@ -123,13 +123,13 @@ impl Manifest {
         let mut manifest: Manifest =
             serde_json::from_str(&content).context("Failed to parse manifest file")?;
 
-        let sanitized_paths = Self::sanitize_core_paths(manifest.core_paths.clone(), pocket_dir)?;
+        let sanitized_paths = Self::sanitize_core_paths(manifest.core_paths.clone(), corner_dir)?;
         if sanitized_paths != manifest.core_paths {
             manifest.core_paths = sanitized_paths;
             if update_registry {
-                manifest.save(pocket_dir)?;
+                manifest.save(corner_dir)?;
             } else {
-                manifest.save_manifest_file(pocket_dir)?;
+                manifest.save_manifest_file(corner_dir)?;
             }
         }
 
@@ -137,14 +137,14 @@ impl Manifest {
     }
 
     /// Atomic write: write to tmp file then update the registry cache.
-    pub fn save(&self, pocket_dir: &Path) -> Result<()> {
-        self.save_manifest_file(pocket_dir)?;
-        crate::registry::upsert_pocket(pocket_dir, self)
+    pub fn save(&self, corner_dir: &Path) -> Result<()> {
+        self.save_manifest_file(corner_dir)?;
+        crate::registry::upsert_corner(corner_dir, self)
     }
 
-    fn save_manifest_file(&self, pocket_dir: &Path) -> Result<()> {
-        let manifest_path = pocket_dir.join(MANIFEST_FILE);
-        let tmp_path = pocket_dir.join(MANIFEST_TMP);
+    fn save_manifest_file(&self, corner_dir: &Path) -> Result<()> {
+        let manifest_path = corner_dir.join(MANIFEST_FILE);
+        let tmp_path = corner_dir.join(MANIFEST_TMP);
 
         let content = serde_json::to_string_pretty(self).context("Failed to serialize manifest")?;
 
@@ -179,8 +179,8 @@ impl Manifest {
     }
 
     /// Update paths in-place. Sets birth_hash on first change, updates hash and augmented_from.
-    /// The pocket directory stays put — only the manifest is rewritten.
-    pub fn update_paths(&mut self, new_core_paths: Vec<PathBuf>, pocket_dir: &Path) -> Result<()> {
+    /// The corner directory stays put — only the manifest is rewritten.
+    pub fn update_paths(&mut self, new_core_paths: Vec<PathBuf>, corner_dir: &Path) -> Result<()> {
         if new_core_paths.is_empty() {
             bail!("Refusing to update manifest with zero project paths");
         }
@@ -199,26 +199,26 @@ impl Manifest {
         }
 
         self.hash = new_hash;
-        self.save(pocket_dir)
+        self.save(corner_dir)
     }
 
-    /// Backfill a manifest for an existing pocket that has no manifest.
+    /// Backfill a manifest for an existing corner that has no manifest.
     /// Recovers metadata from the workspace file (for paths) and dir mtime (for timestamp).
-    pub fn backfill(pocket_dir: &Path, hash: &str) -> Result<Self> {
-        Self::backfill_with_registry_update(pocket_dir, hash, true)
+    pub fn backfill(corner_dir: &Path, hash: &str) -> Result<Self> {
+        Self::backfill_with_registry_update(corner_dir, hash, true)
     }
 
-    pub(crate) fn backfill_without_registry_update(pocket_dir: &Path, hash: &str) -> Result<Self> {
-        Self::backfill_with_registry_update(pocket_dir, hash, false)
+    pub(crate) fn backfill_without_registry_update(corner_dir: &Path, hash: &str) -> Result<Self> {
+        Self::backfill_with_registry_update(corner_dir, hash, false)
     }
 
     fn backfill_with_registry_update(
-        pocket_dir: &Path,
+        corner_dir: &Path,
         hash: &str,
         update_registry: bool,
     ) -> Result<Self> {
         // Try to read core_paths from the workspace file
-        let workspace_file = pocket_dir.join(format!("{}.code-workspace", hash));
+        let workspace_file = corner_dir.join(format!("{}.code-workspace", hash));
         let core_paths = if workspace_file.exists() {
             let content = fs::read_to_string(&workspace_file)
                 .context("Failed to read workspace file for backfill")?;
@@ -233,7 +233,7 @@ impl Manifest {
                     .map(PathBuf::from)
                     .collect();
 
-                Self::sanitize_core_paths(raw_paths, pocket_dir)?
+                Self::sanitize_core_paths(raw_paths, corner_dir)?
             } else {
                 Vec::new()
             }
@@ -242,7 +242,7 @@ impl Manifest {
         };
 
         // Use directory mtime as created_at
-        let created_at = if let Ok(metadata) = fs::metadata(pocket_dir) {
+        let created_at = if let Ok(metadata) = fs::metadata(corner_dir) {
             if let Ok(modified) = metadata.modified() {
                 DateTime::<Utc>::from(modified)
             } else {
@@ -266,9 +266,9 @@ impl Manifest {
         };
 
         if update_registry {
-            manifest.save(pocket_dir)?;
+            manifest.save(corner_dir)?;
         } else {
-            manifest.save_manifest_file(pocket_dir)?;
+            manifest.save_manifest_file(corner_dir)?;
         }
 
         Ok(manifest)

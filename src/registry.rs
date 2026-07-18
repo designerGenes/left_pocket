@@ -27,13 +27,15 @@ pub struct RegistryCache {
     pub version: u32,
     #[serde(default = "now")]
     pub generated_at: DateTime<Utc>,
-    #[serde(default)]
-    pub pockets: Vec<RegistryEntry>,
+    // Caches written before the pocket->corner rename used the "pockets" key;
+    // accept it so an existing registry_cache.json still parses.
+    #[serde(default, alias = "pockets")]
+    pub corners: Vec<RegistryEntry>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RegistryEntry {
-    /// Stable pocket id, derived from the directory name under `~/.safe_pocket`.
+    /// Stable corner id, derived from the directory name under `~/.safe_pocket`.
     pub hash: String,
     /// Current manifest hash. This can differ after sync/augment updates paths in place.
     pub manifest_hash: String,
@@ -68,7 +70,7 @@ impl Default for RegistryCache {
         Self {
             version: CACHE_VERSION,
             generated_at: Utc::now(),
-            pockets: Vec::new(),
+            corners: Vec::new(),
         }
     }
 }
@@ -91,14 +93,14 @@ pub fn registry_root() -> Result<PathBuf> {
 
 pub fn registry_dir() -> Result<PathBuf> {
     let dir = registry_root()?;
-    fs::create_dir_all(&dir).context("Failed to create pocket registry directory")?;
+    fs::create_dir_all(&dir).context("Failed to create corner registry directory")?;
     ensure_registry_git_state_from(&dir)?;
     Ok(dir)
 }
 
 pub fn current_registry_dir() -> Result<PathBuf> {
     let dir = crate::branding::current_registry_root()?;
-    fs::create_dir_all(&dir).context("Failed to create primary pocket registry directory")?;
+    fs::create_dir_all(&dir).context("Failed to create primary corner registry directory")?;
     ensure_registry_git_state_from(&dir)?;
     Ok(dir)
 }
@@ -116,7 +118,7 @@ pub fn sync_registry_git_state() -> Result<usize> {
 
 pub fn temporary_registry_dir() -> Result<PathBuf> {
     let dir = registry_dir()?.join(TEMPORARY_DIR);
-    fs::create_dir_all(&dir).context("Failed to create temporary pocket directory")?;
+    fs::create_dir_all(&dir).context("Failed to create temporary corner directory")?;
     Ok(dir)
 }
 
@@ -156,8 +158,8 @@ fn cache_tmp_path_for(root: &Path) -> PathBuf {
     root.join(CACHE_TMP)
 }
 
-pub fn is_registry_pocket_dir(pocket_dir: &Path) -> Result<bool> {
-    let parent = match pocket_dir.parent() {
+pub fn is_registry_corner_dir(corner_dir: &Path) -> Result<bool> {
+    let parent = match corner_dir.parent() {
         Some(parent) => parent,
         None => return Ok(false),
     };
@@ -184,9 +186,9 @@ pub fn load_cache_or_rebuild() -> Result<RegistryCache> {
 
         any_existing_root = true;
         let cache = load_cache_or_rebuild_from(&root)?;
-        for entry in cache.pockets {
+        for entry in cache.corners {
             if seen_paths.insert(entry.path.clone()) {
-                merged.pockets.push(entry);
+                merged.corners.push(entry);
             }
         }
     }
@@ -210,19 +212,19 @@ fn load_cache_or_rebuild_from(root: &Path) -> Result<RegistryCache> {
         Err(_) => return rebuild_cache_from(root),
     };
 
-    let before = cache.pockets.len();
-    cache.pockets.retain(|entry| entry.path.is_dir());
-    sort_entries(&mut cache.pockets);
+    let before = cache.corners.len();
+    cache.corners.retain(|entry| entry.path.is_dir());
+    sort_entries(&mut cache.corners);
 
     // A whole-root rename (for example ~/.safe_pocket -> ~/.corner) can leave a
     // cache file in place whose entries all point at paths that no longer
-    // exist. If the root still contains pocket directories, rebuild instead of
+    // exist. If the root still contains corner directories, rebuild instead of
     // persisting an empty cache.
-    if cache.pockets.is_empty() && before > 0 && root_has_pocket_dirs(root)? {
+    if cache.corners.is_empty() && before > 0 && root_has_corner_dirs(root)? {
         return rebuild_cache_from(root);
     }
 
-    if cache.pockets.len() != before {
+    if cache.corners.len() != before {
         cache.generated_at = Utc::now();
         write_cache_to(root, &cache)?;
     }
@@ -231,36 +233,36 @@ fn load_cache_or_rebuild_from(root: &Path) -> Result<RegistryCache> {
 }
 
 fn rebuild_cache_from(root: &Path) -> Result<RegistryCache> {
-    fs::create_dir_all(root).context("Failed to create pocket registry directory")?;
+    fs::create_dir_all(root).context("Failed to create corner registry directory")?;
 
     let mut cache = RegistryCache::default();
-    collect_pockets_from_dir(root, &mut cache)?;
+    collect_corners_from_dir(root, &mut cache)?;
 
     let temporary_root = root.join(TEMPORARY_DIR);
     if temporary_root.exists() {
-        collect_pockets_from_dir(&temporary_root, &mut cache)?;
+        collect_corners_from_dir(&temporary_root, &mut cache)?;
     }
 
-    sort_entries(&mut cache.pockets);
+    sort_entries(&mut cache.corners);
     write_cache_to(root, &cache)?;
     Ok(cache)
 }
 
-pub fn upsert_pocket(pocket_dir: &Path, manifest: &Manifest) -> Result<()> {
-    if !is_registry_pocket_dir(pocket_dir)? {
+pub fn upsert_corner(corner_dir: &Path, manifest: &Manifest) -> Result<()> {
+    if !is_registry_corner_dir(corner_dir)? {
         return Ok(());
     }
 
     let root = registry_dir()?;
     ensure_registry_git_state_from(&root)?;
     let mut cache = load_cache_or_rebuild_from(&root)?;
-    let entry = entry_from_manifest(pocket_dir, manifest);
+    let entry = entry_from_manifest(corner_dir, manifest);
 
     cache
-        .pockets
+        .corners
         .retain(|existing| existing.path != entry.path && existing.hash != entry.hash);
-    cache.pockets.push(entry);
-    sort_entries(&mut cache.pockets);
+    cache.corners.push(entry);
+    sort_entries(&mut cache.corners);
     cache.generated_at = Utc::now();
 
     write_cache_to(&root, &cache)?;
@@ -268,18 +270,18 @@ pub fn upsert_pocket(pocket_dir: &Path, manifest: &Manifest) -> Result<()> {
     Ok(())
 }
 
-pub fn remove_pocket(pocket_dir: &Path) -> Result<()> {
-    if !is_registry_pocket_dir(pocket_dir)? {
+pub fn remove_corner(corner_dir: &Path) -> Result<()> {
+    if !is_registry_corner_dir(corner_dir)? {
         return Ok(());
     }
 
     let root = registry_dir()?;
     ensure_registry_git_state_from(&root)?;
     let mut cache = load_cache_or_rebuild_from(&root)?;
-    let before = cache.pockets.len();
-    cache.pockets.retain(|entry| entry.path != pocket_dir);
+    let before = cache.corners.len();
+    cache.corners.retain(|entry| entry.path != corner_dir);
 
-    if cache.pockets.len() != before {
+    if cache.corners.len() != before {
         cache.generated_at = Utc::now();
         write_cache_to(&root, &cache)?;
     }
@@ -294,7 +296,7 @@ pub fn move_to_unhoused(path: &Path, operation: &str) -> Result<Option<PathBuf>>
         .find(|root| path.starts_with(root))
         .ok_or_else(|| {
             anyhow::anyhow!(
-                "Refusing to move path outside known pocket roots: {}",
+                "Refusing to move path outside known corner roots: {}",
                 path.display()
             )
         })?;
@@ -321,7 +323,7 @@ pub fn move_to_unhoused(path: &Path, operation: &str) -> Result<Option<PathBuf>>
     }
     fs::rename(path, &target).with_context(|| {
         format!(
-            "Failed to move pocket content to unhoused: {} -> {}",
+            "Failed to move corner content to unhoused: {} -> {}",
             path.display(),
             target.display()
         )
@@ -364,7 +366,7 @@ fn read_cache_from(root: &Path) -> Result<RegistryCache> {
 }
 
 fn write_cache_to(root: &Path, cache: &RegistryCache) -> Result<()> {
-    fs::create_dir_all(root).context("Failed to create pocket registry directory")?;
+    fs::create_dir_all(root).context("Failed to create corner registry directory")?;
     let content =
         serde_json::to_string_pretty(cache).context("Failed to serialize registry cache")?;
     let tmp_path = cache_tmp_path_for(root);
@@ -373,8 +375,8 @@ fn write_cache_to(root: &Path, cache: &RegistryCache) -> Result<()> {
     Ok(())
 }
 
-fn entry_from_manifest(pocket_dir: &Path, manifest: &Manifest) -> RegistryEntry {
-    let hash = pocket_dir
+fn entry_from_manifest(corner_dir: &Path, manifest: &Manifest) -> RegistryEntry {
+    let hash = corner_dir
         .file_name()
         .and_then(|name| name.to_str())
         .unwrap_or(&manifest.hash)
@@ -383,7 +385,7 @@ fn entry_from_manifest(pocket_dir: &Path, manifest: &Manifest) -> RegistryEntry 
     RegistryEntry {
         hash,
         manifest_hash: manifest.hash.clone(),
-        path: pocket_dir.to_path_buf(),
+        path: corner_dir.to_path_buf(),
         created_at: manifest.created_at,
         temporary: manifest.temporary,
         core_paths: manifest.core_paths.clone(),
@@ -400,31 +402,31 @@ fn sort_entries(entries: &mut [RegistryEntry]) {
     entries.sort_by(|a, b| a.hash.cmp(&b.hash));
 }
 
-fn collect_pockets_from_dir(root: &Path, cache: &mut RegistryCache) -> Result<()> {
-    for entry in fs::read_dir(root).context("Failed to read pocket registry directory")? {
+fn collect_corners_from_dir(root: &Path, cache: &mut RegistryCache) -> Result<()> {
+    for entry in fs::read_dir(root).context("Failed to read corner registry directory")? {
         let entry = entry?;
-        let pocket_dir = entry.path();
+        let corner_dir = entry.path();
 
-        if !pocket_dir.is_dir() || is_reserved_registry_dir(&pocket_dir) {
+        if !corner_dir.is_dir() || is_reserved_registry_dir(&corner_dir) {
             continue;
         }
 
-        let dir_name = match pocket_dir.file_name().and_then(|n| n.to_str()) {
+        let dir_name = match corner_dir.file_name().and_then(|n| n.to_str()) {
             Some(name) => name.to_string(),
             None => continue,
         };
 
-        let manifest = match Manifest::load_without_registry_update(&pocket_dir)? {
+        let manifest = match Manifest::load_without_registry_update(&corner_dir)? {
             Some(manifest) => manifest,
-            None if has_workspace_file(&pocket_dir, &dir_name) => {
-                Manifest::backfill_without_registry_update(&pocket_dir, &dir_name)?
+            None if has_workspace_file(&corner_dir, &dir_name) => {
+                Manifest::backfill_without_registry_update(&corner_dir, &dir_name)?
             }
             None => continue,
         };
 
         cache
-            .pockets
-            .push(entry_from_manifest(&pocket_dir, &manifest));
+            .corners
+            .push(entry_from_manifest(&corner_dir, &manifest));
     }
 
     Ok(())
@@ -437,8 +439,8 @@ fn is_reserved_registry_dir(path: &Path) -> bool {
     )
 }
 
-fn root_has_pocket_dirs(root: &Path) -> Result<bool> {
-    for entry in fs::read_dir(root).context("Failed to read pocket registry directory")? {
+fn root_has_corner_dirs(root: &Path) -> Result<bool> {
+    for entry in fs::read_dir(root).context("Failed to read corner registry directory")? {
         let entry = entry?;
         let path = entry.path();
         if path.is_dir() && !is_reserved_registry_dir(&path) {
@@ -449,7 +451,7 @@ fn root_has_pocket_dirs(root: &Path) -> Result<bool> {
 }
 
 fn ensure_registry_git_state_from(root: &Path) -> Result<()> {
-    fs::create_dir_all(root).context("Failed to create pocket registry root")?;
+    fs::create_dir_all(root).context("Failed to create corner registry root")?;
 
     if !root.join(".git").exists() {
         let output = Command::new("git")
@@ -527,12 +529,18 @@ fn ensure_registry_pre_commit_hook(root: &Path) -> Result<()> {
 
 fn sync_registry_snapshot_from(root: &Path) -> Result<usize> {
     let snapshots_root = root.join(SNAPSHOTS_DIR);
-    let pockets_root = snapshots_root.join("pockets");
+    let corners_root = snapshots_root.join("corners");
     let temporary_root = snapshots_root.join(TEMPORARY_DIR);
-    fs::create_dir_all(&pockets_root).with_context(|| {
+    // Snapshot trees written before the pocket->corner rename live under
+    // snapshots/pockets; drop the stale tree so only corners/ remains.
+    let legacy_snapshots = snapshots_root.join("pockets");
+    if legacy_snapshots.exists() {
+        let _ = fs::remove_dir_all(&legacy_snapshots);
+    }
+    fs::create_dir_all(&corners_root).with_context(|| {
         format!(
             "Failed to create snapshots directory: {}",
-            pockets_root.display()
+            corners_root.display()
         )
     })?;
     fs::create_dir_all(&temporary_root).with_context(|| {
@@ -545,7 +553,7 @@ fn sync_registry_snapshot_from(root: &Path) -> Result<usize> {
     let mut expected = Vec::new();
     let mut count = 0;
 
-    for entry in fs::read_dir(root).context("Failed to read pocket registry root")? {
+    for entry in fs::read_dir(root).context("Failed to read corner registry root")? {
         let entry = entry?;
         let path = entry.path();
         if !path.is_dir()
@@ -559,7 +567,7 @@ fn sync_registry_snapshot_from(root: &Path) -> Result<usize> {
             Some(name) => name,
             None => continue,
         };
-        let target = pockets_root.join(name);
+        let target = corners_root.join(name);
         mirror_snapshot_dir(&path, &target)?;
         expected.push(target);
         count += 1;
@@ -569,7 +577,7 @@ fn sync_registry_snapshot_from(root: &Path) -> Result<usize> {
     if temporary_source.exists() {
         for entry in fs::read_dir(&temporary_source).with_context(|| {
             format!(
-                "Failed to read temporary pockets: {}",
+                "Failed to read temporary corners: {}",
                 temporary_source.display()
             )
         })? {
@@ -590,7 +598,7 @@ fn sync_registry_snapshot_from(root: &Path) -> Result<usize> {
         }
     }
 
-    prune_stale_snapshot_children(&pockets_root, &expected)?;
+    prune_stale_snapshot_children(&corners_root, &expected)?;
     prune_stale_snapshot_children(&temporary_root, &expected)?;
 
     Ok(count)
@@ -641,7 +649,7 @@ fn copy_file_for_snapshot(src: &Path, dst: &Path) -> Result<()> {
     if metadata.len() as usize <= SNAPSHOT_CHUNK_SIZE {
         fs::copy(src, dst).with_context(|| {
             format!(
-                "Failed to copy pocket content into snapshot: {} -> {}",
+                "Failed to copy corner content into snapshot: {} -> {}",
                 src.display(),
                 dst.display()
             )
@@ -710,12 +718,12 @@ fn prune_stale_snapshot_children(root: &Path, expected: &[PathBuf]) -> Result<()
     Ok(())
 }
 
-fn has_workspace_file(pocket_dir: &Path, hash: &str) -> bool {
-    if pocket_dir.join(format!("{}.code-workspace", hash)).exists() {
+fn has_workspace_file(corner_dir: &Path, hash: &str) -> bool {
+    if corner_dir.join(format!("{}.code-workspace", hash)).exists() {
         return true;
     }
 
-    fs::read_dir(pocket_dir)
+    fs::read_dir(corner_dir)
         .map(|entries| {
             entries.flatten().any(|entry| {
                 entry.path().extension().and_then(|ext| ext.to_str()) == Some("code-workspace")
@@ -753,21 +761,21 @@ mod tests {
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(&root).unwrap();
 
-        let pocket_dir = root.join("abc123");
-        fs::create_dir_all(&pocket_dir).unwrap();
+        let corner_dir = root.join("abc123");
+        fs::create_dir_all(&corner_dir).unwrap();
         let mut manifest = Manifest::new("manifest_hash".to_string(), vec![PathBuf::from("/p")]);
         manifest.worktrees.push(PathBuf::from("/p-worktree"));
-        manifest.save(&pocket_dir).unwrap();
+        manifest.save(&corner_dir).unwrap();
 
         let cache = rebuild_cache_from(&root).unwrap();
 
-        assert_eq!(cache.pockets.len(), 1);
-        assert_eq!(cache.pockets[0].hash, "abc123");
-        assert_eq!(cache.pockets[0].manifest_hash, "manifest_hash");
-        assert_eq!(cache.pockets[0].path, pocket_dir);
-        assert_eq!(cache.pockets[0].core_paths, vec![PathBuf::from("/p")]);
+        assert_eq!(cache.corners.len(), 1);
+        assert_eq!(cache.corners[0].hash, "abc123");
+        assert_eq!(cache.corners[0].manifest_hash, "manifest_hash");
+        assert_eq!(cache.corners[0].path, corner_dir);
+        assert_eq!(cache.corners[0].core_paths, vec![PathBuf::from("/p")]);
         assert_eq!(
-            cache.pockets[0].worktrees,
+            cache.corners[0].worktrees,
             vec![PathBuf::from("/p-worktree")]
         );
 
@@ -775,13 +783,13 @@ mod tests {
     }
 
     #[test]
-    fn test_cache_load_prunes_deleted_pockets() {
+    fn test_cache_load_prunes_deleted_corners() {
         let root = std::env::temp_dir().join("spocket_registry_prune_test");
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(&root).unwrap();
 
         let cache = RegistryCache {
-            pockets: vec![RegistryEntry {
+            corners: vec![RegistryEntry {
                 hash: "missing".to_string(),
                 manifest_hash: "missing".to_string(),
                 path: root.join("missing"),
@@ -800,30 +808,30 @@ mod tests {
         write_cache_to(&root, &cache).unwrap();
 
         let loaded = load_cache_or_rebuild_from(&root).unwrap();
-        assert!(loaded.pockets.is_empty());
+        assert!(loaded.corners.is_empty());
 
         let _ = fs::remove_dir_all(&root);
     }
 
     #[test]
-    fn test_rebuild_cache_includes_temporary_pockets() {
+    fn test_rebuild_cache_includes_temporary_corners() {
         let root = std::env::temp_dir().join("spocket_registry_temporary_test");
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(root.join("temporary")).unwrap();
 
-        let pocket_dir = root.join("temporary").join("temp123");
-        fs::create_dir_all(&pocket_dir).unwrap();
+        let corner_dir = root.join("temporary").join("temp123");
+        fs::create_dir_all(&corner_dir).unwrap();
         let manifest = Manifest::new_with_options(
             "manifest_hash".to_string(),
             vec![PathBuf::from("/tmp/project")],
             true,
         );
-        manifest.save(&pocket_dir).unwrap();
+        manifest.save(&corner_dir).unwrap();
 
         let cache = rebuild_cache_from(&root).unwrap();
-        assert_eq!(cache.pockets.len(), 1);
-        assert!(cache.pockets[0].temporary);
-        assert_eq!(cache.pockets[0].path, pocket_dir);
+        assert_eq!(cache.corners.len(), 1);
+        assert!(cache.corners[0].temporary);
+        assert_eq!(cache.corners[0].path, corner_dir);
 
         let _ = fs::remove_dir_all(&root);
     }
@@ -840,7 +848,7 @@ mod tests {
             .unwrap();
 
         let cache = rebuild_cache_from(&root).unwrap();
-        assert!(cache.pockets.is_empty());
+        assert!(cache.corners.is_empty());
 
         let _ = fs::remove_dir_all(&root);
     }
@@ -851,14 +859,14 @@ mod tests {
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(&root).unwrap();
 
-        let pocket_dir = root.join("abc123");
-        fs::create_dir_all(pocket_dir.join(".git")).unwrap();
-        fs::write(pocket_dir.join("file.txt"), "hello").unwrap();
+        let corner_dir = root.join("abc123");
+        fs::create_dir_all(corner_dir.join(".git")).unwrap();
+        fs::write(corner_dir.join("file.txt"), "hello").unwrap();
 
         let count = sync_registry_snapshot_from(&root).unwrap();
         assert_eq!(count, 1);
 
-        let snapshot = root.join("snapshots").join("pockets").join("abc123");
+        let snapshot = root.join("snapshots").join("corners").join("abc123");
         assert!(snapshot.join("file.txt").is_file());
         assert!(!snapshot.join(".git").exists());
 
@@ -871,16 +879,16 @@ mod tests {
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(&root).unwrap();
 
-        let pocket_dir = root.join("abc123");
-        fs::create_dir_all(&pocket_dir).unwrap();
-        let target = pocket_dir.join("large.bin");
+        let corner_dir = root.join("abc123");
+        fs::create_dir_all(&corner_dir).unwrap();
+        let target = corner_dir.join("large.bin");
         let bytes = vec![7u8; SNAPSHOT_CHUNK_SIZE + 32];
         fs::write(&target, bytes).unwrap();
 
         let count = sync_registry_snapshot_from(&root).unwrap();
         assert_eq!(count, 1);
 
-        let snapshot_dir = root.join("snapshots").join("pockets").join("abc123");
+        let snapshot_dir = root.join("snapshots").join("corners").join("abc123");
         assert!(!snapshot_dir.join("large.bin").exists());
         assert!(snapshot_dir.join("large.bin.part0001").is_file());
         assert!(snapshot_dir.join("large.bin.part0002").is_file());

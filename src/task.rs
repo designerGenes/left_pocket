@@ -3,10 +3,10 @@
 //!
 //! Tasks are stored in a single global database at
 //! `$HOME/.corner/global_data/tasks.db` (with fallback to legacy roots). Each task
-//! is associated with a pocket via a *prefix* derived from the pocket directory's
+//! is associated with a corner via a *prefix* derived from the corner directory's
 //! name (the same short id used everywhere else). Task ids look like
 //! `27472722730d-AB12CD`, so they sort and group naturally by project and never
-//! collide across pockets.
+//! collide across corners.
 //!
 //! The CLI surface (`corner task …`) is intentionally small and Jira-like:
 //!
@@ -142,13 +142,13 @@ fn row_to_task(row: &rusqlite::Row) -> rusqlite::Result<Task> {
 
 // ── Prefix derivation ─────────────────────────────────────────────────────────
 
-/// Derive the task prefix (pocket directory name) for a starting path.
+/// Derive the task prefix (corner directory name) for a starting path.
 ///
 /// Resolution order:
-/// 1. If `start` lives inside a known pocket root such as `~/.corner/<hash>/…`
+/// 1. If `start` lives inside a known corner root such as `~/.corner/<hash>/…`
 ///    (or `.../temporary/<hash>/…`), the `<hash>` is the prefix.
-/// 2. Otherwise ask the workspace registry which pocket owns `start`, covering
-///    both project directories and pocket directories.
+/// 2. Otherwise ask the workspace registry which corner owns `start`, covering
+///    both project directories and corner directories.
 /// 3. Finally walk up from `start` looking for a `.env` file containing
 ///    `CORNER_ROOT=<path>` or legacy `SPOCKET_ROOT=<path>`; the basename of that
 ///    path is the prefix.
@@ -179,7 +179,7 @@ pub fn detect_prefix(start: &Path) -> Result<String> {
     }
 
     // 2. Bridge through the registry/cache. This lets `corner task` work the
-    // same from either the project folder or its pocket folder.
+    // same from either the project folder or its corner folder.
     if let Ok(Some(workspace)) = crate::workspace::Workspace::find_workspace_for_cwd(&start) {
         if !workspace.hash.is_empty() {
             return Ok(workspace.hash);
@@ -208,7 +208,7 @@ pub fn detect_prefix(start: &Path) -> Result<String> {
     }
 
     bail!(
-        "Could not determine which pocket this directory belongs to.\n\
+        "Could not determine which corner this directory belongs to.\n\
          Run `corner task …` from inside a registered project (one whose .env\n\
          contains CORNER_ROOT or SPOCKET_ROOT) or pass --project <path>."
     )
@@ -478,7 +478,7 @@ pub fn log_task(conn: &Connection, id: &str, notes: &str) -> Result<()> {
 
 /// Re-point every task from `old` prefix to `new`, rewriting both the `prefix`
 /// column and the leading `<old>-` of each task id. Returns the number of tasks
-/// updated. Used when a safe pocket's directory name changes.
+/// updated. Used when a corner's directory name changes.
 pub fn reprefix(conn: &Connection, old: &str, new: &str) -> Result<usize> {
     if old == new {
         return Ok(0);
@@ -507,16 +507,16 @@ pub fn reprefix(conn: &Connection, old: &str, new: &str) -> Result<usize> {
     Ok(updated)
 }
 
-/// Reprefix tasks in the global database when a safe pocket's directory name
-/// changes (e.g. after `heal` renames the pocket). This is a no-op when the
+/// Reprefix tasks in the global database when a corner's directory name
+/// changes (e.g. after `heal` renames the corner). This is a no-op when the
 /// names match or when no database exists yet, so it is safe to call
-/// unconditionally from pocket-mutating commands. Returns the number of tasks
+/// unconditionally from corner-mutating commands. Returns the number of tasks
 /// migrated.
 pub fn reprefix_global(old: &str, new: &str) -> Result<usize> {
     if old == new || old.is_empty() || new.is_empty() {
         return Ok(0);
     }
-    // Don't create the database just to migrate a pocket that has no tasks.
+    // Don't create the database just to migrate a corner that has no tasks.
     let path = database_path()?;
     if !path.exists() {
         return Ok(0);

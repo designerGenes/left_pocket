@@ -21,27 +21,27 @@ use std::path::{Path, PathBuf};
 //   `$HOME/.config/safe_pocket/directory_structure.yaml`).
 // - All other files are *staged verbatim* under
 //   `$HOME/.config/safe_pocket/templates/<relative_path>` so the runtime
-//   template loader can parse and apply them to individual pockets.
+//   template loader can parse and apply them to individual corners.
 include!(concat!(env!("OUT_DIR"), "/embedded_templates.rs"));
 
 // ── Template variables ───────────────────────────────────────────────────────
 
 /// Context needed to expand template variables.
 pub struct TemplateContext {
-    /// Absolute path to the safe pocket root (e.g. `~/.safe_pocket/19930adf3aaa`).
+    /// Absolute path to the corner root (e.g. `~/.safe_pocket/19930adf3aaa`).
     pub spocket_root: PathBuf,
     /// Absolute path to the primary project directory.
     pub project_root: PathBuf,
-    /// Short name of the safe pocket (the directory basename / hash).
+    /// Short name of the corner (the directory basename / hash).
     pub spocket_name: String,
     /// Absolute path to the global observations directory (`~/.safe_pocket/observations`).
     pub global_observations_path: PathBuf,
-    /// Absolute path to the safe pocket config directory (`$HOME/.config/safe_pocket`).
+    /// Absolute path to the corner config directory (`$HOME/.config/safe_pocket`).
     pub config_root: PathBuf,
 }
 
 /// Legacy markers for the old Beads integration block. Retained only so that
-/// pockets created before the built-in task tracker can have the stale block
+/// corners created before the built-in task tracker can have the stale block
 /// stripped out on their next runtime merge. Nothing new is ever written with
 /// these markers.
 const LEGACY_BEADS_BEGIN_MARKER: &str = "<!-- BEGIN BEADS INTEGRATION -->";
@@ -59,9 +59,9 @@ tracker. Do NOT use markdown TODO lists or external issue trackers — use
 ### Why `corner task`?
 
 - Fast: backed by a local SQLite database, no network or daemon required.
-- Shared: every agent on this pocket sees the same task list.
+- Shared: every agent on this corner sees the same task list.
 - Scoped: tasks are grouped per project by a prefix derived automatically from
-  the pocket — just run the commands from inside the project directory.
+  the corner — just run the commands from inside the project directory.
 
 ### Quick reference
 
@@ -138,14 +138,14 @@ pub fn expand_variables(text: &str, ctx: &TemplateContext) -> String {
 }
 
 /// Token marking a destination/content as resolvable at install time (before any
-/// pocket exists), using only the two install-known roots.
+/// corner exists), using only the two install-known roots.
 const CONFIG_ROOT_TOKEN: &str = "{{SPOCKET_CONFIG_ROOT}}";
 const CORNER_CONFIG_ROOT_TOKEN: &str = "{{CORNER_CONFIG_ROOT}}";
 const REGISTRY_ROOT_TOKEN: &str = "{{SPOCKET_REGISTRY_ROOT}}";
 const CORNER_REGISTRY_ROOT_TOKEN: &str = "{{CORNER_REGISTRY_ROOT}}";
 
 /// Expand only the two install-known roots (`{{SPOCKET_CONFIG_ROOT}}` and
-/// `{{SPOCKET_REGISTRY_ROOT}}`). Pocket-level variables such as
+/// `{{SPOCKET_REGISTRY_ROOT}}`). Corner-level variables such as
 /// `{{SPOCKET_ROOT}}` are intentionally left untouched so that literal examples
 /// embedded in interpreted files (e.g. feature-tag descriptions) survive.
 fn expand_install_roots(text: &str, config_root: &Path, registry_root: &Path) -> String {
@@ -198,7 +198,7 @@ fn expand_template_content(content: &str, ctx: &TemplateContext) -> String {
 /// A single parsed template file.
 #[derive(Debug, Clone)]
 pub struct Template {
-    /// Relative destination path inside the pocket (after variable expansion).
+    /// Relative destination path inside the corner (after variable expansion).
     pub destination: String,
     /// File content (everything after the metadata lines, with `#SPOCKET` lines stripped).
     pub content: String,
@@ -507,7 +507,7 @@ pub fn install_default_assets_to_current_roots() -> Result<()> {
 ///   `<config_dir>/templates/<relative_path>` so the runtime loader can find it.
 ///
 /// `#SPOCKET_TEMPLATE_DESTINATION` directives are always **left intact** in the
-/// placed file — they are consumed later, at runtime, when a new pocket is
+/// placed file — they are consumed later, at runtime, when a new corner is
 /// created.
 pub fn install_embedded_templates(config_dir: &Path, registry_root: &Path) -> Result<()> {
     for (rel, content) in EMBEDDED_TEMPLATES {
@@ -626,7 +626,7 @@ pub fn load_templates() -> Result<Vec<Template>> {
 
             if path.is_dir() {
                 // The `agents/` subdirectory holds unified agent definitions
-                // (synced via `spocket sync agents`), not pocket templates.
+                // (synced via `spocket sync agents`), not corner templates.
                 if path.file_name().map_or(false, |n| n == "agents") {
                     continue;
                 }
@@ -901,13 +901,13 @@ pub fn strip_runtime_content(dest_path: &Path) -> Result<bool> {
     Ok(true)
 }
 
-pub fn apply_merge_at_runtime(pocket_dir: &Path, ctx: &TemplateContext) -> Result<usize> {
+pub fn apply_merge_at_runtime(corner_dir: &Path, ctx: &TemplateContext) -> Result<usize> {
     let templates = load_templates()?;
     let mut count = 0;
 
     for tmpl in &templates {
         let dest_rel = expand_variables(&tmpl.destination, ctx);
-        let dest_path = resolve_template_destination(&dest_rel, pocket_dir, ctx);
+        let dest_path = resolve_template_destination(&dest_rel, corner_dir, ctx);
 
         match expand_runtime_variables_in_file(&dest_path, ctx) {
             Ok(true) => {
@@ -934,7 +934,7 @@ pub fn apply_merge_at_runtime(pocket_dir: &Path, ctx: &TemplateContext) -> Resul
     for tmpl in templates.iter().filter(|t| t.merge_at_runtime) {
         let dest_rel = expand_variables(&tmpl.destination, ctx);
         let content = runtime_content_for_template(tmpl, ctx);
-        let dest_path = resolve_template_destination(&dest_rel, pocket_dir, ctx);
+        let dest_path = resolve_template_destination(&dest_rel, corner_dir, ctx);
 
         match inject_runtime_content(&dest_path, &content) {
             Ok(true) => {
@@ -962,13 +962,13 @@ pub fn apply_merge_at_runtime(pocket_dir: &Path, ctx: &TemplateContext) -> Resul
     Ok(count)
 }
 
-pub fn strip_merge_at_runtime(pocket_dir: &Path, ctx: &TemplateContext) -> Result<usize> {
+pub fn strip_merge_at_runtime(corner_dir: &Path, ctx: &TemplateContext) -> Result<usize> {
     let templates = load_templates()?;
     let mut count = 0;
 
     for tmpl in templates.iter().filter(|t| t.merge_at_runtime) {
         let dest_rel = expand_variables(&tmpl.destination, ctx);
-        let dest_path = resolve_template_destination(&dest_rel, pocket_dir, ctx);
+        let dest_path = resolve_template_destination(&dest_rel, corner_dir, ctx);
 
         match strip_runtime_content(&dest_path) {
             Ok(true) => {
@@ -996,7 +996,7 @@ pub fn strip_merge_at_runtime(pocket_dir: &Path, ctx: &TemplateContext) -> Resul
     Ok(count)
 }
 
-// ── Apply templates to a pocket ──────────────────────────────────────────────
+// ── Apply templates to a corner ──────────────────────────────────────────────
 
 /// Merge template content into existing file content.
 ///
@@ -1044,7 +1044,7 @@ pub fn merge_content(existing: &str, new_content: &str) -> String {
     result
 }
 
-/// Apply all loaded templates to a pocket directory.
+/// Apply all loaded templates to a corner directory.
 ///
 /// - Creates directories from the directory structure.
 /// - Expands template variables and writes files.
@@ -1053,13 +1053,13 @@ pub fn merge_content(existing: &str, new_content: &str) -> String {
 ///
 /// Returns the number of files written.
 pub fn apply_templates(
-    pocket_dir: &Path,
+    corner_dir: &Path,
     ctx: &TemplateContext,
     project_dir: Option<&Path>,
     interactive: bool,
 ) -> Result<usize> {
     apply_templates_with_mode(
-        pocket_dir,
+        corner_dir,
         ctx,
         project_dir,
         interactive,
@@ -1068,7 +1068,7 @@ pub fn apply_templates(
 }
 
 fn apply_templates_with_mode(
-    pocket_dir: &Path,
+    corner_dir: &Path,
     ctx: &TemplateContext,
     project_dir: Option<&Path>,
     interactive: bool,
@@ -1081,7 +1081,7 @@ fn apply_templates_with_mode(
     // 1. Load directory structure and create directories
     let dirs = load_directory_structure(project_dir)?;
     for dir in &dirs {
-        let full_path = pocket_dir.join(dir);
+        let full_path = corner_dir.join(dir);
         fs::create_dir_all(&full_path)
             .with_context(|| format!("Failed to create directory: {}", full_path.display()))?;
     }
@@ -1089,12 +1089,12 @@ fn apply_templates_with_mode(
     // 2. Load and apply templates
     let templates = load_templates()?;
 
-    apply_template_set(&templates, pocket_dir, ctx, interactive, mode)
+    apply_template_set(&templates, corner_dir, ctx, interactive, mode)
 }
 
 fn apply_template_set(
     templates: &[Template],
-    pocket_dir: &Path,
+    corner_dir: &Path,
     ctx: &TemplateContext,
     interactive: bool,
     mode: TemplateApplyMode,
@@ -1105,7 +1105,7 @@ fn apply_template_set(
         // Expand variables in the destination path
         let dest_rel = expand_variables(&tmpl.destination, ctx);
         // Runtime-merge templates place an empty file; normal templates keep
-        // content variables for replacement when the pocket is opened.
+        // content variables for replacement when the corner is opened.
         let content = if tmpl.merge_at_runtime {
             String::new()
         } else {
@@ -1113,8 +1113,8 @@ fn apply_template_set(
         };
 
         // Resolve the destination: if it starts with the spocket_root, make it
-        // relative to the pocket dir. Otherwise treat it as relative to pocket dir.
-        let dest_path = resolve_template_destination(&dest_rel, pocket_dir, ctx);
+        // relative to the corner dir. Otherwise treat it as relative to corner dir.
+        let dest_path = resolve_template_destination(&dest_rel, corner_dir, ctx);
 
         // Ensure parent directory exists
         if let Some(parent) = dest_path.parent() {
@@ -1178,7 +1178,7 @@ fn apply_template_set(
         }
 
         if mode == TemplateApplyMode::Upgrade && dest_path.exists() {
-            move_existing_to_unhoused(pocket_dir, &dest_path, "template upgrade")?;
+            move_existing_to_unhoused(corner_dir, &dest_path, "template upgrade")?;
         }
 
         fs::write(&dest_path, &content)
@@ -1195,14 +1195,14 @@ fn apply_template_set(
     Ok(files_written)
 }
 
-fn move_existing_to_unhoused(pocket_dir: &Path, path: &Path, operation: &str) -> Result<()> {
-    if !path.starts_with(pocket_dir) || !path.exists() {
+fn move_existing_to_unhoused(corner_dir: &Path, path: &Path, operation: &str) -> Result<()> {
+    if !path.starts_with(corner_dir) || !path.exists() {
         return Ok(());
     }
 
-    let relative = path.strip_prefix(pocket_dir).unwrap_or(path);
+    let relative = path.strip_prefix(corner_dir).unwrap_or(path);
     let timestamp = chrono::Utc::now().format("%Y%m%dT%H%M%SZ").to_string();
-    let mut target = pocket_dir.join("unhoused").join(&timestamp).join(relative);
+    let mut target = corner_dir.join("unhoused").join(&timestamp).join(relative);
     let mut suffix = 1;
 
     while target.exists() {
@@ -1223,13 +1223,13 @@ fn move_existing_to_unhoused(pocket_dir: &Path, path: &Path, operation: &str) ->
 
     fs::rename(path, &target).with_context(|| {
         format!(
-            "Failed to move existing pocket content to unhoused: {} -> {}",
+            "Failed to move existing corner content to unhoused: {} -> {}",
             path.display(),
             target.display()
         )
     })?;
 
-    let log_path = pocket_dir.join("unhoused.log");
+    let log_path = corner_dir.join("unhoused.log");
     let entry = format!(
         "{}\t{}\t{}\t{}\n",
         chrono::Utc::now().to_rfc3339(),
@@ -1245,8 +1245,8 @@ fn move_existing_to_unhoused(pocket_dir: &Path, path: &Path, operation: &str) ->
     use std::io::Write as IoWrite;
     log.write_all(entry.as_bytes())
         .with_context(|| format!("Failed to write unhoused log: {}", log_path.display()))?;
-    let _ = crate::event::append_pocket_event(
-        pocket_dir,
+    let _ = crate::event::append_corner_event(
+        corner_dir,
         "content.unhoused",
         serde_json::json!({
             "operation": operation,
@@ -1261,14 +1261,14 @@ fn move_existing_to_unhoused(pocket_dir: &Path, path: &Path, operation: &str) ->
 /// Resolve a template destination path to an absolute path.
 ///
 /// After variable expansion, the destination might be:
-/// - An absolute path (e.g. `/Users/.../pocket/AGENTS.md`) → use as-is
-/// - A relative path (e.g. `.github/copilot-instructions.md`) → relative to pocket_dir
-fn resolve_template_destination(dest: &str, pocket_dir: &Path, _ctx: &TemplateContext) -> PathBuf {
+/// - An absolute path (e.g. `/Users/.../corner/AGENTS.md`) → use as-is
+/// - A relative path (e.g. `.github/copilot-instructions.md`) → relative to corner_dir
+fn resolve_template_destination(dest: &str, corner_dir: &Path, _ctx: &TemplateContext) -> PathBuf {
     let path = PathBuf::from(dest);
     if path.is_absolute() {
         path
     } else {
-        pocket_dir.join(path)
+        corner_dir.join(path)
     }
 }
 
@@ -1355,33 +1355,33 @@ pub fn display_diff(old: &str, new: &str) {
 
 // ── Upgrade ──────────────────────────────────────────────────────────────────
 
-/// Upgrade an existing pocket to match the current templates.
+/// Upgrade an existing corner to match the current templates.
 ///
 /// This is called by `spocket -u <path>`. It does NOT open the workspace;
 /// it resets non-runtime template destinations to match the templates while
 /// preserving merge-at-runtime destinations for runtime injection.
-pub fn upgrade_pocket(pocket_dir: &Path) -> Result<()> {
-    // Validate the pocket directory exists and has a manifest
-    if !pocket_dir.exists() {
+pub fn upgrade_corner(corner_dir: &Path) -> Result<()> {
+    // Validate the corner directory exists and has a manifest
+    if !corner_dir.exists() {
         return Err(anyhow!(
-            "Pocket directory does not exist: {}",
-            pocket_dir.display()
+            "Corner directory does not exist: {}",
+            corner_dir.display()
         ));
     }
 
-    let manifest_path = pocket_dir.join("manifest.json");
+    let manifest_path = corner_dir.join("manifest.json");
     if !manifest_path.exists() {
         return Err(anyhow!(
-            "No manifest.json found in {}. Is this a valid pocket?",
-            pocket_dir.display()
+            "No manifest.json found in {}. Is this a valid corner?",
+            corner_dir.display()
         ));
     }
 
     // Load manifest to get core_paths
-    let manifest = crate::manifest::Manifest::load(pocket_dir)?
-        .ok_or_else(|| anyhow!("Failed to load manifest from {}", pocket_dir.display()))?;
+    let manifest = crate::manifest::Manifest::load(corner_dir)?
+        .ok_or_else(|| anyhow!("Failed to load manifest from {}", corner_dir.display()))?;
 
-    let spocket_name = pocket_dir
+    let spocket_name = corner_dir
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("")
@@ -1407,7 +1407,7 @@ pub fn upgrade_pocket(pocket_dir: &Path) -> Result<()> {
     });
 
     let ctx = TemplateContext {
-        spocket_root: pocket_dir.to_path_buf(),
+        spocket_root: corner_dir.to_path_buf(),
         project_root: project_root.clone(),
         spocket_name,
         global_observations_path: global_obs,
@@ -1416,27 +1416,27 @@ pub fn upgrade_pocket(pocket_dir: &Path) -> Result<()> {
 
     println!(
         "{} {}",
-        "Upgrading pocket:".bright_white().bold(),
-        pocket_dir.display().to_string().bright_yellow()
+        "Upgrading corner:".bright_white().bold(),
+        corner_dir.display().to_string().bright_yellow()
     );
 
     // Upgrade force-resets non-runtime templates while preserving user-authored
     // content in merge-at-runtime destinations.
     let files_written = apply_templates_with_mode(
-        pocket_dir,
+        corner_dir,
         &ctx,
         Some(&project_root),
         false,
         TemplateApplyMode::Upgrade,
     )?;
 
-    let runtime_updated = apply_merge_at_runtime(pocket_dir, &ctx)?;
+    let runtime_updated = apply_merge_at_runtime(corner_dir, &ctx)?;
     let total_updated = files_written + runtime_updated;
 
     if total_updated == 0 {
         println!(
             "{}",
-            "Pocket is already up to date with templates.".bright_green()
+            "Corner is already up to date with templates.".bright_green()
         );
     } else {
         println!(
@@ -1811,20 +1811,20 @@ mod tests {
 
     #[test]
     fn test_resolve_destination_relative() {
-        let ctx = make_ctx("/pocket", "/project", "hash");
-        let pocket = PathBuf::from("/pocket");
+        let ctx = make_ctx("/corner", "/project", "hash");
+        let corner = PathBuf::from("/corner");
 
-        let result = resolve_template_destination(".github/test.md", &pocket, &ctx);
-        assert_eq!(result, PathBuf::from("/pocket/.github/test.md"));
+        let result = resolve_template_destination(".github/test.md", &corner, &ctx);
+        assert_eq!(result, PathBuf::from("/corner/.github/test.md"));
     }
 
     #[test]
     fn test_resolve_destination_absolute() {
-        let ctx = make_ctx("/pocket", "/project", "hash");
-        let pocket = PathBuf::from("/pocket");
+        let ctx = make_ctx("/corner", "/project", "hash");
+        let corner = PathBuf::from("/corner");
 
-        let result = resolve_template_destination("/pocket/AGENTS.md", &pocket, &ctx);
-        assert_eq!(result, PathBuf::from("/pocket/AGENTS.md"));
+        let result = resolve_template_destination("/corner/AGENTS.md", &corner, &ctx);
+        assert_eq!(result, PathBuf::from("/corner/AGENTS.md"));
     }
 
     // ── apply_templates (integration) ───────────────────────────────────
@@ -1836,11 +1836,11 @@ mod tests {
         let base = std::env::temp_dir().join("spocket_test_apply");
         let _ = fs::remove_dir_all(&base);
 
-        let pocket_dir = base.join("pocket");
+        let corner_dir = base.join("corner");
         let config_dir = base.join("config");
         let tmpl_dir = config_dir.join("templates");
         fs::create_dir_all(&tmpl_dir).unwrap();
-        fs::create_dir_all(&pocket_dir).unwrap();
+        fs::create_dir_all(&corner_dir).unwrap();
 
         // Write a template
         fs::write(
@@ -1853,7 +1853,7 @@ mod tests {
         fs::write(config_dir.join("directory_structure.md"), "subdir\nother\n").unwrap();
 
         let ctx = make_ctx(
-            &pocket_dir.to_string_lossy(),
+            &corner_dir.to_string_lossy(),
             &base.join("project").to_string_lossy(),
             "testhash",
         );
@@ -2008,18 +2008,18 @@ mod tests {
 
     #[test]
     fn test_runtime_variable_expansion_skips_spocket_directives() {
-        let ctx = make_ctx("/pocket", "/project", "hash");
+        let ctx = make_ctx("/corner", "/project", "hash");
         let input = "Path: {{SPOCKET_ROOT}}\n#SPOCKET_NOTE: {{SPOCKET_ROOT}}\n";
 
         assert_eq!(
             expand_runtime_variables_in_content(input, &ctx),
-            "Path: /pocket\n#SPOCKET_NOTE: {{SPOCKET_ROOT}}\n"
+            "Path: /corner\n#SPOCKET_NOTE: {{SPOCKET_ROOT}}\n"
         );
     }
 
     #[test]
     fn test_filter_template_content_removes_beads_dir() {
-        let ctx = make_ctx("/pocket", "/project", "hash");
+        let ctx = make_ctx("/corner", "/project", "hash");
         let content = "SPOCKET_ROOT={{SPOCKET_ROOT}}\nBEADS_DIR={{SPOCKET_ROOT}}/.beads\n";
 
         assert_eq!(
@@ -2030,7 +2030,7 @@ mod tests {
 
     #[test]
     fn test_runtime_content_for_agents_includes_task_block() {
-        let ctx = make_ctx("/pocket", "/project", "hash");
+        let ctx = make_ctx("/corner", "/project", "hash");
         let tmpl = Template {
             destination: "{{SPOCKET_ROOT}}/AGENTS.md".to_string(),
             content: "Base runtime\n".to_string(),
@@ -2049,8 +2049,8 @@ mod tests {
     fn test_create_mode_places_empty_merge_at_runtime_destination() {
         let dir = std::env::temp_dir().join("spocket_test_create_places_empty_runtime");
         let _ = fs::remove_dir_all(&dir);
-        let pocket_dir = dir.join("pocket");
-        fs::create_dir_all(&pocket_dir).unwrap();
+        let corner_dir = dir.join("corner");
+        fs::create_dir_all(&corner_dir).unwrap();
 
         let templates = vec![Template {
             destination: "AGENTS.md".to_string(),
@@ -2059,11 +2059,11 @@ mod tests {
             merge_at_runtime: true,
             source_path: dir.join("template.md"),
         }];
-        let ctx = make_ctx(&pocket_dir.to_string_lossy(), "/project", "hash");
+        let ctx = make_ctx(&corner_dir.to_string_lossy(), "/project", "hash");
 
         let written = apply_template_set(
             &templates,
-            &pocket_dir,
+            &corner_dir,
             &ctx,
             false,
             TemplateApplyMode::Create,
@@ -2072,7 +2072,7 @@ mod tests {
 
         assert_eq!(written, 1);
         assert_eq!(
-            fs::read_to_string(pocket_dir.join("AGENTS.md")).unwrap(),
+            fs::read_to_string(corner_dir.join("AGENTS.md")).unwrap(),
             ""
         );
 
@@ -2083,9 +2083,9 @@ mod tests {
     fn test_create_mode_does_not_overwrite_existing_runtime_destination() {
         let dir = std::env::temp_dir().join("spocket_test_create_keeps_runtime_destination");
         let _ = fs::remove_dir_all(&dir);
-        let pocket_dir = dir.join("pocket");
-        fs::create_dir_all(&pocket_dir).unwrap();
-        fs::write(pocket_dir.join("AGENTS.md"), "User content\n").unwrap();
+        let corner_dir = dir.join("corner");
+        fs::create_dir_all(&corner_dir).unwrap();
+        fs::write(corner_dir.join("AGENTS.md"), "User content\n").unwrap();
 
         let templates = vec![Template {
             destination: "AGENTS.md".to_string(),
@@ -2094,11 +2094,11 @@ mod tests {
             merge_at_runtime: true,
             source_path: dir.join("template.md"),
         }];
-        let ctx = make_ctx(&pocket_dir.to_string_lossy(), "/project", "hash");
+        let ctx = make_ctx(&corner_dir.to_string_lossy(), "/project", "hash");
 
         let written = apply_template_set(
             &templates,
-            &pocket_dir,
+            &corner_dir,
             &ctx,
             false,
             TemplateApplyMode::Create,
@@ -2107,7 +2107,7 @@ mod tests {
 
         assert_eq!(written, 0);
         assert_eq!(
-            fs::read_to_string(pocket_dir.join("AGENTS.md")).unwrap(),
+            fs::read_to_string(corner_dir.join("AGENTS.md")).unwrap(),
             "User content\n"
         );
 
@@ -2118,10 +2118,10 @@ mod tests {
     fn test_upgrade_mode_overwrites_non_runtime_and_preserves_runtime() {
         let dir = std::env::temp_dir().join("spocket_test_upgrade_template_rules");
         let _ = fs::remove_dir_all(&dir);
-        let pocket_dir = dir.join("pocket");
-        fs::create_dir_all(&pocket_dir).unwrap();
-        fs::write(pocket_dir.join("normal.md"), "User edit\n").unwrap();
-        fs::write(pocket_dir.join("AGENTS.md"), "User instructions\n").unwrap();
+        let corner_dir = dir.join("corner");
+        fs::create_dir_all(&corner_dir).unwrap();
+        fs::write(corner_dir.join("normal.md"), "User edit\n").unwrap();
+        fs::write(corner_dir.join("AGENTS.md"), "User instructions\n").unwrap();
 
         let templates = vec![
             Template {
@@ -2139,11 +2139,11 @@ mod tests {
                 source_path: dir.join("agents-template.md"),
             },
         ];
-        let ctx = make_ctx(&pocket_dir.to_string_lossy(), "/project", "hash");
+        let ctx = make_ctx(&corner_dir.to_string_lossy(), "/project", "hash");
 
         let written = apply_template_set(
             &templates,
-            &pocket_dir,
+            &corner_dir,
             &ctx,
             false,
             TemplateApplyMode::Upgrade,
@@ -2152,11 +2152,11 @@ mod tests {
 
         assert_eq!(written, 1);
         assert_eq!(
-            fs::read_to_string(pocket_dir.join("normal.md")).unwrap(),
+            fs::read_to_string(corner_dir.join("normal.md")).unwrap(),
             "Template reset\n"
         );
         assert_eq!(
-            fs::read_to_string(pocket_dir.join("AGENTS.md")).unwrap(),
+            fs::read_to_string(corner_dir.join("AGENTS.md")).unwrap(),
             "User instructions\n"
         );
 
@@ -2167,9 +2167,9 @@ mod tests {
     fn test_upgrade_mode_resets_quiet_merge_template() {
         let dir = std::env::temp_dir().join("spocket_test_upgrade_resets_quiet_merge");
         let _ = fs::remove_dir_all(&dir);
-        let pocket_dir = dir.join("pocket");
-        fs::create_dir_all(&pocket_dir).unwrap();
-        fs::write(pocket_dir.join(".env"), "USER_KEY=custom\n").unwrap();
+        let corner_dir = dir.join("corner");
+        fs::create_dir_all(&corner_dir).unwrap();
+        fs::write(corner_dir.join(".env"), "USER_KEY=custom\n").unwrap();
 
         let templates = vec![Template {
             destination: ".env".to_string(),
@@ -2178,11 +2178,11 @@ mod tests {
             merge_at_runtime: false,
             source_path: dir.join("env-template.md"),
         }];
-        let ctx = make_ctx(&pocket_dir.to_string_lossy(), "/project", "hash");
+        let ctx = make_ctx(&corner_dir.to_string_lossy(), "/project", "hash");
 
         apply_template_set(
             &templates,
-            &pocket_dir,
+            &corner_dir,
             &ctx,
             false,
             TemplateApplyMode::Upgrade,
@@ -2190,7 +2190,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            fs::read_to_string(pocket_dir.join(".env")).unwrap(),
+            fs::read_to_string(corner_dir.join(".env")).unwrap(),
             "TEMPLATE_KEY=value\n"
         );
 
@@ -2201,8 +2201,8 @@ mod tests {
     fn test_create_mode_filters_beads_dir_from_env() {
         let dir = std::env::temp_dir().join("spocket_test_create_filters_beads_env");
         let _ = fs::remove_dir_all(&dir);
-        let pocket_dir = dir.join("pocket");
-        fs::create_dir_all(&pocket_dir).unwrap();
+        let corner_dir = dir.join("corner");
+        fs::create_dir_all(&corner_dir).unwrap();
 
         let templates = vec![Template {
             destination: ".env".to_string(),
@@ -2212,11 +2212,11 @@ mod tests {
             merge_at_runtime: false,
             source_path: dir.join("env-template.md"),
         }];
-        let ctx = make_ctx(&pocket_dir.to_string_lossy(), "/project", "hash");
+        let ctx = make_ctx(&corner_dir.to_string_lossy(), "/project", "hash");
 
         apply_template_set(
             &templates,
-            &pocket_dir,
+            &corner_dir,
             &ctx,
             false,
             TemplateApplyMode::Create,
@@ -2224,11 +2224,11 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            fs::read_to_string(pocket_dir.join(".env")).unwrap(),
+            fs::read_to_string(corner_dir.join(".env")).unwrap(),
             format!(
                 "CORNER_ROOT={}\nSPOCKET_ROOT={}\n",
-                pocket_dir.display(),
-                pocket_dir.display()
+                corner_dir.display(),
+                corner_dir.display()
             )
         );
 
@@ -2239,9 +2239,9 @@ mod tests {
     fn test_upgrade_mode_expands_template_variables_in_env_files() {
         let dir = std::env::temp_dir().join("spocket_test_upgrade_expands_env_values");
         let _ = fs::remove_dir_all(&dir);
-        let pocket_dir = dir.join("pocket");
+        let corner_dir = dir.join("corner");
         let project_dir = dir.join("project");
-        fs::create_dir_all(&pocket_dir).unwrap();
+        fs::create_dir_all(&corner_dir).unwrap();
         fs::create_dir_all(&project_dir).unwrap();
 
         let templates = vec![
@@ -2263,14 +2263,14 @@ mod tests {
             },
         ];
         let ctx = make_ctx(
-            &pocket_dir.to_string_lossy(),
+            &corner_dir.to_string_lossy(),
             &project_dir.to_string_lossy(),
             "hash",
         );
 
         apply_template_set(
             &templates,
-            &pocket_dir,
+            &corner_dir,
             &ctx,
             false,
             TemplateApplyMode::Upgrade,
@@ -2281,17 +2281,17 @@ mod tests {
             fs::read_to_string(project_dir.join(".env")).unwrap(),
             format!(
                 "CORNER_ROOT={}\nSPOCKET_ROOT={}\n",
-                pocket_dir.display(),
-                pocket_dir.display()
+                corner_dir.display(),
+                corner_dir.display()
             )
         );
         assert_eq!(
-            fs::read_to_string(pocket_dir.join(".env")).unwrap(),
+            fs::read_to_string(corner_dir.join(".env")).unwrap(),
             format!(
                 "PROJECT_ROOT={}\nCORNER_ROOT={}\nSPOCKET_ROOT={}\n",
                 project_dir.display(),
-                pocket_dir.display(),
-                pocket_dir.display()
+                corner_dir.display(),
+                corner_dir.display()
             )
         );
 
@@ -2302,10 +2302,10 @@ mod tests {
     fn test_upgrade_runtime_strips_legacy_beads_and_injects_task_block() {
         let dir = std::env::temp_dir().join("spocket_test_upgrade_runtime_strips_legacy_beads");
         let _ = fs::remove_dir_all(&dir);
-        let pocket_dir = dir.join("pocket");
-        fs::create_dir_all(&pocket_dir).unwrap();
+        let corner_dir = dir.join("corner");
+        fs::create_dir_all(&corner_dir).unwrap();
 
-        let file = pocket_dir.join("AGENTS.md");
+        let file = corner_dir.join("AGENTS.md");
         fs::write(
             &file,
             format!(
@@ -2326,7 +2326,7 @@ mod tests {
             merge_at_runtime: true,
             source_path: dir.join("agents-template.md"),
         };
-        let ctx = make_ctx(&pocket_dir.to_string_lossy(), "/project", "hash");
+        let ctx = make_ctx(&corner_dir.to_string_lossy(), "/project", "hash");
 
         let content = runtime_content_for_template(&tmpl, &ctx);
         inject_runtime_content(&file, &content).unwrap();
@@ -2406,7 +2406,7 @@ mod tests {
     }
 
     #[test]
-    fn test_install_interprets_config_and_stages_pocket_templates() {
+    fn test_install_interprets_config_and_stages_corner_templates() {
         let base = std::env::temp_dir().join("spocket_test_install_embedded");
         let _ = fs::remove_dir_all(&base);
         let config_dir = base.join("config");
@@ -2502,7 +2502,7 @@ mod tests {
     }
 
     #[test]
-    fn test_expand_install_roots_leaves_pocket_vars_literal() {
+    fn test_expand_install_roots_leaves_corner_vars_literal() {
         let out = expand_install_roots(
             "cfg={{CORNER_CONFIG_ROOT}} reg={{CORNER_REGISTRY_ROOT}} pkt={{CORNER_ROOT}}",
             Path::new("/cfg"),

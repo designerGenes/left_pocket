@@ -10,7 +10,7 @@ use clap_complete::Shell;
     about = "Corner — ad hoc VS Code workspace manager with AI copilot support",
     long_about = "\
 Corner keeps \"meta\" files (copilot instructions, prompts, observations, \
-feature notes) in a dedicated pocket directory (~/.corner/<hash>/) so they \
+feature notes) in a dedicated corner directory (~/.corner/<hash>/) so they \
 never pollute your project repo, yet VS Code opens them together with your project \
 as a single multi-root workspace.
 
@@ -22,7 +22,7 @@ QUICK START
   # Create a workspace spanning two projects
   corner -i ~/dev/frontend -i ~/dev/backend
 
-  # Upgrade the pocket's template files to match your latest templates
+  # Upgrade the corner's template files to match your latest templates
   corner -u ~/dev/myproject
 
   # Generate and install shell completions (zsh example)
@@ -32,15 +32,15 @@ LEGACY ALIASES
 
   `safe_pocket` and `spocket` continue to work as compatibility aliases.
 
-POCKET DIRECTORY
+CORNER DIRECTORY
 
-  New pockets are stored in ~/.corner/<hash>/. If that tree does not exist yet,
+  New corners are stored in ~/.corner/<hash>/. If that tree does not exist yet,
   Corner falls back to ~/.safe_pocket/ (and then ~/.spocket/) so existing data,
   tasks, and registry state keep working.
 
 TEMPLATES
 
-  Customise the files written into every new pocket by editing templates in
+  Customise the files written into every new corner by editing templates in
   ~/.config/corner/templates/. If that path is absent, Corner falls back to
   ~/.config/safe_pocket/templates/ and ~/.config/spocket/templates/.
   Each template file must begin with:
@@ -86,7 +86,7 @@ pub struct Cli {
     #[arg(long = "with", value_name = "TOOL")]
     pub with_tools: Vec<String>,
 
-    /// Install a tool into the project and pocket for future sessions
+    /// Install a tool into the project and corner for future sessions
     ///
     /// If the tool is already installed this is a no-op. Supported tools:
     /// gitleaks, graphify, memgraph.
@@ -97,10 +97,10 @@ pub struct Cli {
     #[arg(long = "add", value_name = "TOOL")]
     pub add_tools: Vec<String>,
 
-    /// Clone the pocket from the workspace that contains this path
+    /// Clone the corner from the workspace that contains this path
     ///
     /// Copies all meta files (copilot instructions, prompts, observations, etc.)
-    /// from the source pocket into the new one, then tracks lineage in both
+    /// from the source corner into the new one, then tracks lineage in both
     /// manifests. Useful when starting a new project that should inherit the
     /// AI configuration of a related one.
     ///
@@ -108,10 +108,10 @@ pub struct Cli {
     #[arg(long = "clone-from", value_name = "PATH")]
     pub clone_from: Option<String>,
 
-    /// Create or reuse the pocket under ~/.corner/temporary/
+    /// Create or reuse the corner under ~/.corner/temporary/
     ///
-    /// Temporary pockets are tracked separately so test suites and other
-    /// short-lived workflows can be cleaned up without touching normal pockets.
+    /// Temporary corners are tracked separately so test suites and other
+    /// short-lived workflows can be cleaned up without touching normal corners.
     #[arg(long = "temporary")]
     pub temporary: bool,
 
@@ -119,22 +119,22 @@ pub struct Cli {
     ///
     /// By default Corner writes helpful README.md files into new empty
     /// directories (observations/, .github/prompts/, etc.).  Pass this flag
-    /// to suppress them, e.g. when cloning a pocket for a minimal setup.
+    /// to suppress them, e.g. when cloning a corner for a minimal setup.
     #[arg(long = "no-readme")]
     pub no_readme: bool,
 
-    /// Upgrade an existing pocket to match current templates (does not open VS Code)
+    /// Upgrade an existing corner to match current templates (does not open VS Code)
     ///
     /// Reads every template from the preferred config templates directory,
     /// expands
     /// {{CORNER_ROOT}}/{{SPOCKET_ROOT}}, {{PROJECT_ROOT}}, and
     /// {{CORNER_NAME}}/{{SPOCKET_NAME}} variables, and
-    /// writes the result to the pocket.  If a file already exists with different
+    /// writes the result to the corner.  If a file already exists with different
     /// content you are shown a diff and asked to confirm before overwriting.
     ///
     /// PATH may be either:
-    ///   • The pocket directory itself  (~/.corner/abc123)
-    ///   • Any project directory whose pocket you want to upgrade
+    ///   • The corner directory itself  (~/.corner/abc123)
+    ///   • Any project directory whose corner you want to upgrade
     ///
     ///   corner -u ~/dev/myproject
     ///   corner -u ~/.corner/abc123
@@ -144,8 +144,8 @@ pub struct Cli {
     /// Force creation of a new workspace even if one already exists
     ///
     /// By default, if `corner -i .` detects that the current directory (or any
-    /// included path) already belongs to an existing pocket, it opens that
-    /// pocket instead of creating a duplicate.  Pass `--new` to override this
+    /// included path) already belongs to an existing corner, it opens that
+    /// corner instead of creating a duplicate.  Pass `--new` to override this
     /// behaviour and always create a fresh workspace.
     ///
     ///   corner -i . --new
@@ -177,7 +177,7 @@ pub struct Cli {
     /// Perform every step except opening VS Code at the end (debug)
     ///
     /// Useful for exercising Corner setup without launching the editor. If
-    /// run inside a directory already associated with a pocket this is
+    /// run inside a directory already associated with a corner this is
     /// effectively a no-op, since the normal action would simply have opened the
     /// related project.
     ///
@@ -221,14 +221,14 @@ pub enum Commands {
     #[command(name = "list-aliases")]
     ListAliases,
 
-    /// List all known pockets with their project paths
+    /// List all known corners with their project paths
     #[command(name = "list-workspaces")]
     ListWorkspaces,
 
     /// Sync system-wide assets, or the manifest after the workspace file changes
     ///
     /// With a TARGET, synchronizes system-wide Corner assets that every
-    /// pocket draws from:
+    /// corner draws from:
     ///
     ///   corner sync agents        Write the unified agent definitions from
     ///                             ~/.config/corner/templates/agents into the
@@ -236,23 +236,23 @@ pub enum Commands {
     ///   corner sync all           Run every system-wide sync (currently agents).
     ///
     /// Without a TARGET (the legacy form used by the VS Code extension), updates
-    /// the pocket manifest to reflect the current .code-workspace folders and
-    /// prints JSON. Requires --pocket. You rarely need to run this manually.
+    /// the corner manifest to reflect the current .code-workspace folders and
+    /// prints JSON. Requires --corner. You rarely need to run this manually.
     #[command(name = "sync")]
     Sync {
         /// What to sync: "agents" or "all". Omit for the manifest sync.
         #[arg(value_name = "TARGET")]
         target: Option<String>,
 
-        /// Path to the pocket directory (required for the manifest sync)
-        #[arg(long = "pocket", value_name = "PATH")]
-        pocket: Option<String>,
+        /// Path to the corner directory (required for the manifest sync)
+        #[arg(long = "corner", alias = "pocket", value_name = "PATH")]
+        corner: Option<String>,
     },
 
     /// Add or remove project directories from the current workspace in-place
     ///
-    /// Rewrites the .code-workspace file and manifest without moving the pocket
-    /// directory. Run this from inside a pocket or project directory that
+    /// Rewrites the .code-workspace file and manifest without moving the corner
+    /// directory. Run this from inside a corner or project directory that
     /// belongs to an existing workspace.
     ///
     ///   corner augment --add ~/dev/new-service
@@ -273,17 +273,17 @@ pub enum Commands {
         no_open: bool,
     },
 
-    /// Mark an existing pocket with additional metadata
+    /// Mark an existing corner with additional metadata
     #[command(name = "mark")]
     Mark {
         #[arg(value_enum, value_name = "MARK")]
         mark: MarkChoice,
 
-        #[arg(value_name = "POCKET")]
-        pocket: String,
+        #[arg(value_name = "CORNER")]
+        corner: String,
     },
 
-    /// Remove registry entries or pocket directories in bulk
+    /// Remove registry entries or corner directories in bulk
     #[command(name = "clean")]
     Clean {
         #[arg(value_enum, value_name = "SCOPE")]
@@ -302,14 +302,14 @@ pub enum Commands {
         yes: bool,
     },
 
-    /// Reconnect a project directory to an existing pocket
+    /// Reconnect a project directory to an existing corner
     ///
-    /// Moves the selected pocket's contents into the deterministic pocket path
-    /// for PROJECT. If that target pocket already exists, it is moved aside under
+    /// Moves the selected corner's contents into the deterministic corner path
+    /// for PROJECT. If that target corner already exists, it is moved aside under
     /// ~/.corner/unhoused/ before replacement, with fallback to legacy roots.
     ///
-    ///   corner heal --project ~/dev/app --pocket abc123
-    ///   corner heal --project . --pocket ~/.corner/oldhash
+    ///   corner heal --project ~/dev/app --corner abc123
+    ///   corner heal --project . --corner ~/.corner/oldhash
     #[command(name = "heal")]
     Heal {
         #[arg(long = "project", value_name = "PATH", conflicts_with = "alias")]
@@ -318,11 +318,11 @@ pub enum Commands {
         #[arg(long = "alias", value_name = "ALIAS", conflicts_with = "project")]
         alias: Option<String>,
 
-        #[arg(long = "pocket", value_name = "POCKET")]
-        pocket: Option<String>,
+        #[arg(long = "corner", alias = "pocket", value_name = "CORNER")]
+        corner: Option<String>,
     },
 
-    /// Locate the pocket associated with a project or pocket path
+    /// Locate the corner associated with a project or corner path
     ///
     /// Outputs JSON for editor integrations.
     #[command(name = "locate")]
@@ -331,10 +331,10 @@ pub enum Commands {
         path: String,
     },
 
-    /// Refresh the top-level pocket registry git snapshot
+    /// Refresh the top-level corner registry git snapshot
     ///
-    /// Copies every pocket into ~/.corner/snapshots without nested
-    /// `.git` directories so the registry root repository can version all pocket
+    /// Copies every corner into ~/.corner/snapshots without nested
+    /// `.git` directories so the registry root repository can version all corner
     /// contents together.
     #[command(name = "sync-registry-git")]
     SyncRegistryGit,
@@ -359,9 +359,9 @@ pub enum Commands {
     /// template content into the destination file wrapped in runtime markers.
     #[command(name = "runtime-merge-start", hide = true)]
     RuntimeMergeStart {
-        /// Path to the pocket directory containing the manifest
-        #[arg(long = "pocket", value_name = "PATH")]
-        pocket: String,
+        /// Path to the corner directory containing the manifest
+        #[arg(long = "corner", alias = "pocket", value_name = "PATH")]
+        corner: String,
     },
 
     /// Strip runtime content from destination files (called by the VS Code extension on close)
@@ -370,9 +370,9 @@ pub enum Commands {
     /// `#SPOCKET_RUNTIME_CONTENT_END` markers from destination files.
     #[command(name = "runtime-merge-stop", hide = true)]
     RuntimeMergeStop {
-        /// Path to the pocket directory containing the manifest
-        #[arg(long = "pocket", value_name = "PATH")]
-        pocket: String,
+        /// Path to the corner directory containing the manifest
+        #[arg(long = "corner", alias = "pocket", value_name = "PATH")]
+        corner: String,
     },
 
     /// Seed Corner's canonical config and registry roots with default assets
@@ -422,9 +422,9 @@ pub enum Commands {
     /// feature_tags.yaml sets `place_automatically: true`.
     #[command(name = "daily-feature")]
     DailyFeature {
-        /// Path to the pocket directory containing the FEATURES folder
-        #[arg(long = "pocket", value_name = "PATH")]
-        pocket: String,
+        /// Path to the corner directory containing the FEATURES folder
+        #[arg(long = "corner", alias = "pocket", value_name = "PATH")]
+        corner: String,
 
         /// Always create a new numbered daily feature file
         #[arg(long = "new")]
@@ -435,19 +435,19 @@ pub enum Commands {
         subpath: Option<String>,
     },
 
-    /// Manage git worktrees that share this pocket
+    /// Manage git worktrees that share this corner
     ///
     /// Worktrees are additional project directories (typically git worktrees of
-    /// the same repo) that share the same pocket — meaning the same copilot
+    /// the same repo) that share the same corner — meaning the same copilot
     /// instructions, FEATURES notes, and observations apply to all of them.
     ///
-    ///   # Register a worktree to share the pocket for the current directory
+    ///   # Register a worktree to share the corner for the current directory
     ///   corner worktree add ~/dev/my-project-feature-x
     ///
     ///   # Remove a previously registered worktree
     ///   corner worktree remove ~/dev/my-project-feature-x
     ///
-    ///   # List all worktrees sharing this pocket
+    ///   # List all worktrees sharing this corner
     ///   corner worktree list
     #[command(name = "worktree")]
     Worktree {
@@ -458,8 +458,8 @@ pub enum Commands {
     /// Track project tasks in a fast, built-in issue tracker (replaces Beads)
     ///
     /// Tasks live in a global SQLite database at
-    /// ~/.corner/global_data/tasks.db and are grouped per pocket by a
-    /// prefix derived from the pocket directory name. When run from inside a
+    /// ~/.corner/global_data/tasks.db and are grouped per corner by a
+    /// prefix derived from the corner directory name. When run from inside a
     /// registered project, the correct prefix is detected automatically.
     ///
     ///   corner task list [--priority N] [--project PATH] [--raw]
@@ -519,10 +519,10 @@ impl From<ShellChoice> for Shell {
 
 #[derive(Subcommand, Debug)]
 pub enum WorktreeAction {
-    /// Register a worktree directory to share this pocket
+    /// Register a worktree directory to share this corner
     ///
     /// Run this from inside the main project directory (or any directory that
-    /// already belongs to a pocket). Corner will also suggest any git worktrees
+    /// already belongs to a corner). Corner will also suggest any git worktrees
     /// it detects in the same repo if PATH is not provided explicitly.
     ///
     ///   corner worktree add ~/dev/my-project-feature-x
@@ -532,7 +532,7 @@ pub enum WorktreeAction {
         path: Option<String>,
     },
 
-    /// Unregister a worktree directory from this pocket
+    /// Unregister a worktree directory from this corner
     ///
     ///   corner worktree remove ~/dev/my-project-feature-x
     #[command(name = "remove")]
@@ -541,7 +541,7 @@ pub enum WorktreeAction {
         path: String,
     },
 
-    /// List all worktrees registered to this pocket
+    /// List all worktrees registered to this corner
     #[command(name = "list")]
     List,
 }

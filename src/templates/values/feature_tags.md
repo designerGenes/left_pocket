@@ -22,9 +22,9 @@ SPOCKET_MUST_CREATE_NEW_FILES:
   type: "done hook"
 SPOCKET_MUST_BACKUP_BEFORE:
   andPush: true/false
-  description: "before making any changes to the project, the agent must create a backup of the current state of the project.  This is to ensure that if anything goes wrong during the development of the feature, we can easily revert back to the previous state of the project.  If andPush is true, then the agent must also commit the backup to the pocket's local repository and push it to the larger $HOME/.corner folder repository."
+  description: "before making any changes to the project, the agent must create a backup of the current state of the project.  This is to ensure that if anything goes wrong during the development of the feature, we can easily revert back to the previous state of the project.  If andPush is true, then the agent must also commit the backup to the corner's local repository and push it to the larger $HOME/.corner folder repository."
   type: "start hook"
 SPOCKET_MUST_BACKUP_AFTER:
   andPush: true/false
-  description: "after making changes to the project, the agent must commit to the pocket's local repository and the larger $HOME/.corner folder repository.  If andPush is true, then the agent must also commit the backup to the pocket's local repository and push it to the larger $HOME/.corner folder repository."
+  description: "after making changes to the project, the agent must commit to the corner's local repository and the larger $HOME/.corner folder repository.  If andPush is true, then the agent must also commit the backup to the corner's local repository and push it to the larger $HOME/.corner folder repository."
   type: "done hook"
