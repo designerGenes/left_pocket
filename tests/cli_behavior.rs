@@ -303,6 +303,74 @@ fn install_instructions_reference_real_vscode_extension_dir() {
 }
 
 #[test]
+fn install_default_assets_seeds_corner_roots_even_with_legacy_dirs_present() {
+    let env = TestEnv::new("install-default-assets");
+    let project = env.project("project");
+
+    fs::create_dir_all(env.home.join(".config/safe_pocket")).unwrap();
+    fs::create_dir_all(env.legacy_safe_pocket_root()).unwrap();
+
+    let output = env.run_spocket(&project, &["install-default-assets"]);
+    assert_success(&output);
+
+    assert!(env.config_root().is_dir());
+    assert!(env.config_root().join("templates/AGENTS.md").is_file());
+    assert!(env.config_root().join("feature_tags.yaml").is_file());
+    assert!(env.corner_root().is_dir());
+    assert!(env.corner_root().join("observations").is_dir());
+    assert!(env.corner_root().join(".git").is_dir());
+}
+
+#[test]
+fn install_default_assets_migrates_renamed_root_state() {
+    let env = TestEnv::new("install-migrates-renamed-root");
+    let project = env.project("project");
+
+    fs::create_dir_all(env.legacy_safe_pocket_root()).unwrap();
+    assert_success(&env.run_spocket(&project, &["-i", ".", "--silent"]));
+
+    let locate_before = env.run_spocket(&project, &["locate", "--path", "."]);
+    assert_success(&locate_before);
+    let before_value: serde_json::Value = serde_json::from_slice(&locate_before.stdout).unwrap();
+    let legacy_pocket = PathBuf::from(before_value.get("pocket_dir").unwrap().as_str().unwrap());
+    let hash = legacy_pocket.file_name().unwrap().to_string_lossy().to_string();
+    let legacy_workspace = legacy_pocket.join(format!("{hash}.code-workspace"));
+
+    fs::rename(env.legacy_safe_pocket_root(), env.corner_root()).unwrap();
+    let renamed_pocket = env.corner_root().join(&hash);
+    let renamed_workspace = renamed_pocket.join(format!("{hash}.code-workspace"));
+
+    let stale_env = fs::read_to_string(project.join(".env")).unwrap();
+    assert!(stale_env.contains(".safe_pocket"));
+    let stale_workspace = fs::read_to_string(&renamed_workspace).unwrap();
+    assert!(stale_workspace.contains(".safe_pocket"));
+    let stale_cache = fs::read_to_string(env.corner_root().join("registry_cache.json")).unwrap();
+    assert!(stale_cache.contains(".safe_pocket"));
+    assert!(!legacy_workspace.exists());
+
+    let output = env.run_spocket(&project, &["install-default-assets"]);
+    assert_success(&output);
+
+    let locate_after = env.run_spocket(&project, &["locate", "--path", "."]);
+    assert_success(&locate_after);
+    let after_value: serde_json::Value = serde_json::from_slice(&locate_after.stdout).unwrap();
+    let migrated_pocket = PathBuf::from(after_value.get("pocket_dir").unwrap().as_str().unwrap());
+    assert_eq!(migrated_pocket, renamed_pocket);
+
+    let migrated_env = fs::read_to_string(project.join(".env")).unwrap();
+    assert!(migrated_env.contains(&format!("CORNER_ROOT={}", renamed_pocket.display())));
+    assert!(migrated_env.contains(&format!("SPOCKET_ROOT={}", renamed_pocket.display())));
+
+    let migrated_workspace_text = fs::read_to_string(&renamed_workspace).unwrap();
+    assert!(migrated_workspace_text.contains(&renamed_pocket.display().to_string()));
+    assert!(!migrated_workspace_text.contains(".safe_pocket"));
+
+    let migrated_cache = fs::read_to_string(env.corner_root().join("registry_cache.json")).unwrap();
+    assert!(migrated_cache.contains(&renamed_pocket.display().to_string()));
+    assert!(!migrated_cache.contains(".safe_pocket"));
+}
+
+#[test]
 fn outdated_commands_are_rejected() {
     let env = TestEnv::new("outdated-commands");
     let project = env.project("project");
@@ -719,9 +787,13 @@ fn new_pocket_has_no_beads_artifacts() {
 
     // The project .env should still be written, just without a BEADS_DIR line.
     let project_env = fs::read_to_string(project.join(".env")).unwrap();
+    assert!(project_env.contains("CORNER_ROOT="));
     assert!(project_env.contains("SPOCKET_ROOT="));
     assert!(!project_env.contains("BEADS_DIR="));
-    summary.step("Verified `.env` carries SPOCKET_ROOT and no BEADS_DIR line".to_string());
+    summary.step(
+        "Verified `.env` carries both CORNER_ROOT and SPOCKET_ROOT, with no BEADS_DIR line"
+            .to_string(),
+    );
     summary.print();
 }
 

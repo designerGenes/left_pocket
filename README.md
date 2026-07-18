@@ -137,14 +137,14 @@ corner
 Add a directory to the workspace. Can be used multiple times to create multi-root workspaces.
 
 ```bash
-safe_pocket -i ~/dev/frontend -i ~/dev/backend
+corner -i ~/dev/frontend -i ~/dev/backend
 ```
 
 #### `-s`, `--sidecar PATH` (repeatable)
 Add a temporary sidecar directory (not saved to workspace file). Injected for this session only and removed next time the workspace opens normally. Useful for pulling in dependencies or reference repositories.
 
 ```bash
-safe_pocket -i . -s ~/external/lib
+corner -i . -s ~/external/lib
 ```
 
 #### `--with TOOL` (repeatable)
@@ -153,54 +153,54 @@ Add a tool for this session only. Tools are exposed as managed sidecar folders w
 Supported tools: `gitleaks`, `graphify`, `memgraph`
 
 ```bash
-safe_pocket -i . --with gitleaks --with graphify
+corner -i . --with gitleaks --with graphify
 ```
 
 #### `--add TOOL` (repeatable)
-Install a tool into the project and safe pocket for future sessions. If already installed, this is a no-op.
+Install a tool into the project and pocket for future sessions. If already installed, this is a no-op.
 
 Supported tools: `gitleaks`, `graphify`, `memgraph`
 
 ```bash
-safe_pocket -i . --add graphify
+corner -i . --add graphify
 ```
 
 #### `--clone-from PATH`
 Clone the pocket from the workspace containing this path. Copies all meta files (copilot instructions, prompts, observations, etc.) from the source pocket into the new one, then tracks lineage in both manifests. Useful when starting a new project that should inherit AI configuration from a related one.
 
 ```bash
-safe_pocket -i ~/dev/new-project --clone-from ~/dev/existing-project
+corner -i ~/dev/new-project --clone-from ~/dev/existing-project
 ```
 
 #### `-u`, `--upgrade PATH`
-Upgrade an existing pocket to match current templates (does not open VS Code). Reads every template from `~/.config/safe_pocket/templates/`, expands variables, and writes the result to the pocket. If a file already exists with different content, you are shown a diff and asked to confirm.
+Upgrade an existing pocket to match current templates (does not open VS Code). Reads every template from the preferred config root, starting with `~/.config/corner/templates/` and falling back to legacy config roots when needed, then expands variables and writes the result to the pocket. If a file already exists with different content, you are shown a diff and asked to confirm.
 
 PATH may be either the pocket directory itself or any project directory whose pocket you want to upgrade.
 
 ```bash
-safe_pocket -u ~/dev/myproject
-safe_pocket -u ~/.safe_pocket/abc123
+corner -u ~/dev/myproject
+corner -u ~/.corner/abc123
 ```
 
 #### `--new`
-Force creation of a new workspace even if one already exists. By default, if a project already belongs to an existing safe pocket, that pocket is opened instead of creating a duplicate.
+Force creation of a new workspace even if one already exists. By default, if a project already belongs to an existing pocket, that pocket is opened instead of creating a duplicate.
 
 ```bash
-safe_pocket -i . --new
+corner -i . --new
 ```
 
 #### `--temporary`
-Create or reuse the pocket under `~/.safe_pocket/temporary/`. Temporary pockets are tracked separately so test suites and other short-lived workflows can be cleaned up without touching normal pockets.
+Create or reuse the pocket under `~/.corner/temporary/`. Temporary pockets are tracked separately so test suites and other short-lived workflows can be cleaned up without touching normal pockets.
 
 ```bash
-safe_pocket -i . --temporary
+corner -i . --temporary
 ```
 
 #### `--no-readme`
-Skip creating README files in empty directories. By default safe_pocket writes helpful README.md files into new empty directories (observations/, .github/prompts/, etc.).
+Skip creating README files in empty directories. By default Corner writes helpful README.md files into new empty directories (observations/, .github/prompts/, etc.).
 
 ```bash
-safe_pocket -i . --no-readme
+corner -i . --no-readme
 ```
 
 ### Execution Control
@@ -209,21 +209,21 @@ safe_pocket -i . --no-readme
 Inject runtime content into destination files without launching VS Code. Every file that would normally gain inject-at-runtime content (wrapped in `#SPOCKET_RUNTIME_CONTENT_START` / `#SPOCKET_RUNTIME_CONTENT_END` markers) gains that content even though VS Code is never started. Implies `--silent`.
 
 ```bash
-safe_pocket -i . --simulate-runtime --temporary
+corner -i . --simulate-runtime --temporary
 ```
 
 #### `--silent`
-Perform every step except opening VS Code at the end. Useful for exercising safe_pocket setup without launching the editor.
+Perform every step except opening VS Code at the end. Useful for exercising Corner setup without launching the editor.
 
 ```bash
-safe_pocket -i . --silent
+corner -i . --silent
 ```
 
 #### `--verbose`
 Enable verbose output. Shows informational messages that are hidden by default, such as runtime merge notifications, template installation notices, and other non-error details.
 
 ```bash
-safe_pocket -i . --verbose
+corner -i . --verbose
 ```
 
 #### `-v`
@@ -236,33 +236,33 @@ Print version and exit.
 ### Alias Management
 
 #### `register NAME="PATH"`
-Register a short alias for a directory path. Aliases let you refer to long directory paths by a short name in any safe_pocket command that accepts a PATH argument.
+Register a short alias for a directory path. Aliases let you refer to long directory paths by a short name in any `corner` command that accepts a PATH argument.
 
 ```bash
-safe_pocket register api="~/dev/my-api-project"
-safe_pocket register frontend="~/dev/my-frontend"
-safe_pocket -i api -i frontend  # use aliases
+corner register api="~/dev/my-api-project"
+corner register frontend="~/dev/my-frontend"
+corner -i api -i frontend  # use aliases
 ```
 
 #### `unregister NAME`
 Remove a previously registered directory alias.
 
 ```bash
-safe_pocket unregister api
+corner unregister api
 ```
 
 #### `list-aliases`
 List all registered directory aliases.
 
 ```bash
-safe_pocket list-aliases
+corner list-aliases
 ```
 
 #### `list-workspaces`
-List all known safe pockets with their project paths and status.
+List all known pockets with their project paths and status.
 
 ```bash
-safe_pocket list-workspaces
+corner list-workspaces
 ```
 
 ---
@@ -272,26 +272,26 @@ safe_pocket list-workspaces
 #### `sync [TARGET]`
 Sync system-wide assets or the manifest.
 
-**With a TARGET**, synchronizes system-wide safe_pocket assets that every pocket draws from:
+**With a TARGET**, synchronizes system-wide Corner assets that every pocket draws from:
 
-- `agents` — Write unified agent definitions from `~/.config/safe_pocket/templates/agents/` into the places OpenCode looks for agents
+- `agents` — Write unified agent definitions from `~/.config/corner/templates/agents/` into the places OpenCode looks for agents
 - `all` — Run every system-wide sync (currently agents only)
 
 **Without a TARGET** (legacy form used by VS Code extension), updates the pocket manifest to reflect the current .code-workspace folders and prints JSON. Requires `--pocket`. You rarely need to run this manually.
 
 ```bash
-safe_pocket sync agents      # Write agent definitions
-safe_pocket sync all         # Sync everything
-safe_pocket sync --pocket ~/.safe_pocket/abc123  # Manifest sync (internal)
+corner sync agents      # Write agent definitions
+corner sync all         # Sync everything
+corner sync --pocket ~/.corner/abc123  # Manifest sync (internal)
 ```
 
 #### `augment`
 Add or remove project directories from the current workspace in-place. Rewrites the .code-workspace file and manifest without moving the pocket directory. Run from inside a pocket or project directory that belongs to an existing workspace.
 
 ```bash
-safe_pocket augment --add ~/dev/new-service
-safe_pocket augment --remove ~/dev/old-service
-safe_pocket augment --add ~/dev/new-service --no-open
+corner augment --add ~/dev/new-service
+corner augment --remove ~/dev/old-service
+corner augment --add ~/dev/new-service --no-open
 ```
 
 **Options:**
@@ -300,20 +300,20 @@ safe_pocket augment --add ~/dev/new-service --no-open
 - `--no-open` — Update workspace without opening VS Code afterwards
 
 #### `mark MARK POCKET`
-Mark an existing safe pocket with additional metadata.
+Mark an existing pocket with additional metadata.
 
 ```bash
-safe_pocket mark temporary ~/.safe_pocket/abc123
+corner mark temporary ~/.corner/abc123
 ```
 
 **Mark types:**
 - `temporary` — Mark pocket as temporary
 
 #### `locate`
-Locate the safe pocket associated with a project or pocket path. Outputs JSON for editor integrations.
+Locate the pocket associated with a project or pocket path. Outputs JSON for editor integrations.
 
 ```bash
-safe_pocket locate --path ~/dev/myproject
+corner locate --path ~/dev/myproject
 ```
 
 **Options:**
@@ -324,12 +324,12 @@ safe_pocket locate --path ~/dev/myproject
 ### Pocket Maintenance
 
 #### `heal`
-Reconnect a project directory to an existing safe pocket. Moves the selected pocket's contents into the deterministic pocket path for the PROJECT. If that target pocket already exists, it is moved aside under `~/.safe_pocket/unhoused/` before replacement.
+Reconnect a project directory to an existing pocket. Moves the selected pocket's contents into the deterministic pocket path for the PROJECT. If that target pocket already exists, it is moved aside under `~/.corner/unhoused/`, with fallback to legacy roots before replacement.
 
 ```bash
-safe_pocket heal --project ~/dev/app --pocket abc123
-safe_pocket heal --project . --pocket ~/.safe_pocket/oldhash
-safe_pocket heal --alias myproject --pocket ~/.safe_pocket/xyz789
+corner heal --project ~/dev/app --pocket abc123
+corner heal --project . --pocket ~/.corner/oldhash
+corner heal --alias myproject --pocket ~/.corner/xyz789
 ```
 
 **Options:**
@@ -341,10 +341,10 @@ safe_pocket heal --alias myproject --pocket ~/.safe_pocket/xyz789
 Remove registry entries or pocket directories in bulk.
 
 ```bash
-safe_pocket clean temporary              # Remove temporary pockets
-safe_pocket clean --all --hard           # Delete all pockets
-safe_pocket clean --older-than "7 days"  # Remove old pockets
-safe_pocket clean temporary -y           # Skip confirmation
+corner clean temporary              # Remove temporary pockets
+corner clean --all --hard           # Delete all pockets
+corner clean --older-than "7 days"  # Remove old pockets
+corner clean temporary -y           # Skip confirmation
 ```
 
 **Scopes:**
@@ -357,18 +357,18 @@ safe_pocket clean temporary -y           # Skip confirmation
 - `-y`, `--yes` — Skip confirmation
 
 #### `sync-registry-git`
-Refresh the top-level `~/.safe_pocket` git snapshot. Copies every safe pocket into `~/.safe_pocket/snapshots` without nested `.git` directories so the registry root repository can version all pocket contents together.
+Refresh the top-level `~/.corner` git snapshot. Copies every pocket into `~/.corner/snapshots` without nested `.git` directories so the registry root repository can version all pocket contents together.
 
 ```bash
-safe_pocket sync-registry-git
+corner sync-registry-git
 ```
 
 #### `backup`
-Configure a cron job that backs up `~/.safe_pocket` to a git remote. The backup mirror lives at `~/.safe_pocket_backup_repo` and is pushed by cron.
+Configure a cron job that backs up `~/.corner` to a git remote. The backup mirror lives at `~/.corner_backup_repo` and is pushed by cron.
 
 ```bash
-safe_pocket backup --repo git@github.com:you/safe-pocket-backup.git
-safe_pocket backup --repo git@github.com:you/safe-pocket-backup.git --schedule "0 */6 * * *"  # every 6 hours
+corner backup --repo git@github.com:you/corner-backup.git
+corner backup --repo git@github.com:you/corner-backup.git --schedule "0 */6 * * *"  # every 6 hours
 ```
 
 **Options:**
@@ -384,19 +384,19 @@ Print a shell completion script to stdout. Generates tab-completion definitions 
 
 ```bash
 # BASH
-safe_pocket completions bash > ~/.local/share/bash-completion/completions/safe_pocket
+corner completions bash > ~/.local/share/bash-completion/completions/corner
 
 # ZSH (add ~/.zsh/completions to fpath first)
-safe_pocket completions zsh > ~/.zsh/completions/_safe_pocket
+corner completions zsh > ~/.zsh/completions/_corner
 
 # FISH
-safe_pocket completions fish > ~/.config/fish/completions/safe_pocket.fish
+corner completions fish > ~/.config/fish/completions/corner.fish
 
 # POWERSHELL
-safe_pocket completions powershell >> $PROFILE
+corner completions powershell >> $PROFILE
 
 # ELVISH
-safe_pocket completions elvish >> ~/.config/elvish/rc.elv
+corner completions elvish >> ~/.config/elvish/rc.elv
 ```
 
 **Supported shells:**
@@ -410,7 +410,7 @@ safe_pocket completions elvish >> ~/.config/elvish/rc.elv
 Print a concise machine-readable completion model. This JSON is intended for editor and shell integrations that want richer nested command data than a single shell script can comfortably expose.
 
 ```bash
-safe_pocket completion-spec
+corner completion-spec
 ```
 
 #### `daily-feature`
@@ -419,9 +419,9 @@ Resolve (and create) today's daily feature file for the VS Code hotkey. Outputs 
 Newly created files are seeded with feature tags whose definition in `feature_tags.yaml` sets `place_automatically: true`.
 
 ```bash
-safe_pocket daily-feature --pocket ~/.safe_pocket/abc123
-safe_pocket daily-feature --pocket ~/.safe_pocket/abc123 --new
-safe_pocket daily-feature --pocket ~/.safe_pocket/abc123 --subpath dailies
+corner daily-feature --pocket ~/.corner/abc123
+corner daily-feature --pocket ~/.corner/abc123 --new
+corner daily-feature --pocket ~/.corner/abc123 --subpath dailies
 ```
 
 **Options:**
@@ -434,41 +434,41 @@ safe_pocket daily-feature --pocket ~/.safe_pocket/abc123 --subpath dailies
 ### Worktree Management
 
 #### `worktree`
-Manage git worktrees that share this safe pocket. Worktrees are additional project directories (typically git worktrees of the same repo) that share the same safe pocket — meaning the same copilot instructions, FEATURES notes, and observations apply to all of them.
+Manage git worktrees that share this pocket. Worktrees are additional project directories (typically git worktrees of the same repo) that share the same pocket — meaning the same copilot instructions, FEATURES notes, and observations apply to all of them.
 
 ```bash
 # Register a worktree to share the pocket for the current directory
-safe_pocket worktree add ~/dev/my-project-feature-x
+corner worktree add ~/dev/my-project-feature-x
 
 # Remove a previously registered worktree
-safe_pocket worktree remove ~/dev/my-project-feature-x
+corner worktree remove ~/dev/my-project-feature-x
 
 # List all worktrees sharing this pocket
-safe_pocket worktree list
+corner worktree list
 ```
 
 **Subcommands:**
 
 ##### `worktree add [PATH]`
-Register a worktree directory to share this pocket. Run from inside the main project directory (or any directory that already belongs to a pocket). Safe Pocket will also suggest any git worktrees it detects in the same repo if PATH is not provided explicitly.
+Register a worktree directory to share this pocket. Run from inside the main project directory (or any directory that already belongs to a pocket). Corner will also suggest any git worktrees it detects in the same repo if PATH is not provided explicitly.
 
 ```bash
-safe_pocket worktree add ~/dev/my-project-feature-x
-safe_pocket worktree add  # auto-suggest git worktrees
+corner worktree add ~/dev/my-project-feature-x
+corner worktree add  # auto-suggest git worktrees
 ```
 
 ##### `worktree remove PATH`
 Unregister a worktree directory from this pocket.
 
 ```bash
-safe_pocket worktree remove ~/dev/my-project-feature-x
+corner worktree remove ~/dev/my-project-feature-x
 ```
 
 ##### `worktree list`
 List all worktrees registered to this pocket.
 
 ```bash
-safe_pocket worktree list
+corner worktree list
 ```
 
 ---
@@ -621,9 +621,11 @@ Customize files written into every new pocket by editing templates in `~/.config
 ```
 
 Supported variables:
-- `{{SPOCKET_ROOT}}` — Absolute path to the pocket directory
+- `{{CORNER_ROOT}}` / `{{SPOCKET_ROOT}}` — Absolute path to the pocket directory (`CORNER_*` preferred)
+- `{{CORNER_NAME}}` / `{{SPOCKET_NAME}}` — Hash-based pocket identifier (`CORNER_*` preferred)
+- `{{CORNER_CONFIG_ROOT}}` / `{{SPOCKET_CONFIG_ROOT}}` — Preferred config root with fallback support
+- `{{CORNER_REGISTRY_ROOT}}` / `{{SPOCKET_REGISTRY_ROOT}}` — Preferred registry root with fallback support
 - `{{PROJECT_ROOT}}` — Absolute path to the first included project
-- `{{SPOCKET_NAME}}` — Hash-based pocket identifier
 
 Directory structure is controlled by `~/.config/corner/directory_structure.yaml`.
 
@@ -644,27 +646,28 @@ The default pocket directory structure is:
 └── manifest.json        # Pocket metadata
 ```
 
-Customize by editing `~/.config/safe_pocket/directory_structure.md`.
+Customize by editing `~/.config/corner/directory_structure.yaml`.
 
 ---
 
 ## Pocket Directory Location
 
-Pockets are stored in `~/.safe_pocket/<hash>/` where `<hash>` is derived from the project directory path, ensuring deterministic pocket association across sessions.
+Pockets are stored in `~/.corner/<hash>/` where `<hash>` is derived from the project directory path, ensuring deterministic pocket association across sessions. If a Corner root does not exist yet, the runtime falls back to legacy `~/.safe_pocket/` and `~/.spocket/` roots.
 
 View all pockets:
 
 ```bash
-safe_pocket list-workspaces
+corner list-workspaces
 ```
 
 ---
 
 ## Environment Variables
 
-- `SPOCKET_ROOT` — (internal) Path to the pocket directory
+- `CORNER_ROOT` — Preferred path to the pocket directory
+- `SPOCKET_ROOT` — Legacy compatibility alias for `CORNER_ROOT`
 - `PROJECT_ROOT` — (internal) Path to the first included project
-- `SPOCKET_NAME` — (internal) Pocket hash identifier
+- `CORNER_NAME` / `SPOCKET_NAME` — Internal pocket hash identifier (template variables)
 
 ---
 
@@ -673,37 +676,37 @@ safe_pocket list-workspaces
 ### Create a temporary workspace for experimentation
 
 ```bash
-safe_pocket -i . --temporary --silent
+corner -i . --temporary --silent
 ```
 
 ### Merge two existing projects into one workspace
 
 ```bash
-safe_pocket -i ~/dev/api -i ~/dev/frontend
+corner -i ~/dev/api -i ~/dev/frontend
 ```
 
 ### Switch a project to a different pocket
 
 ```bash
-safe_pocket heal --project ~/dev/app --pocket ~/.safe_pocket/new-hash
+corner heal --project ~/dev/app --pocket ~/.corner/new-hash
 ```
 
 ### Upgrade all pocket templates
 
 ```bash
-safe_pocket sync agents
+corner sync agents
 ```
 
 ### Clean up old temporary pockets
 
 ```bash
-safe_pocket clean temporary --hard -y
+corner clean temporary --hard -y
 ```
 
 ### Generate shell completions (ZSH)
 
 ```bash
-safe_pocket completions zsh > ~/.zsh/completions/_safe_pocket
+corner completions zsh > ~/.zsh/completions/_corner
 # Then add to ~/.zshrc:
 # fpath=(~/.zsh/completions $fpath)
 # autoload -Uz compinit && compinit
@@ -713,7 +716,7 @@ safe_pocket completions zsh > ~/.zsh/completions/_safe_pocket
 
 ## See Also
 
-- `~/.safe_pocket/registry.json` — Registry of all pockets
-- `~/.safe_pocket/snapshots/` — Git snapshot of all pockets
-- `~/.safe_pocket/global_data/tasks.db` — Global tasks database
-- `~/.config/safe_pocket/` — User configuration and templates
+- `~/.corner/aliases` — Preferred alias registry file
+- `~/.corner/snapshots/` — Preferred git snapshot of all pockets
+- `~/.corner/global_data/tasks.db` — Preferred global tasks database
+- `~/.config/corner/` — Preferred user configuration and templates

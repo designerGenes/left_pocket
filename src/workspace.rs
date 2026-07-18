@@ -261,9 +261,10 @@ impl Workspace {
                         This directory is automatically managed by corner. Legacy `safe_pocket` and `spocket` commands still work. Edit the files above to customize \
                         your AI assistant's behavior for the workspace directories:\n\n\
                         {paths}\n\n\
-                        Learn more: https://github.com/your-repo/safe_pocket\n",
+                        Learn more: {repo}\n",
                         hash = self.hash,
                         paths = core_paths_list,
+                        repo = crate::branding::REPOSITORY_URL,
                     ),
                 )
                 .context("Failed to create README.md")?;

@@ -1,6 +1,16 @@
 # Changelog
 
-All notable changes to Safe Pocket will be documented in this file.
+All notable changes to Corner will be documented in this file.
+
+## [2.0.1] - 2026-07-18
+
+### Added
+- Corner now recognizes both `CORNER_ROOT` and legacy `SPOCKET_ROOT` in project `.env` files, preferring `CORNER_ROOT` when both are present.
+- Template expansion now supports `{{CORNER_ROOT}}`, `{{CORNER_NAME}}`, `{{CORNER_CONFIG_ROOT}}`, and `{{CORNER_REGISTRY_ROOT}}` alongside the legacy `SPOCKET_*` placeholders.
+
+### Changed
+- Generated project and pocket `.env` files now write both `CORNER_ROOT` and `SPOCKET_ROOT` for compatibility with older tooling.
+- Repository metadata, workspace README links, VS Code extension metadata, and documentation examples now point at the renamed `designerGenes/corner` repository and the `corner` command.
 
 ## [2.0.0] - 2026-07-18
 

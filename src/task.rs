@@ -150,7 +150,8 @@ fn row_to_task(row: &rusqlite::Row) -> rusqlite::Result<Task> {
 /// 2. Otherwise ask the workspace registry which pocket owns `start`, covering
 ///    both project directories and pocket directories.
 /// 3. Finally walk up from `start` looking for a `.env` file containing
-///    `SPOCKET_ROOT=<path>`; the basename of that path is the prefix.
+///    `CORNER_ROOT=<path>` or legacy `SPOCKET_ROOT=<path>`; the basename of that
+///    path is the prefix.
 pub fn detect_prefix(start: &Path) -> Result<String> {
     let start = start.canonicalize().unwrap_or_else(|_| start.to_path_buf());
 
@@ -185,13 +186,15 @@ pub fn detect_prefix(start: &Path) -> Result<String> {
         }
     }
 
-    // 3. Walk up looking for a project .env with SPOCKET_ROOT.
+    // 3. Walk up looking for a project .env with CORNER_ROOT or SPOCKET_ROOT.
     let mut dir: Option<&Path> = Some(start.as_path());
     while let Some(d) = dir {
         let env = d.join(".env");
         if env.is_file() {
             if let Ok(content) = fs::read_to_string(&env) {
-                if let Some(root) = parse_env_value(&content, "SPOCKET_ROOT") {
+                if let Some(root) =
+                    parse_preferred_env_value(&content, &crate::branding::root_env_keys())
+                {
                     if let Some(name) = Path::new(&root).file_name() {
                         let name = name.to_string_lossy().to_string();
                         if !name.is_empty() {
@@ -207,7 +210,7 @@ pub fn detect_prefix(start: &Path) -> Result<String> {
     bail!(
         "Could not determine which pocket this directory belongs to.\n\
          Run `corner task …` from inside a registered project (one whose .env\n\
-         contains SPOCKET_ROOT) or pass --project <path>."
+         contains CORNER_ROOT or SPOCKET_ROOT) or pass --project <path>."
     )
 }
 
@@ -229,6 +232,15 @@ fn parse_env_value(content: &str, key: &str) -> Option<String> {
                     return Some(val.to_string());
                 }
             }
+        }
+    }
+    None
+}
+
+fn parse_preferred_env_value(content: &str, keys: &[&str]) -> Option<String> {
+    for key in keys {
+        if let Some(value) = parse_env_value(content, key) {
+            return Some(value);
         }
     }
     None
@@ -515,14 +527,14 @@ pub fn reprefix_global(old: &str, new: &str) -> Result<usize> {
 
 // ── CLI entry point ───────────────────────────────────────────────────────────
 
-/// Parse and dispatch the raw trailing args after `spocket task`.
+/// Parse and dispatch the raw trailing args after `corner task`.
 pub fn run_cli(args: Vec<String>) -> Result<()> {
     let mut iter = args.into_iter();
     let first = iter.next().ok_or_else(|| {
         anyhow!(
             "Missing task subcommand.\n\
-             Usage: spocket task <list|create|ID|reprefix> …\n\
-             Try `spocket task list` or `spocket task create --named \"…\"`."
+             Usage: corner task <list|create|ID|reprefix> …\n\
+             Try `corner task list` or `corner task create --named \"…\"`."
         )
     })?;
     let rest: Vec<String> = iter.collect();
@@ -537,7 +549,7 @@ pub fn run_cli(args: Vec<String>) -> Result<()> {
             let action = rest_iter.next().ok_or_else(|| {
                 anyhow!(
                     "Missing action for task '{other}'.\n\
-                     Usage: spocket task <ID> <assign|start|log|close|discard|describe> …"
+                     Usage: corner task <ID> <assign|start|log|close|discard|describe> …"
                 )
             })?;
             let action_args: Vec<String> = rest_iter.collect();
@@ -1051,7 +1063,7 @@ mod tests {
         fs::create_dir_all(&project).unwrap();
         fs::write(
             project.join(".env"),
-            "SPOCKET_ROOT=/Users/x/.safe_pocket/deadbeef00\n",
+            "CORNER_ROOT=/Users/x/.corner/deadbeef00\nSPOCKET_ROOT=/Users/x/.safe_pocket/oldvalue00\n",
         )
         .unwrap();
 
@@ -1069,6 +1081,15 @@ mod tests {
             Some("/a/b/hashhash")
         );
         assert_eq!(parse_env_value(c, "MISSING"), None);
+    }
+
+    #[test]
+    fn test_parse_preferred_env_value_prefers_corner_root() {
+        let c = "SPOCKET_ROOT=/old/hash\nCORNER_ROOT=/new/hash\n";
+        assert_eq!(
+            parse_preferred_env_value(c, &crate::branding::root_env_keys()).as_deref(),
+            Some("/new/hash")
+        );
     }
 
     #[test]

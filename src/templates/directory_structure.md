@@ -1,4 +1,4 @@
-#SPOCKET_INSTALL_DESTINATION: {{SPOCKET_CONFIG_ROOT}}/directory_structure.yaml
+#SPOCKET_INSTALL_DESTINATION: {{CORNER_CONFIG_ROOT}}/directory_structure.yaml
 .github
   - prompts
   - skills

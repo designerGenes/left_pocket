@@ -59,9 +59,9 @@ tracker. Do NOT use markdown TODO lists or external issue trackers — use
 ### Why `corner task`?
 
 - Fast: backed by a local SQLite database, no network or daemon required.
-- Shared: every agent on this safe pocket sees the same task list.
+- Shared: every agent on this pocket sees the same task list.
 - Scoped: tasks are grouped per project by a prefix derived automatically from
-  the safe pocket — just run the commands from inside the project directory.
+  the pocket — just run the commands from inside the project directory.
 
 ### Quick reference
 
@@ -111,38 +111,47 @@ corner task <ID> describe --raw    # JSON
 <!-- END SPOCKET TASK INTEGRATION -->
 "#;
 
-/// Replace `{{SPOCKET_ROOT}}`, `{{PROJECT_ROOT}}`, `{{SPOCKET_NAME}}`,
-/// `{{GLOBAL_OBSERVATIONS_PATH}}`, `{{SPOCKET_CONFIG_ROOT}}`, and
-/// `{{SPOCKET_REGISTRY_ROOT}}` in `text`.
+/// Replace `{{CORNER_ROOT}}`/`{{SPOCKET_ROOT}}`, `{{PROJECT_ROOT}}`,
+/// `{{CORNER_NAME}}`/`{{SPOCKET_NAME}}`, `{{GLOBAL_OBSERVATIONS_PATH}}`,
+/// `{{CORNER_CONFIG_ROOT}}`/`{{SPOCKET_CONFIG_ROOT}}`, and
+/// `{{CORNER_REGISTRY_ROOT}}`/`{{SPOCKET_REGISTRY_ROOT}}` in `text`.
 pub fn expand_variables(text: &str, ctx: &TemplateContext) -> String {
     let registry_root = crate::registry::registry_root()
         .map(|p| p.to_string_lossy().into_owned())
-        .unwrap_or_else(|_| "{{SPOCKET_REGISTRY_ROOT}}".to_string());
-    text.replace("{{SPOCKET_ROOT}}", &ctx.spocket_root.to_string_lossy())
+        .unwrap_or_else(|_| "{{CORNER_REGISTRY_ROOT}}".to_string());
+    text.replace("{{CORNER_ROOT}}", &ctx.spocket_root.to_string_lossy())
+        .replace("{{SPOCKET_ROOT}}", &ctx.spocket_root.to_string_lossy())
         .replace("{{PROJECT_ROOT}}", &ctx.project_root.to_string_lossy())
+        .replace("{{CORNER_NAME}}", &ctx.spocket_name)
         .replace("{{SPOCKET_NAME}}", &ctx.spocket_name)
         .replace(
             "{{GLOBAL_OBSERVATIONS_PATH}}",
             &ctx.global_observations_path.to_string_lossy(),
         )
+        .replace("{{CORNER_CONFIG_ROOT}}", &ctx.config_root.to_string_lossy())
         .replace(
             "{{SPOCKET_CONFIG_ROOT}}",
             &ctx.config_root.to_string_lossy(),
         )
+        .replace("{{CORNER_REGISTRY_ROOT}}", &registry_root)
         .replace("{{SPOCKET_REGISTRY_ROOT}}", &registry_root)
 }
 
 /// Token marking a destination/content as resolvable at install time (before any
 /// pocket exists), using only the two install-known roots.
 const CONFIG_ROOT_TOKEN: &str = "{{SPOCKET_CONFIG_ROOT}}";
+const CORNER_CONFIG_ROOT_TOKEN: &str = "{{CORNER_CONFIG_ROOT}}";
 const REGISTRY_ROOT_TOKEN: &str = "{{SPOCKET_REGISTRY_ROOT}}";
+const CORNER_REGISTRY_ROOT_TOKEN: &str = "{{CORNER_REGISTRY_ROOT}}";
 
 /// Expand only the two install-known roots (`{{SPOCKET_CONFIG_ROOT}}` and
 /// `{{SPOCKET_REGISTRY_ROOT}}`). Pocket-level variables such as
 /// `{{SPOCKET_ROOT}}` are intentionally left untouched so that literal examples
 /// embedded in interpreted files (e.g. feature-tag descriptions) survive.
 fn expand_install_roots(text: &str, config_root: &Path, registry_root: &Path) -> String {
-    text.replace(CONFIG_ROOT_TOKEN, &config_root.to_string_lossy())
+    text.replace(CORNER_CONFIG_ROOT_TOKEN, &config_root.to_string_lossy())
+        .replace(CONFIG_ROOT_TOKEN, &config_root.to_string_lossy())
+        .replace(CORNER_REGISTRY_ROOT_TOKEN, &registry_root.to_string_lossy())
         .replace(REGISTRY_ROOT_TOKEN, &registry_root.to_string_lossy())
 }
 
@@ -171,7 +180,9 @@ fn runtime_content_for_template(tmpl: &Template, ctx: &TemplateContext) -> Strin
         sections.push(base);
     }
 
-    if tmpl.destination == "{{SPOCKET_ROOT}}/AGENTS.md" {
+    if tmpl.destination == "{{SPOCKET_ROOT}}/AGENTS.md"
+        || tmpl.destination == "{{CORNER_ROOT}}/AGENTS.md"
+    {
         sections.push(TASK_RUNTIME_BLOCK.trim().to_string());
     }
 
@@ -464,6 +475,21 @@ pub fn ensure_default_assets() -> Result<()> {
     let _ = crate::registry::global_observations_dir()?;
 
     let registry_root = crate::registry::registry_root()?;
+    install_embedded_templates(&config_dir, &registry_root)
+}
+
+/// Install default assets into Corner's canonical roots regardless of whether
+/// legacy safe_pocket directories already exist. This is used by the install
+/// script so installation always seeds `~/.config/corner` and `~/.corner`.
+pub fn install_default_assets_to_current_roots() -> Result<()> {
+    let config_dir = crate::branding::current_config_root()?;
+    let tmpl_dir = config_dir.join("templates");
+    fs::create_dir_all(&tmpl_dir).context("Failed to create primary templates directory")?;
+
+    let registry_root = crate::registry::current_registry_dir()?;
+    fs::create_dir_all(registry_root.join("observations"))
+        .context("Failed to create primary global observations directory")?;
+
     install_embedded_templates(&config_dir, &registry_root)
 }
 
@@ -1197,7 +1223,7 @@ fn move_existing_to_unhoused(pocket_dir: &Path, path: &Path, operation: &str) ->
 
     fs::rename(path, &target).with_context(|| {
         format!(
-            "Failed to move existing safe pocket content to unhoused: {} -> {}",
+            "Failed to move existing pocket content to unhoused: {} -> {}",
             path.display(),
             target.display()
         )
@@ -1346,7 +1372,7 @@ pub fn upgrade_pocket(pocket_dir: &Path) -> Result<()> {
     let manifest_path = pocket_dir.join("manifest.json");
     if !manifest_path.exists() {
         return Err(anyhow!(
-            "No manifest.json found in {}. Is this a valid safe pocket?",
+            "No manifest.json found in {}. Is this a valid pocket?",
             pocket_dir.display()
         ));
     }
@@ -1496,6 +1522,19 @@ mod tests {
         assert_eq!(
             result,
             "Root: /home/user/.safe_pocket/abc123\nProject: /home/user/project\nName: abc123"
+        );
+    }
+
+    #[test]
+    fn test_expand_variables_supports_corner_aliases() {
+        let ctx = make_ctx("/home/user/.corner/abc123", "/home/user/project", "abc123");
+        let input = "Root: {{CORNER_ROOT}}\nName: {{CORNER_NAME}}\nCfg: {{CORNER_CONFIG_ROOT}}";
+
+        let output = expand_variables(input, &ctx);
+
+        assert_eq!(
+            output,
+            "Root: /home/user/.corner/abc123\nName: abc123\nCfg: /home/user/.config/safe_pocket"
         );
     }
 
@@ -2167,7 +2206,7 @@ mod tests {
 
         let templates = vec![Template {
             destination: ".env".to_string(),
-            content: "SPOCKET_ROOT={{SPOCKET_ROOT}}\nBEADS_DIR={{SPOCKET_ROOT}}/.beads\n"
+            content: "CORNER_ROOT={{CORNER_ROOT}}\nSPOCKET_ROOT={{CORNER_ROOT}}\nBEADS_DIR={{CORNER_ROOT}}/.beads\n"
                 .to_string(),
             quiet_merge: true,
             merge_at_runtime: false,
@@ -2186,7 +2225,11 @@ mod tests {
 
         assert_eq!(
             fs::read_to_string(pocket_dir.join(".env")).unwrap(),
-            format!("SPOCKET_ROOT={}\n", pocket_dir.display())
+            format!(
+                "CORNER_ROOT={}\nSPOCKET_ROOT={}\n",
+                pocket_dir.display(),
+                pocket_dir.display()
+            )
         );
 
         let _ = fs::remove_dir_all(&dir);
@@ -2204,14 +2247,16 @@ mod tests {
         let templates = vec![
             Template {
                 destination: "{{PROJECT_ROOT}}/.env".to_string(),
-                content: "SPOCKET_ROOT={{SPOCKET_ROOT}}\n".to_string(),
+                content: "CORNER_ROOT={{CORNER_ROOT}}\nSPOCKET_ROOT={{CORNER_ROOT}}\n"
+                    .to_string(),
                 quiet_merge: true,
                 merge_at_runtime: false,
                 source_path: dir.join("project-env-template.md"),
             },
             Template {
                 destination: "{{SPOCKET_ROOT}}/.env".to_string(),
-                content: "PROJECT_ROOT={{PROJECT_ROOT}}\n".to_string(),
+                content: "PROJECT_ROOT={{PROJECT_ROOT}}\nCORNER_ROOT={{CORNER_ROOT}}\nSPOCKET_ROOT={{CORNER_ROOT}}\n"
+                    .to_string(),
                 quiet_merge: true,
                 merge_at_runtime: false,
                 source_path: dir.join("safe-pocket-env-template.md"),
@@ -2234,11 +2279,20 @@ mod tests {
 
         assert_eq!(
             fs::read_to_string(project_dir.join(".env")).unwrap(),
-            format!("SPOCKET_ROOT={}\n", pocket_dir.display())
+            format!(
+                "CORNER_ROOT={}\nSPOCKET_ROOT={}\n",
+                pocket_dir.display(),
+                pocket_dir.display()
+            )
         );
         assert_eq!(
             fs::read_to_string(pocket_dir.join(".env")).unwrap(),
-            format!("PROJECT_ROOT={}\n", project_dir.display())
+            format!(
+                "PROJECT_ROOT={}\nCORNER_ROOT={}\nSPOCKET_ROOT={}\n",
+                project_dir.display(),
+                pocket_dir.display(),
+                pocket_dir.display()
+            )
         );
 
         let _ = fs::remove_dir_all(&dir);
@@ -2450,11 +2504,11 @@ mod tests {
     #[test]
     fn test_expand_install_roots_leaves_pocket_vars_literal() {
         let out = expand_install_roots(
-            "cfg={{SPOCKET_CONFIG_ROOT}} reg={{SPOCKET_REGISTRY_ROOT}} pkt={{SPOCKET_ROOT}}",
+            "cfg={{CORNER_CONFIG_ROOT}} reg={{CORNER_REGISTRY_ROOT}} pkt={{CORNER_ROOT}}",
             Path::new("/cfg"),
             Path::new("/reg"),
         );
-        assert_eq!(out, "cfg=/cfg reg=/reg pkt={{SPOCKET_ROOT}}");
+        assert_eq!(out, "cfg=/cfg reg=/reg pkt={{CORNER_ROOT}}");
     }
 
     #[test]

@@ -2,10 +2,10 @@
   "name": "spocket",
   "displayName": "Corner - Pocket Sync",
   "description": "Real-time sync between VS Code workspace folders and Corner manifests",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "publisher": "jadennation",
   "repository": {
-    "url": "https://github.com/designerGenes/safe_pocket"
+    "url": "https://github.com/designerGenes/corner"
   },
   "license": "MIT",
   "engines": {

@@ -91,9 +91,21 @@ pub fn registry_root() -> Result<PathBuf> {
 
 pub fn registry_dir() -> Result<PathBuf> {
     let dir = registry_root()?;
-    fs::create_dir_all(&dir).context("Failed to create safe pocket registry directory")?;
+    fs::create_dir_all(&dir).context("Failed to create pocket registry directory")?;
     ensure_registry_git_state_from(&dir)?;
     Ok(dir)
+}
+
+pub fn current_registry_dir() -> Result<PathBuf> {
+    let dir = crate::branding::current_registry_root()?;
+    fs::create_dir_all(&dir).context("Failed to create primary pocket registry directory")?;
+    ensure_registry_git_state_from(&dir)?;
+    Ok(dir)
+}
+
+pub fn rebuild_current_cache() -> Result<RegistryCache> {
+    let root = current_registry_dir()?;
+    rebuild_cache_from(&root)
 }
 
 pub fn sync_registry_git_state() -> Result<usize> {
@@ -202,6 +214,14 @@ fn load_cache_or_rebuild_from(root: &Path) -> Result<RegistryCache> {
     cache.pockets.retain(|entry| entry.path.is_dir());
     sort_entries(&mut cache.pockets);
 
+    // A whole-root rename (for example ~/.safe_pocket -> ~/.corner) can leave a
+    // cache file in place whose entries all point at paths that no longer
+    // exist. If the root still contains pocket directories, rebuild instead of
+    // persisting an empty cache.
+    if cache.pockets.is_empty() && before > 0 && root_has_pocket_dirs(root)? {
+        return rebuild_cache_from(root);
+    }
+
     if cache.pockets.len() != before {
         cache.generated_at = Utc::now();
         write_cache_to(root, &cache)?;
@@ -301,7 +321,7 @@ pub fn move_to_unhoused(path: &Path, operation: &str) -> Result<Option<PathBuf>>
     }
     fs::rename(path, &target).with_context(|| {
         format!(
-            "Failed to move safe pocket content to unhoused: {} -> {}",
+            "Failed to move pocket content to unhoused: {} -> {}",
             path.display(),
             target.display()
         )
@@ -344,7 +364,7 @@ fn read_cache_from(root: &Path) -> Result<RegistryCache> {
 }
 
 fn write_cache_to(root: &Path, cache: &RegistryCache) -> Result<()> {
-    fs::create_dir_all(root).context("Failed to create safe pocket registry directory")?;
+    fs::create_dir_all(root).context("Failed to create pocket registry directory")?;
     let content =
         serde_json::to_string_pretty(cache).context("Failed to serialize registry cache")?;
     let tmp_path = cache_tmp_path_for(root);
@@ -381,7 +401,7 @@ fn sort_entries(entries: &mut [RegistryEntry]) {
 }
 
 fn collect_pockets_from_dir(root: &Path, cache: &mut RegistryCache) -> Result<()> {
-    for entry in fs::read_dir(root).context("Failed to read safe pocket registry directory")? {
+    for entry in fs::read_dir(root).context("Failed to read pocket registry directory")? {
         let entry = entry?;
         let pocket_dir = entry.path();
 
@@ -415,6 +435,17 @@ fn is_reserved_registry_dir(path: &Path) -> bool {
         path.file_name().and_then(|name| name.to_str()),
         Some("observations" | "registry" | "unhoused" | SNAPSHOTS_DIR | TEMPORARY_DIR)
     )
+}
+
+fn root_has_pocket_dirs(root: &Path) -> Result<bool> {
+    for entry in fs::read_dir(root).context("Failed to read pocket registry directory")? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_dir() && !is_reserved_registry_dir(&path) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 fn ensure_registry_git_state_from(root: &Path) -> Result<()> {
@@ -514,7 +545,7 @@ fn sync_registry_snapshot_from(root: &Path) -> Result<usize> {
     let mut expected = Vec::new();
     let mut count = 0;
 
-    for entry in fs::read_dir(root).context("Failed to read safe pocket registry root")? {
+    for entry in fs::read_dir(root).context("Failed to read pocket registry root")? {
         let entry = entry?;
         let path = entry.path();
         if !path.is_dir()
@@ -610,7 +641,7 @@ fn copy_file_for_snapshot(src: &Path, dst: &Path) -> Result<()> {
     if metadata.len() as usize <= SNAPSHOT_CHUNK_SIZE {
         fs::copy(src, dst).with_context(|| {
             format!(
-                "Failed to copy safe pocket content into snapshot: {} -> {}",
+                "Failed to copy pocket content into snapshot: {} -> {}",
                 src.display(),
                 dst.display()
             )

@@ -1,5 +1,5 @@
 
-#SPOCKET_TEMPLATE_DESTINATION: {{SPOCKET_ROOT}}/.github/copilot-instructions.md
+#SPOCKET_TEMPLATE_DESTINATION: {{CORNER_ROOT}}/.github/copilot-instructions.md
 #SPOCKET_MERGE_AT_RUNTIME
 
 All coding projects should include a top-level install.sh script, which handles the full process of installing the compiled project to a location that can be called from any terminal.  Usually this is $HOME/.local/bin.  The install process should use the standard install process for the language used (for example, for a Rust project we should use cargo install, and for a python project we should use uv).

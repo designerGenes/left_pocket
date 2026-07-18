@@ -78,7 +78,11 @@ fn run() -> Result<()> {
     // violating the unidirectional templates -> pocket flow.
     let is_merge_cmd = matches!(
         cli.command,
-        Some(Commands::RuntimeMergeStart { .. } | Commands::RuntimeMergeStop { .. })
+        Some(
+            Commands::RuntimeMergeStart { .. }
+                | Commands::RuntimeMergeStop { .. }
+                | Commands::InstallDefaultAssets
+        )
     );
     if !is_merge_cmd {
         let _ = template::ensure_default_assets();
@@ -203,6 +207,8 @@ fn handle_command(command: Commands) -> Result<()> {
 
         Commands::RuntimeMergeStop { pocket } => handle_merge_stop(pocket),
 
+        Commands::InstallDefaultAssets => handle_install_default_assets(),
+
         Commands::Augment {
             add,
             remove,
@@ -306,6 +312,160 @@ fn handle_daily_feature(pocket: String, new: bool, subpath: Option<String>) -> R
             });
             println!("{}", serde_json::to_string(&out)?);
         }
+    }
+
+    Ok(())
+}
+
+fn handle_install_default_assets() -> Result<()> {
+    template::install_default_assets_to_current_roots()?;
+    migrate_post_install_root_state()
+}
+
+fn migrate_post_install_root_state() -> Result<()> {
+    let cache = registry::rebuild_current_cache()?;
+    let current_root = crate::branding::current_registry_root()?;
+
+    for entry in cache.pockets {
+        if !entry.path.starts_with(&current_root) || !entry.path.is_dir() {
+            continue;
+        }
+
+        let Some((manifest, core_paths)) = Workspace::load_manifest_or_backfill(&entry.path)? else {
+            continue;
+        };
+
+        let workspace = Workspace {
+            hash: entry.hash,
+            core_paths: core_paths.clone(),
+            sidecar_paths: vec![],
+            pocket_dir: entry.path.clone(),
+            create_readmes: false,
+            temporary: entry.temporary,
+        };
+        workspace.migrate_storage_references()?;
+
+        sync_root_env_file(&workspace.pocket_dir.join(".env"), &workspace.pocket_dir)?;
+        for project_path in core_paths.iter().chain(manifest.worktrees.iter()) {
+            sync_root_env_file(&project_path.join(".env"), &workspace.pocket_dir)?;
+        }
+    }
+
+    migrate_backup_script_paths()?;
+    let _ = migrate_backup_crontab_path();
+    Ok(())
+}
+
+fn sync_root_env_file(env_path: &Path, pocket_dir: &Path) -> Result<()> {
+    let mut lines = if env_path.exists() {
+        fs::read_to_string(env_path)
+            .with_context(|| format!("Failed to read env file: {}", env_path.display()))?
+            .lines()
+            .filter(|line| {
+                let trimmed = line.trim_start();
+                !trimmed.starts_with("CORNER_ROOT=") && !trimmed.starts_with("SPOCKET_ROOT=")
+            })
+            .map(str::to_string)
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
+
+    lines.push(format!("CORNER_ROOT={}", pocket_dir.display()));
+    lines.push(format!("SPOCKET_ROOT={}", pocket_dir.display()));
+
+    let content = if lines.is_empty() {
+        String::new()
+    } else {
+        format!("{}\n", lines.join("\n"))
+    };
+
+    if let Some(parent) = env_path.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("Failed to create env parent: {}", parent.display()))?;
+    }
+    fs::write(env_path, content)
+        .with_context(|| format!("Failed to write env file: {}", env_path.display()))?;
+    Ok(())
+}
+
+fn migrate_backup_script_paths() -> Result<()> {
+    let script_path = crate::branding::current_registry_root()?.join("backup.sh");
+    if !script_path.is_file() {
+        return Ok(());
+    }
+
+    let mut content = fs::read_to_string(&script_path)
+        .with_context(|| format!("Failed to read backup script: {}", script_path.display()))?;
+    let current_root = crate::branding::current_registry_root()?;
+    let preferred_backup = crate::branding::preferred_backup_repo_path()?;
+
+    for legacy_root in crate::branding::known_registry_roots()? {
+        if legacy_root != current_root {
+            let legacy_root_text = legacy_root.to_string_lossy().into_owned();
+            content = content.replace(
+                &legacy_root_text,
+                &current_root.to_string_lossy(),
+            );
+        }
+    }
+    for legacy_backup in crate::branding::known_backup_repo_paths()? {
+        if legacy_backup != preferred_backup {
+            let legacy_backup_text = legacy_backup.to_string_lossy().into_owned();
+            content = content.replace(
+                &legacy_backup_text,
+                &preferred_backup.to_string_lossy(),
+            );
+        }
+    }
+
+    fs::write(&script_path, content)
+        .with_context(|| format!("Failed to rewrite backup script: {}", script_path.display()))?;
+    Ok(())
+}
+
+fn migrate_backup_crontab_path() -> Result<()> {
+    let output = match Command::new("crontab").arg("-l").output() {
+        Ok(output) => output,
+        Err(_) => return Ok(()),
+    };
+    if !output.status.success() {
+        return Ok(());
+    }
+
+    let mut current = String::from_utf8_lossy(&output.stdout).to_string();
+    let original = current.clone();
+    let current_script = crate::branding::current_registry_root()?.join("backup.sh");
+    for legacy_root in crate::branding::known_registry_roots()? {
+        if legacy_root == crate::branding::current_registry_root()? {
+            continue;
+        }
+        let legacy_script = legacy_root.join("backup.sh");
+        let legacy_script_text = legacy_script.to_string_lossy().into_owned();
+        current = current.replace(
+            &legacy_script_text,
+            &current_script.to_string_lossy(),
+        );
+    }
+
+    if current == original {
+        return Ok(());
+    }
+
+    let mut child = Command::new("crontab")
+        .arg("-")
+        .stdin(std::process::Stdio::piped())
+        .spawn()
+        .context("Failed to update crontab during root-path migration")?;
+    child
+        .stdin
+        .as_mut()
+        .context("Failed to open crontab stdin during root-path migration")?
+        .write_all(current.as_bytes())
+        .context("Failed to write migrated crontab")?;
+    let status = child.wait().context("Failed to wait for crontab")?;
+    if !status.success() {
+        bail!("Failed to update crontab during root-path migration");
     }
 
     Ok(())
@@ -764,7 +924,7 @@ fn handle_workspace(cli: Cli) -> Result<()> {
                 }
 
                 copy_dir_all(&selected.pocket_dir, &workspace.pocket_dir)
-                    .context("Failed to copy safe pocket contents")?;
+                    .context("Failed to copy pocket contents")?;
 
                 // Create workspace file with new paths
                 workspace.create_workspace_file()?;
@@ -1355,7 +1515,7 @@ fn mark_temporary(pocket: String) -> Result<()> {
         .context("Failed to create temporary registry directory")?;
     fs::rename(&workspace.pocket_dir, &target_dir).with_context(|| {
         format!(
-            "Failed to move safe pocket into temporary registry: {} -> {}",
+            "Failed to move pocket into temporary registry: {} -> {}",
             workspace.pocket_dir.display(),
             target_dir.display()
         )
@@ -1573,7 +1733,7 @@ fn handle_heal(
     }
 
     if let Some(parent) = target.pocket_dir.parent() {
-        fs::create_dir_all(parent).context("Failed to create target safe pocket parent")?;
+        fs::create_dir_all(parent).context("Failed to create target pocket parent")?;
     }
 
     fs::rename(&source.pocket_dir, &target.pocket_dir).or_else(|_| {

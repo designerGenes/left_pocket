@@ -5,6 +5,10 @@ pub const PRODUCT_NAME: &str = "Corner";
 pub const PRIMARY_BINARY_NAME: &str = "corner";
 #[allow(dead_code)]
 pub const LEGACY_BINARY_NAMES: &[&str] = &["safe_pocket", "spocket"];
+pub const REPOSITORY_URL: &str = "https://github.com/designerGenes/corner";
+
+pub const PRIMARY_ROOT_ENV_KEY: &str = "CORNER_ROOT";
+pub const LEGACY_ROOT_ENV_KEYS: &[&str] = &["SPOCKET_ROOT"];
 
 pub const PRIMARY_REGISTRY_DIRNAME: &str = ".corner";
 pub const LEGACY_REGISTRY_DIRNAMES: &[&str] = &[".safe_pocket", ".spocket"];
@@ -22,6 +26,14 @@ fn home_dir() -> Result<PathBuf> {
 
 fn config_base_dir() -> Result<PathBuf> {
     Ok(home_dir()?.join(".config"))
+}
+
+pub fn current_registry_root() -> Result<PathBuf> {
+    Ok(home_dir()?.join(PRIMARY_REGISTRY_DIRNAME))
+}
+
+pub fn current_config_root() -> Result<PathBuf> {
+    Ok(config_base_dir()?.join(PRIMARY_CONFIG_DIRNAME))
 }
 
 fn preferred_existing_root(candidates: &[PathBuf]) -> PathBuf {
@@ -99,4 +111,10 @@ pub fn preferred_backup_repo_path() -> Result<PathBuf> {
 
 pub fn workspace_folder_name(hash: &str) -> String {
     format!("[{PRODUCT_NAME}] {hash}")
+}
+
+pub fn root_env_keys() -> Vec<&'static str> {
+    let mut keys = vec![PRIMARY_ROOT_ENV_KEY];
+    keys.extend(LEGACY_ROOT_ENV_KEYS.iter().copied());
+    keys
 }

@@ -145,6 +145,9 @@ printf 'Installing compatibility alias %s\n' "$LEGACY_SPOCKET"
 cp -f "$BINARY" "$LEGACY_SPOCKET"
 chmod +x "$LEGACY_SPOCKET"
 
+printf 'Seeding Corner assets under %s and %s\n' "$HOME/.config/corner" "$HOME/.corner"
+"$PRIMARY" install-default-assets >/dev/null
+
 if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]]; then
     printf '\n%s is not in your PATH\n\n' "$INSTALL_DIR"
     printf 'Add this line to your shell config (~/.bashrc, ~/.zshrc, etc.):\n\n'

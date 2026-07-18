@@ -47,7 +47,9 @@ TEMPLATES
 
     #SPOCKET_TEMPLATE_DESTINATION: <relative-path>
 
-  Supported variables: {{SPOCKET_ROOT}}, {{PROJECT_ROOT}}, {{SPOCKET_NAME}}
+  Supported variables: {{CORNER_ROOT}}/{{SPOCKET_ROOT}}, {{PROJECT_ROOT}},
+  {{CORNER_NAME}}/{{SPOCKET_NAME}}, {{CORNER_CONFIG_ROOT}}/{{SPOCKET_CONFIG_ROOT}},
+  {{CORNER_REGISTRY_ROOT}}/{{SPOCKET_REGISTRY_ROOT}}
 
   Directory structure is controlled by ~/.config/corner/directory_structure.yaml."
 )]
@@ -78,9 +80,9 @@ pub struct Cli {
     /// Tools are exposed as managed sidecar folders when the workspace opens, but
     /// are not installed into the project for future sessions.
     ///
-    ///   spocket -i . --with gitleaks
-    ///   spocket -i . --with graphify
-    ///   spocket -i . --with memgraph
+    ///   corner -i . --with gitleaks
+    ///   corner -i . --with graphify
+    ///   corner -i . --with memgraph
     #[arg(long = "with", value_name = "TOOL")]
     pub with_tools: Vec<String>,
 
@@ -89,9 +91,9 @@ pub struct Cli {
     /// If the tool is already installed this is a no-op. Supported tools:
     /// gitleaks, graphify, memgraph.
     ///
-    ///   spocket -i . --add gitleaks
-    ///   spocket -i . --add graphify
-    ///   spocket -i . --add memgraph
+    ///   corner -i . --add gitleaks
+    ///   corner -i . --add graphify
+    ///   corner -i . --add memgraph
     #[arg(long = "add", value_name = "TOOL")]
     pub add_tools: Vec<String>,
 
@@ -125,7 +127,8 @@ pub struct Cli {
     ///
     /// Reads every template from the preferred config templates directory,
     /// expands
-    /// {{SPOCKET_ROOT}} / {{PROJECT_ROOT}} / {{SPOCKET_NAME}} variables, and
+    /// {{CORNER_ROOT}}/{{SPOCKET_ROOT}}, {{PROJECT_ROOT}}, and
+    /// {{CORNER_NAME}}/{{SPOCKET_NAME}} variables, and
     /// writes the result to the pocket.  If a file already exists with different
     /// content you are shown a diff and asked to confirm before overwriting.
     ///
@@ -174,7 +177,7 @@ pub struct Cli {
     /// Perform every step except opening VS Code at the end (debug)
     ///
     /// Useful for exercising Corner setup without launching the editor. If
-    /// run inside a directory already associated with a safe pocket this is
+    /// run inside a directory already associated with a pocket this is
     /// effectively a no-op, since the normal action would simply have opened the
     /// related project.
     ///
@@ -270,7 +273,7 @@ pub enum Commands {
         no_open: bool,
     },
 
-    /// Mark an existing safe pocket with additional metadata
+    /// Mark an existing pocket with additional metadata
     #[command(name = "mark")]
     Mark {
         #[arg(value_enum, value_name = "MARK")]
@@ -299,14 +302,14 @@ pub enum Commands {
         yes: bool,
     },
 
-    /// Reconnect a project directory to an existing safe pocket
+    /// Reconnect a project directory to an existing pocket
     ///
     /// Moves the selected pocket's contents into the deterministic pocket path
     /// for PROJECT. If that target pocket already exists, it is moved aside under
-    /// ~/.safe_pocket/unhoused/ before replacement.
+    /// ~/.corner/unhoused/ before replacement, with fallback to legacy roots.
     ///
-    ///   safe_pocket heal --project ~/dev/app --pocket abc123
-    ///   safe_pocket heal --project . --pocket ~/.safe_pocket/oldhash
+    ///   corner heal --project ~/dev/app --pocket abc123
+    ///   corner heal --project . --pocket ~/.corner/oldhash
     #[command(name = "heal")]
     Heal {
         #[arg(long = "project", value_name = "PATH", conflicts_with = "alias")]
@@ -319,7 +322,7 @@ pub enum Commands {
         pocket: Option<String>,
     },
 
-    /// Locate the safe pocket associated with a project or pocket path
+    /// Locate the pocket associated with a project or pocket path
     ///
     /// Outputs JSON for editor integrations.
     #[command(name = "locate")]
@@ -328,19 +331,19 @@ pub enum Commands {
         path: String,
     },
 
-    /// Refresh the top-level ~/.safe_pocket git snapshot
+    /// Refresh the top-level pocket registry git snapshot
     ///
-    /// Copies every safe pocket into ~/.safe_pocket/snapshots without nested
+    /// Copies every pocket into ~/.corner/snapshots without nested
     /// `.git` directories so the registry root repository can version all pocket
     /// contents together.
     #[command(name = "sync-registry-git")]
     SyncRegistryGit,
 
-    /// Configure a cron job that backs up ~/.safe_pocket to a git remote
+    /// Configure a cron job that backs up ~/.corner to a git remote
     ///
-    /// The backup mirror lives at ~/.safe_pocket_backup_repo and is pushed by cron.
+    /// The backup mirror lives at ~/.corner_backup_repo and is pushed by cron.
     ///
-    ///   safe_pocket backup --repo git@github.com:you/safe-pocket-backup.git
+    ///   corner backup --repo git@github.com:you/corner-backup.git
     #[command(name = "backup")]
     Backup {
         #[arg(long = "repo", value_name = "GIT_URL")]
@@ -372,25 +375,29 @@ pub enum Commands {
         pocket: String,
     },
 
+    /// Seed Corner's canonical config and registry roots with default assets
+    #[command(name = "install-default-assets", hide = true)]
+    InstallDefaultAssets,
+
     /// Print a shell completion script to stdout
     ///
     /// Generates tab-completion definitions for your shell.  Pipe the output to
     /// the appropriate location for your shell, then source it.
     ///
     /// BASH
-    ///   safe_pocket completions bash > ~/.local/share/bash-completion/completions/safe_pocket
+    ///   corner completions bash > ~/.local/share/bash-completion/completions/corner
     ///
     /// ZSH  (add ~/.zsh/completions to fpath first)
-    ///   safe_pocket completions zsh > ~/.zsh/completions/_safe_pocket
+    ///   corner completions zsh > ~/.zsh/completions/_corner
     ///
     /// FISH
-    ///   safe_pocket completions fish > ~/.config/fish/completions/safe_pocket.fish
+    ///   corner completions fish > ~/.config/fish/completions/corner.fish
     ///
     /// POWERSHELL
-    ///   safe_pocket completions powershell >> $PROFILE
+    ///   corner completions powershell >> $PROFILE
     ///
     /// ELVISH
-    ///   safe_pocket completions elvish >> ~/.config/elvish/rc.elv
+    ///   corner completions elvish >> ~/.config/elvish/rc.elv
     #[command(name = "completions")]
     Completions {
         /// Shell to generate completions for
@@ -428,20 +435,20 @@ pub enum Commands {
         subpath: Option<String>,
     },
 
-    /// Manage git worktrees that share this safe pocket
+    /// Manage git worktrees that share this pocket
     ///
     /// Worktrees are additional project directories (typically git worktrees of
-    /// the same repo) that share the same safe pocket — meaning the same copilot
+    /// the same repo) that share the same pocket — meaning the same copilot
     /// instructions, FEATURES notes, and observations apply to all of them.
     ///
     ///   # Register a worktree to share the pocket for the current directory
-    ///   safe_pocket worktree add ~/dev/my-project-feature-x
+    ///   corner worktree add ~/dev/my-project-feature-x
     ///
     ///   # Remove a previously registered worktree
-    ///   safe_pocket worktree remove ~/dev/my-project-feature-x
+    ///   corner worktree remove ~/dev/my-project-feature-x
     ///
     ///   # List all worktrees sharing this pocket
-    ///   safe_pocket worktree list
+    ///   corner worktree list
     #[command(name = "worktree")]
     Worktree {
         #[command(subcommand)]
@@ -451,19 +458,19 @@ pub enum Commands {
     /// Track project tasks in a fast, built-in issue tracker (replaces Beads)
     ///
     /// Tasks live in a global SQLite database at
-    /// ~/.safe_pocket/global_data/tasks.db and are grouped per safe pocket by a
+    /// ~/.corner/global_data/tasks.db and are grouped per pocket by a
     /// prefix derived from the pocket directory name. When run from inside a
     /// registered project, the correct prefix is detected automatically.
     ///
-    ///   spocket task list [--priority N] [--project PATH] [--raw]
-    ///   spocket task create --named "Implement X" --description "…" --priority 1
-    ///   spocket task <ID> assign --agent "Builder"
-    ///   spocket task <ID> start  [--notes "…"]
-    ///   spocket task <ID> log     --notes "…"
-    ///   spocket task <ID> close  [--notes "…"]
-    ///   spocket task <ID> discard
-    ///   spocket task <ID> describe [--raw]
-    ///   spocket task reprefix --from OLD --to NEW
+    ///   corner task list [--priority N] [--project PATH] [--raw]
+    ///   corner task create --named "Implement X" --description "…" --priority 1
+    ///   corner task <ID> assign --agent "Builder"
+    ///   corner task <ID> start  [--notes "…"]
+    ///   corner task <ID> log     --notes "…"
+    ///   corner task <ID> close  [--notes "…"]
+    ///   corner task <ID> discard
+    ///   corner task <ID> describe [--raw]
+    ///   corner task reprefix --from OLD --to NEW
     #[command(name = "task")]
     Task {
         /// Task subcommand and its arguments (parsed by the task module)
@@ -515,10 +522,10 @@ pub enum WorktreeAction {
     /// Register a worktree directory to share this pocket
     ///
     /// Run this from inside the main project directory (or any directory that
-    /// already belongs to a pocket). Safe Pocket will also suggest any git worktrees
+    /// already belongs to a pocket). Corner will also suggest any git worktrees
     /// it detects in the same repo if PATH is not provided explicitly.
     ///
-    ///   safe_pocket worktree add ~/dev/my-project-feature-x
+    ///   corner worktree add ~/dev/my-project-feature-x
     #[command(name = "add")]
     Add {
         #[arg(value_name = "PATH")]
@@ -527,7 +534,7 @@ pub enum WorktreeAction {
 
     /// Unregister a worktree directory from this pocket
     ///
-    ///   safe_pocket worktree remove ~/dev/my-project-feature-x
+    ///   corner worktree remove ~/dev/my-project-feature-x
     #[command(name = "remove")]
     Remove {
         #[arg(value_name = "PATH")]
