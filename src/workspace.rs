@@ -809,12 +809,35 @@ impl Workspace {
     /// Secondary lookup: scan all corner manifests for one whose current `hash`
     /// matches `hash_paths(target_paths)`. Handles the case where paths evolved
     /// in-place (via sync or augment) and the directory name no longer matches.
+    ///
+    /// Stale-cache safe: each cache hit is verified against the on-disk
+    /// manifest before being trusted. If the cache is stale, falls back to a
+    /// full disk scan across all known registry roots.
     pub fn find_workspace_by_manifest_paths(target_paths: &[PathBuf]) -> Result<Option<Self>> {
         let target_hash = hash_paths(target_paths);
 
         for entry in registry::load_cache_or_rebuild()?.corners {
-            if entry.manifest_hash == target_hash || hash_paths(&entry.core_paths) == target_hash {
-                return Ok(Some(workspace_from_registry_entry(entry)));
+            let matches_cache = entry.manifest_hash == target_hash
+                || hash_paths(&entry.core_paths) == target_hash;
+            if !matches_cache {
+                continue;
+            }
+
+            // Verify against disk: the cache may claim a manifest_hash that
+            // no longer matches the on-disk manifest (e.g. after an augment
+            // that didn't refresh the cache, or a manual manifest edit).
+            let Some(fresh) = registry::refresh_entry_from_disk(&entry) else {
+                continue;
+            };
+            if fresh.manifest_hash == target_hash {
+                return Ok(Some(workspace_from_registry_entry(fresh)));
+            }
+        }
+
+        // Fallback: cache is stale or missing. Scan all known roots on disk.
+        for fresh in registry::scan_all_roots_for_entries()? {
+            if fresh.manifest_hash == target_hash {
+                return Ok(Some(workspace_from_registry_entry(fresh)));
             }
         }
 
@@ -1010,13 +1033,55 @@ where
 {
     let mut best: Option<(Workspace, bool)> = None;
 
-    for entry in registry::load_cache_or_rebuild()?.corners {
+    let cache = registry::load_cache_or_rebuild()?;
+    let mut cache_hit = false;
+
+    for entry in cache.corners {
         if !matches(&entry) {
             continue;
         }
 
-        let all_exist = entry.core_paths.iter().all(|cp| cp.exists());
-        let candidate = workspace_from_registry_entry(entry);
+        // Refresh from disk before trusting the cached core_paths. A stale
+        // cache can claim core_paths that no longer match the on-disk manifest
+        // (or empty core_paths when the manifest has been augmented). If the
+        // refreshed entry no longer matches the predicate, skip it.
+        let fresh = match registry::refresh_entry_from_disk(&entry) {
+            Some(fresh) => fresh,
+            None => continue,
+        };
+        if !matches(&fresh) {
+            continue;
+        }
+
+        cache_hit = true;
+        let all_exist = fresh.core_paths.iter().all(|cp| cp.exists());
+        let candidate = workspace_from_registry_entry(fresh);
+
+        match &best {
+            None => best = Some((candidate, all_exist)),
+            Some((_, prev_all_exist)) => {
+                if all_exist && !prev_all_exist {
+                    best = Some((candidate, all_exist));
+                }
+            }
+        }
+    }
+
+    if cache_hit {
+        return Ok(best.map(|(workspace, _)| workspace));
+    }
+
+    // Fallback: no cache entry matched (or all matches were stale and didn't
+    // survive refresh). Scan all known registry roots on disk so a corner
+    // whose manifest was edited outside corner (or whose cache entry was
+    // pruned) can still be found.
+    for fresh in registry::scan_all_roots_for_entries()? {
+        if !matches(&fresh) {
+            continue;
+        }
+
+        let all_exist = fresh.core_paths.iter().all(|cp| cp.exists());
+        let candidate = workspace_from_registry_entry(fresh);
 
         match &best {
             None => best = Some((candidate, all_exist)),

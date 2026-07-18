@@ -339,6 +339,19 @@ pub enum Commands {
     #[command(name = "sync-registry-git")]
     SyncRegistryGit,
 
+    /// Rebuild the registry cache in every known registry root
+    ///
+    /// Reads each corner's on-disk manifest directly and rewrites
+    /// `~/.corner/registry_cache.json` (and any legacy roots' caches) so
+    /// stale entries are pruned and split-brain duplicates collapse to a
+    /// single canonical entry per corner hash. Use this after manually
+    /// editing a manifest, moving corner directories outside corner, or when
+    /// `corner locate` / `corner -i` resolve to the wrong corner.
+    ///
+    ///   corner sync-registry
+    #[command(name = "sync-registry")]
+    SyncRegistry,
+
     /// Configure a cron job that backs up ~/.corner to a git remote
     ///
     /// The backup mirror lives at ~/.corner_backup_repo and is pushed by cron.

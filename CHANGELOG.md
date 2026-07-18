@@ -2,6 +2,43 @@
 
 All notable changes to Corner will be documented in this file.
 
+## [2.0.2] - 2026-07-18
+
+### Fixed
+- Stale registry caches no longer shadow fresh on-disk manifests. When
+  `~/.corner/registry_cache.json` or `~/.safe_pocket/registry_cache.json`
+  claims a `manifest_hash` or `core_paths` that no longer matches the corner's
+  on-disk `manifest.json`, `corner locate` and `corner -i` now verify against
+  disk before trusting the cache, and fall back to a full disk scan when no
+  cached entry survives verification. This resolves the "lost connection"
+  regression that appeared after renaming `safe_pocket` to `corner` and then
+  augmenting the corner's core_paths (e.g. adding `~/.config/corner/templates`).
+- Split-brain registry entries (same corner hash in multiple registry roots)
+  now collapse to a single canonical entry during `load_cache_or_rebuild`.
+  The survivor is chosen by, in order: the entry whose on-disk `birth_hash`
+  matches the directory name (i.e. the corner that "owns" the hash), the entry
+  whose cached `manifest_hash` matches the on-disk manifest (fresh cache), the
+  entry in the preferred registry root, then the first entry.
+- `corner augment` (and any other path that calls `Manifest::save`) now prunes
+  duplicate entries from other registry roots' caches so a future lookup
+  cannot resurrect a stale sibling.
+
+### Added
+- `corner sync-registry` command: rebuilds the registry cache in every known
+  registry root (`~/.corner`, `~/.safe_pocket`, `~/.spocket`) directly from
+  on-disk manifests, collapsing split-brain duplicates. Use this after
+  manually editing a manifest, moving corner directories outside corner, or
+  when `corner locate` / `corner -i` resolve to the wrong corner.
+- `registry::refresh_entry_from_disk`, `registry::scan_all_roots_for_entries`,
+  and `registry::rebuild_all_caches` public helpers for cache verification
+  and recovery.
+
+### Changed
+- `Workspace::find_workspace_by_manifest_paths` and
+  `Workspace::find_best_cached_workspace` now verify each cache hit against
+  the on-disk manifest before returning it, and fall back to a full disk
+  scan when no cache hit survives verification.
+
 ## [2.0.1] - 2026-07-18
 
 ### Added

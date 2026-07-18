@@ -175,6 +175,7 @@ pub fn is_registry_corner_dir(corner_dir: &Path) -> Result<bool> {
 
 pub fn load_cache_or_rebuild() -> Result<RegistryCache> {
     let write_root = registry_dir()?;
+    let preferred_root = crate::branding::preferred_registry_root()?;
     let mut merged = RegistryCache::default();
     let mut seen_paths = HashSet::new();
     let mut any_existing_root = false;
@@ -197,7 +198,187 @@ pub fn load_cache_or_rebuild() -> Result<RegistryCache> {
         return load_cache_or_rebuild_from(&write_root);
     }
 
+    // Split-brain protection: when the same corner hash (directory name) exists
+    // in multiple registry roots (e.g. ~/.corner AND ~/.safe_pocket), pick the
+    // canonical one instead of letting both entries survive. Without this, a
+    // stale entry in the preferred root can shadow a fresh entry in a legacy
+    // root and break `corner locate` / `corner -i` for the project.
+    merged.corners = dedupe_corners(merged.corners, &preferred_root);
+
     Ok(merged)
+}
+
+/// Pick a single canonical entry per corner hash (directory name).
+///
+/// When two entries share a hash but live in different roots, refresh each
+/// from disk and choose the survivor in this priority order:
+///   1. The entry whose on-disk `birth_hash` matches the directory name
+///      (i.e. the corner that "owns" this hash).
+///   2. The entry whose cached `manifest_hash` still matches the on-disk
+///      manifest's `hash` (i.e. the cache is fresh for this entry).
+///   3. The entry that lives in the preferred registry root.
+///   4. The first entry.
+///
+/// Entries that cannot be refreshed from disk (manifest missing) are dropped
+/// in favour of any sibling that still has a manifest. If every sibling is
+/// broken, the first entry is kept as-is so the caller can still see it.
+fn dedupe_corners(corners: Vec<RegistryEntry>, preferred_root: &Path) -> Vec<RegistryEntry> {
+    let mut by_hash: std::collections::HashMap<String, Vec<RegistryEntry>> =
+        std::collections::HashMap::new();
+    for entry in corners {
+        by_hash.entry(entry.hash.clone()).or_default().push(entry);
+    }
+
+    let mut result = Vec::new();
+    for (_, group) in by_hash {
+        if group.len() == 1 {
+            result.extend(group);
+            continue;
+        }
+
+        let refreshed: Vec<Option<RegistryEntry>> =
+            group.iter().map(refresh_entry_from_disk).collect();
+
+        let survivor = pick_dedupe_survivor(&group, &refreshed, preferred_root);
+        if let Some(survivor) = survivor {
+            result.push(survivor);
+        }
+    }
+
+    sort_entries(&mut result);
+    result
+}
+
+fn pick_dedupe_survivor(
+    group: &[RegistryEntry],
+    refreshed: &[Option<RegistryEntry>],
+    preferred_root: &Path,
+) -> Option<RegistryEntry> {
+    // 1. birth_hash matches the directory name (the corner "owns" this hash).
+    for fresh in refreshed.iter().flatten() {
+        if fresh.birth_hash.as_deref() == Some(fresh.hash.as_str()) {
+            return Some(fresh.clone());
+        }
+    }
+
+    // 2. Cache is fresh: cached manifest_hash matches on-disk manifest hash.
+    for (cache_entry, fresh) in group.iter().zip(refreshed.iter()) {
+        let Some(fresh) = fresh else {
+            continue;
+        };
+        if fresh.manifest_hash == cache_entry.manifest_hash {
+            return Some(fresh.clone());
+        }
+    }
+
+    // 3. Lives in the preferred root.
+    for fresh in refreshed.iter().flatten() {
+        if fresh.path.starts_with(preferred_root) {
+            return Some(fresh.clone());
+        }
+    }
+
+    // 4. Any refreshable entry, then the raw cache entry.
+    if let Some(fresh) = refreshed.iter().flatten().next() {
+        return Some(fresh.clone());
+    }
+    group.first().cloned()
+}
+
+/// Refresh a registry entry by reloading its manifest from disk.
+///
+/// Returns `None` when the manifest is missing or unreadable. The returned
+/// entry always reflects the on-disk truth (current `hash`, `core_paths`,
+/// `birth_hash`, etc.) rather than the possibly-stale cache fields.
+pub fn refresh_entry_from_disk(entry: &RegistryEntry) -> Option<RegistryEntry> {
+    let manifest = Manifest::load_without_registry_update(&entry.path).ok()??;
+    Some(entry_from_manifest(&entry.path, &manifest))
+}
+
+/// Scan every known registry root on disk and build a list of fresh entries.
+///
+/// Unlike `load_cache_or_rebuild`, this ignores the on-disk cache files and
+/// reads each corner's manifest directly. Used as a fallback when the cache
+/// is stale and a lookup misses.
+pub fn scan_all_roots_for_entries() -> Result<Vec<RegistryEntry>> {
+    let mut entries = Vec::new();
+    let preferred_root = crate::branding::preferred_registry_root()?;
+
+    for root in crate::branding::known_registry_roots()? {
+        if !root.exists() {
+            continue;
+        }
+        collect_fresh_entries(&root, &mut entries)?;
+        let temporary_root = root.join(TEMPORARY_DIR);
+        if temporary_root.exists() {
+            collect_fresh_entries(&temporary_root, &mut entries)?;
+        }
+    }
+
+    entries = dedupe_corners(entries, &preferred_root);
+    Ok(entries)
+}
+
+fn collect_fresh_entries(root: &Path, entries: &mut Vec<RegistryEntry>) -> Result<()> {
+    for entry in fs::read_dir(root).context("Failed to read corner registry directory")? {
+        let entry = entry?;
+        let corner_dir = entry.path();
+
+        if !corner_dir.is_dir() || is_reserved_registry_dir(&corner_dir) {
+            continue;
+        }
+
+        let dir_name = match corner_dir.file_name().and_then(|n| n.to_str()) {
+            Some(name) => name.to_string(),
+            None => continue,
+        };
+
+        let manifest = match Manifest::load_without_registry_update(&corner_dir)? {
+            Some(manifest) => manifest,
+            None if has_workspace_file(&corner_dir, &dir_name) => {
+                Manifest::backfill_without_registry_update(&corner_dir, &dir_name)?
+            }
+            None => continue,
+        };
+
+        entries.push(entry_from_manifest(&corner_dir, &manifest));
+    }
+
+    Ok(())
+}
+
+/// Force-rebuild the registry cache in every known registry root.
+///
+/// Used by `corner sync-registry` to recover from stale or split-brain cache
+/// state. Returns the total number of corners written across all roots.
+pub fn rebuild_all_caches() -> Result<usize> {
+    let mut total = 0;
+    let known_roots = crate::branding::known_registry_roots()?;
+
+    for root in &known_roots {
+        if !root.exists() {
+            continue;
+        }
+        let mut cache = RegistryCache::default();
+        collect_corners_from_dir(root, &mut cache)?;
+
+        let temporary_root = root.join(TEMPORARY_DIR);
+        if temporary_root.exists() {
+            collect_corners_from_dir(&temporary_root, &mut cache)?;
+        }
+
+        // Drop split-brain duplicates so the rebuilt cache only carries one
+        // entry per corner hash.
+        let preferred_root = crate::branding::preferred_registry_root()?;
+        cache.corners = dedupe_corners(cache.corners, &preferred_root);
+        total += cache.corners.len();
+
+        sort_entries(&mut cache.corners);
+        cache.generated_at = Utc::now();
+        write_cache_to(root, &cache)?;
+    }
+
+    Ok(total)
 }
 
 fn load_cache_or_rebuild_from(root: &Path) -> Result<RegistryCache> {
@@ -257,6 +438,7 @@ pub fn upsert_corner(corner_dir: &Path, manifest: &Manifest) -> Result<()> {
     ensure_registry_git_state_from(&root)?;
     let mut cache = load_cache_or_rebuild_from(&root)?;
     let entry = entry_from_manifest(corner_dir, manifest);
+    let entry_hash = entry.hash.clone();
 
     cache
         .corners
@@ -266,7 +448,48 @@ pub fn upsert_corner(corner_dir: &Path, manifest: &Manifest) -> Result<()> {
     cache.generated_at = Utc::now();
 
     write_cache_to(&root, &cache)?;
+
+    // Split-brain protection: when this corner's hash (directory name) also
+    // appears in another registry root's cache, remove the stale sibling so a
+    // future `load_cache_or_rebuild` cannot pick the wrong entry. This is the
+    // root cause of the "lost connection" bug after a rename or augment: the
+    // preferred root's cache was updated, but a legacy root still carried the
+    // old entry, and lookups fell back to it.
+    prune_duplicate_entries_from_other_roots(&root, &entry_hash)?;
     let _ = sync_registry_snapshot_from(&root);
+    Ok(())
+}
+
+/// Remove entries with `hash` from every registry root's cache except `keep_root`.
+///
+/// Best-effort: if a root's cache cannot be read or written, the error is
+/// swallowed so a single broken root cannot block the primary upsert.
+fn prune_duplicate_entries_from_other_roots(keep_root: &Path, hash: &str) -> Result<()> {
+    for root in crate::branding::known_registry_roots()? {
+        if root == keep_root || !root.exists() {
+            continue;
+        }
+
+        let cache_path = cache_path_for(&root);
+        if !cache_path.exists() {
+            continue;
+        }
+
+        let mut cache = match read_cache_from(&root) {
+            Ok(cache) => cache,
+            Err(_) => continue,
+        };
+
+        let before = cache.corners.len();
+        cache.corners.retain(|entry| entry.hash != hash);
+        if cache.corners.len() == before {
+            continue;
+        }
+
+        cache.generated_at = Utc::now();
+        let _ = write_cache_to(&root, &cache);
+    }
+
     Ok(())
 }
 
@@ -893,6 +1116,190 @@ mod tests {
         assert!(snapshot_dir.join("large.bin.part0001").is_file());
         assert!(snapshot_dir.join("large.bin.part0002").is_file());
         assert!(snapshot_dir.join("large.bin.snapshot.json").is_file());
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    fn fresh_entry(hash: &str, path: PathBuf, manifest_hash: &str, birth_hash: Option<&str>) -> RegistryEntry {
+        RegistryEntry {
+            hash: hash.to_string(),
+            manifest_hash: manifest_hash.to_string(),
+            path,
+            created_at: Utc::now(),
+            temporary: false,
+            core_paths: Vec::new(),
+            worktrees: Vec::new(),
+            parent_hash: None,
+            children: Vec::new(),
+            augmented_from: None,
+            birth_hash: birth_hash.map(str::to_string),
+            manifest_version: 1,
+        }
+    }
+
+    fn write_manifest_at(corner_dir: &Path, hash: &str, birth_hash: Option<&str>) {
+        fs::create_dir_all(corner_dir).unwrap();
+        let mut json = serde_json::json!({
+            "hash": hash,
+            "core_paths": Vec::<String>::new(),
+            "created_at": "2026-07-18T16:36:18.181290443Z",
+            "temporary": false,
+            "children": Vec::<String>::new(),
+            "version": 1,
+        });
+        if let Some(bh) = birth_hash {
+            json["birth_hash"] = serde_json::json!(bh);
+        }
+        fs::write(corner_dir.join("manifest.json"), serde_json::to_string_pretty(&json).unwrap())
+            .unwrap();
+    }
+
+    #[test]
+    fn dedupe_corners_keeps_single_entries_unchanged() {
+        let root = std::env::temp_dir().join("spocket_dedupe_single_test");
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+
+        let a = root.join("aaaa11111111");
+        let b = root.join("bbbb22222222");
+        write_manifest_at(&a, "aaaa11111111", None);
+        write_manifest_at(&b, "bbbb22222222", None);
+
+        let entries = vec![
+            fresh_entry("aaaa11111111", a.clone(), "aaaa11111111", None),
+            fresh_entry("bbbb22222222", b.clone(), "bbbb22222222", None),
+        ];
+        let result = dedupe_corners(entries, &root);
+        assert_eq!(result.len(), 2);
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn dedupe_corners_prefers_birth_hash_match() {
+        // Two corners with the same dir-name hash in different roots.
+        // The one whose on-disk birth_hash matches the dir name should win,
+        // even if the other entry is in the preferred root and its cache is
+        // fresh.
+        let primary_root = std::env::temp_dir().join("spocket_dedupe_birth_primary");
+        let legacy_root = std::env::temp_dir().join("spocket_dedupe_birth_legacy");
+        let _ = fs::remove_dir_all(&primary_root);
+        let _ = fs::remove_dir_all(&legacy_root);
+        fs::create_dir_all(&primary_root).unwrap();
+        fs::create_dir_all(&legacy_root).unwrap();
+
+        let hash = "sharedhash000";
+        let primary_corner = primary_root.join(hash);
+        let legacy_corner = legacy_root.join(hash);
+
+        // Primary corner: birth_hash does NOT match dir name, cache is fresh.
+        write_manifest_at(&primary_corner, "primaryhm000", Some("other00000000"));
+        // Legacy corner: birth_hash MATCHES dir name (owns the hash).
+        write_manifest_at(&legacy_corner, "legacyhash00", Some(hash));
+
+        let entries = vec![
+            fresh_entry(hash, primary_corner.clone(), "primaryhm000", Some("other00000000")),
+            fresh_entry(hash, legacy_corner.clone(), "legacyhash00", Some(hash)),
+        ];
+
+        let result = dedupe_corners(entries, &primary_root);
+        assert_eq!(result.len(), 1, "expected duplicate to collapse to one entry");
+        assert_eq!(result[0].path, legacy_corner, "expected legacy corner to win via birth_hash match");
+        assert_eq!(result[0].manifest_hash, "legacyhash00");
+
+        let _ = fs::remove_dir_all(&primary_root);
+        let _ = fs::remove_dir_all(&legacy_root);
+    }
+
+    #[test]
+    fn dedupe_corners_falls_back_to_fresh_cache_when_no_birth_hash_match() {
+        let primary_root = std::env::temp_dir().join("spocket_dedupe_fresh_primary");
+        let legacy_root = std::env::temp_dir().join("spocket_dedupe_fresh_legacy");
+        let _ = fs::remove_dir_all(&primary_root);
+        let _ = fs::remove_dir_all(&legacy_root);
+        fs::create_dir_all(&primary_root).unwrap();
+        fs::create_dir_all(&legacy_root).unwrap();
+
+        let hash = "sharedhash001";
+        let primary_corner = primary_root.join(hash);
+        let legacy_corner = legacy_root.join(hash);
+
+        // Neither corner's birth_hash matches the dir name.
+        // Primary cache is STALE (claims manifest_hash "stalehash000", on-disk "primaryhm001").
+        write_manifest_at(&primary_corner, "primaryhm001", Some("other00000001"));
+        // Legacy cache is FRESH (claims manifest_hash "legacyhash01", on-disk "legacyhash01").
+        write_manifest_at(&legacy_corner, "legacyhash01", Some("other00000002"));
+
+        let entries = vec![
+            fresh_entry(hash, primary_corner.clone(), "stalehash000", Some("other00000001")),
+            fresh_entry(hash, legacy_corner.clone(), "legacyhash01", Some("other00000002")),
+        ];
+
+        let result = dedupe_corners(entries, &primary_root);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].path, legacy_corner, "expected fresh-cache entry to win");
+        assert_eq!(result[0].manifest_hash, "legacyhash01");
+
+        let _ = fs::remove_dir_all(&primary_root);
+        let _ = fs::remove_dir_all(&legacy_root);
+    }
+
+    #[test]
+    fn dedupe_corners_falls_back_to_preferred_root_when_both_stale() {
+        let primary_root = std::env::temp_dir().join("spocket_dedupe_preferred_primary");
+        let legacy_root = std::env::temp_dir().join("spocket_dedupe_preferred_legacy");
+        let _ = fs::remove_dir_all(&primary_root);
+        let _ = fs::remove_dir_all(&legacy_root);
+        fs::create_dir_all(&primary_root).unwrap();
+        fs::create_dir_all(&legacy_root).unwrap();
+
+        let hash = "sharedhash002";
+        let primary_corner = primary_root.join(hash);
+        let legacy_corner = legacy_root.join(hash);
+
+        // Both caches stale, neither birth_hash matches.
+        write_manifest_at(&primary_corner, "primaryhm002", Some("other00000003"));
+        write_manifest_at(&legacy_corner, "legacyhash02", Some("other00000004"));
+
+        let entries = vec![
+            fresh_entry(hash, primary_corner.clone(), "stalehash001", Some("other00000003")),
+            fresh_entry(hash, legacy_corner.clone(), "stalehash002", Some("other00000004")),
+        ];
+
+        let result = dedupe_corners(entries, &primary_root);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].path, primary_corner, "expected preferred root to win when all else is equal");
+
+        let _ = fs::remove_dir_all(&primary_root);
+        let _ = fs::remove_dir_all(&legacy_root);
+    }
+
+    #[test]
+    fn refresh_entry_from_disk_returns_none_for_missing_manifest() {
+        let root = std::env::temp_dir().join("spocket_refresh_missing_test");
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+
+        let entry = fresh_entry("abc", root.join("abc"), "abc", None);
+        let refreshed = refresh_entry_from_disk(&entry);
+        assert!(refreshed.is_none());
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn refresh_entry_from_disk_returns_fresh_fields() {
+        let root = std::env::temp_dir().join("spocket_refresh_fresh_test");
+        let _ = fs::remove_dir_all(&root);
+        let corner_dir = root.join("abc123");
+        write_manifest_at(&corner_dir, "newhash000000", Some("abc123"));
+
+        // Stale cache entry that doesn't match the on-disk manifest.
+        let stale = fresh_entry("abc123", corner_dir.clone(), "oldhash000000", None);
+        let refreshed = refresh_entry_from_disk(&stale).expect("manifest exists");
+        assert_eq!(refreshed.hash, "abc123");
+        assert_eq!(refreshed.manifest_hash, "newhash000000");
+        assert_eq!(refreshed.birth_hash.as_deref(), Some("abc123"));
 
         let _ = fs::remove_dir_all(&root);
     }

@@ -240,6 +240,7 @@ fn cli_help_surface_is_reachable() {
         vec!["heal", "--help"],
         vec!["locate", "--help"],
         vec!["sync-registry-git", "--help"],
+        vec!["sync-registry", "--help"],
         vec!["backup", "--help"],
         vec!["runtime-merge-start", "--help"],
         vec!["runtime-merge-stop", "--help"],
@@ -1495,4 +1496,442 @@ fn corner_registry_root_takes_precedence_when_both_roots_exist() {
         "expected primary Corner root to win, got {}",
         corner_dir.display()
     );
+}
+
+/// Write a corner manifest.json + .code-workspace file pair directly.
+///
+/// Used by the split-brain tests to set up corners with specific manifest
+/// shapes without going through the `corner` binary (which would dedupe).
+/// `core_paths` are canonicalized so the synthetic manifest matches what a
+/// real `corner -i` invocation would have stored (corner canonicalizes
+/// paths before hashing).
+fn write_synthetic_corner(
+    corner_dir: &Path,
+    manifest_hash: &str,
+    core_paths: &[PathBuf],
+    birth_hash: Option<&str>,
+    augmented_from: Option<&str>,
+) {
+    fs::create_dir_all(corner_dir).unwrap();
+    let dir_name = corner_dir
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("corner")
+        .to_string();
+
+    let canonical_core_paths: Vec<PathBuf> = core_paths
+        .iter()
+        .map(|p| p.canonicalize().unwrap_or_else(|_| p.clone()))
+        .collect();
+
+    let mut manifest = serde_json::json!({
+        "hash": manifest_hash,
+        "core_paths": canonical_core_paths.iter().map(|p| p.to_string_lossy().to_string()).collect::<Vec<_>>(),
+        "created_at": "2026-07-18T16:36:18.181290443Z",
+        "temporary": false,
+        "children": [],
+        "version": 1,
+    });
+    if let Some(bh) = birth_hash {
+        manifest["birth_hash"] = serde_json::json!(bh);
+    }
+    if let Some(af) = augmented_from {
+        manifest["augmented_from"] = serde_json::json!(af);
+    }
+    fs::write(
+        corner_dir.join("manifest.json"),
+        serde_json::to_string_pretty(&manifest).unwrap(),
+    )
+    .unwrap();
+
+    let mut folders: Vec<serde_json::Value> = canonical_core_paths
+        .iter()
+        .map(|p| serde_json::json!({ "path": p.to_string_lossy().to_string() }))
+        .collect();
+    folders.push(serde_json::json!({
+        "path": corner_dir.to_string_lossy().to_string(),
+        "name": format!("[Corner] {dir_name}")
+    }));
+    let workspace = serde_json::json!({ "folders": folders });
+    fs::write(
+        corner_dir.join(format!("{dir_name}.code-workspace")),
+        serde_json::to_string_pretty(&workspace).unwrap(),
+    )
+    .unwrap();
+}
+
+/// Write a registry_cache.json with the given entries.
+///
+/// `entries` is a list of `(hash, manifest_hash, path, core_paths)` tuples.
+/// `core_paths` are canonicalized to match what `write_synthetic_corner`
+/// stores in the manifest.
+fn write_synthetic_cache(root: &Path, entries: &[(&str, &str, &Path, &[PathBuf])]) {
+    fs::create_dir_all(root).unwrap();
+    let cache = serde_json::json!({
+        "version": 1,
+        "generated_at": "2026-07-18T16:36:58.547104Z",
+        "corners": entries.iter().map(|(hash, manifest_hash, path, core_paths)| {
+            let canonical: Vec<PathBuf> = core_paths.iter().map(|p| p.canonicalize().unwrap_or_else(|_| p.clone())).collect();
+            serde_json::json!({
+                "hash": hash,
+                "manifest_hash": manifest_hash,
+                "path": path.to_string_lossy().to_string(),
+                "created_at": "2026-07-18T16:36:18.181290443Z",
+                "temporary": false,
+                "core_paths": canonical.iter().map(|p| p.to_string_lossy().to_string()).collect::<Vec<_>>(),
+                "manifest_version": 1,
+            })
+        }).collect::<Vec<_>>(),
+    });
+    fs::write(
+        root.join("registry_cache.json"),
+        serde_json::to_string_pretty(&cache).unwrap(),
+    )
+    .unwrap();
+}
+
+/// Canonicalize a path for test assertions (macOS `/tmp` -> `/private/tmp`).
+fn canon(path: &Path) -> PathBuf {
+    path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
+}
+
+/// Split-brain: the same corner hash lives in both `~/.corner` and
+/// `~/.safe_pocket` with different manifests. The corner whose `birth_hash`
+/// matches the directory name "owns" the hash and should win every lookup,
+/// even when both registry caches are stale.
+#[test]
+fn split_brain_registry_dedupes_by_birth_hash() {
+    let env = TestEnv::new("split-brain-dedupe");
+    let project = env.project("project");
+    let extra = env.project("extra");
+
+    fs::create_dir_all(env.corner_root()).unwrap();
+    fs::create_dir_all(env.legacy_safe_pocket_root()).unwrap();
+
+    let hash = "abc123def456";
+    let legacy_corner = env.legacy_safe_pocket_root().join(hash);
+    let primary_corner = env.corner_root().join(hash);
+
+    // Fresh corner in the legacy root: birth_hash matches the dir name, so it
+    // "owns" this hash. Core paths only contain `project`.
+    write_synthetic_corner(
+        &legacy_corner,
+        "newhash000000",
+        &[project.clone()],
+        Some(hash),
+        Some(hash),
+    );
+
+    // Stale corner in the primary root: birth_hash is a different hash, so it
+    // was augmented INTO this dir name from somewhere else. Core paths
+    // contain both `project` and `extra`.
+    write_synthetic_corner(
+        &primary_corner,
+        "oldhash000000",
+        &[project.clone(), extra.clone()],
+        Some("different0000"),
+        Some(hash),
+    );
+
+    // Stale caches that don't reflect either on-disk manifest.
+    write_synthetic_cache(
+        &env.legacy_safe_pocket_root(),
+        &[(hash, hash, &legacy_corner, &[])],
+    );
+    write_synthetic_cache(
+        &env.corner_root(),
+        &[(hash, "oldhash000000", &primary_corner, &[project.clone(), extra.clone()])],
+    );
+
+    // `corner locate --path project` must resolve to the legacy corner because
+    // its birth_hash matches the directory name.
+    let locate = env.run_spocket(
+        &project,
+        &["locate", "--path", project.to_string_lossy().as_ref()],
+    );
+    assert_success(&locate);
+    let value: serde_json::Value = serde_json::from_slice(&locate.stdout).unwrap();
+    let corner_dir = PathBuf::from(value.get("corner_dir").unwrap().as_str().unwrap());
+    assert_eq!(
+        corner_dir, legacy_corner,
+        "expected legacy corner (birth_hash matches dir name) to win, got {}",
+        corner_dir.display()
+    );
+
+    let core_paths = value.get("core_paths").unwrap().as_array().unwrap();
+    assert_eq!(
+        core_paths.len(),
+        1,
+        "expected fresh manifest's core_paths, got {core_paths:?}"
+    );
+    assert_eq!(PathBuf::from(core_paths[0].as_str().unwrap()), canon(&project));
+}
+
+/// A stale cache entry whose `manifest_hash` accidentally matches a target
+/// hash must NOT shadow a fresh on-disk manifest with a different hash.
+///
+/// This reproduces the original "lost connection" bug: the cache said
+/// `manifest_hash = <dir-name>` (the corner's pre-augment hash), which
+/// happened to equal `hash_paths([project])`, so `locate` returned the
+/// corner with stale (empty) `core_paths` instead of falling through to the
+/// fresh on-disk manifest.
+#[test]
+fn stale_cache_manifest_hash_does_not_shadow_fresh_disk_manifest() {
+    let env = TestEnv::new("stale-cache-no-shadow");
+    let project = env.project("project");
+    let templates = env.project("templates");
+
+    fs::create_dir_all(env.corner_root()).unwrap();
+    fs::create_dir_all(env.legacy_safe_pocket_root()).unwrap();
+
+    // The corner's directory name is the hash of `[project]` alone, which is
+    // also the corner's pre-augment manifest hash. The current on-disk
+    // manifest has been augmented to include `templates` and now has a
+    // different hash.
+    let pre_augment_hash = "feedfacefeed";
+    let corner_dir = env.legacy_safe_pocket_root().join(pre_augment_hash);
+    write_synthetic_corner(
+        &corner_dir,
+        "postaugmenthash",
+        &[project.clone(), templates.clone()],
+        Some(pre_augment_hash),
+        Some(pre_augment_hash),
+    );
+
+    // Stale cache in the legacy root: claims manifest_hash == dir name (the
+    // pre-augment hash) and empty core_paths.
+    write_synthetic_cache(
+        &env.legacy_safe_pocket_root(),
+        &[(pre_augment_hash, pre_augment_hash, &corner_dir, &[])],
+    );
+
+    // Empty cache in the primary root so the legacy root is the only one that
+    // knows about this corner.
+    write_synthetic_cache(&env.corner_root(), &[]);
+
+    // `locate --path project` computes `hash_paths([project])` and asks the
+    // cache for a matching manifest_hash. The stale cache claims a match, but
+    // the on-disk manifest disagrees. The lookup must verify against disk and
+    // skip the stale entry, then find the corner via the path-containing
+    // fallback with the FRESH core_paths.
+    let locate = env.run_spocket(
+        &project,
+        &["locate", "--path", project.to_string_lossy().as_ref()],
+    );
+    assert_success(&locate);
+    let value: serde_json::Value = serde_json::from_slice(&locate.stdout).unwrap();
+    let corner_dir_resolved = PathBuf::from(value.get("corner_dir").unwrap().as_str().unwrap());
+    assert_eq!(corner_dir_resolved, corner_dir);
+
+    let core_paths = value.get("core_paths").unwrap().as_array().unwrap();
+    let resolved_paths: Vec<PathBuf> = core_paths
+        .iter()
+        .map(|v| PathBuf::from(v.as_str().unwrap()))
+        .collect();
+    assert!(
+        resolved_paths.contains(&canon(&project)),
+        "expected fresh core_paths to include project, got {resolved_paths:?}"
+    );
+    assert!(
+        resolved_paths.contains(&canon(&templates)),
+        "expected fresh core_paths to include templates, got {resolved_paths:?}"
+    );
+    assert_eq!(
+        resolved_paths.len(),
+        2,
+        "expected fresh manifest's core_paths, got {resolved_paths:?}"
+    );
+}
+
+/// `corner sync-registry` rewrites every registry root's cache from the
+/// on-disk manifests, collapsing split-brain duplicates into a single
+/// canonical entry per hash.
+#[test]
+fn sync_registry_rebuilds_caches_and_collapses_split_brain() {
+    let env = TestEnv::new("sync-registry-rebuild");
+    let project = env.project("project");
+
+    fs::create_dir_all(env.corner_root()).unwrap();
+    fs::create_dir_all(env.legacy_safe_pocket_root()).unwrap();
+
+    let hash = "deadbeefdead";
+    let legacy_corner = env.legacy_safe_pocket_root().join(hash);
+    let primary_corner = env.corner_root().join(hash);
+
+    write_synthetic_corner(
+        &legacy_corner,
+        "freshhash0000",
+        &[project.clone()],
+        Some(hash),
+        Some(hash),
+    );
+    write_synthetic_corner(
+        &primary_corner,
+        "stalehash0000",
+        &[project.clone()],
+        Some("other00000000"),
+        Some(hash),
+    );
+
+    // Both caches start with stale entries.
+    write_synthetic_cache(
+        &env.legacy_safe_pocket_root(),
+        &[(hash, hash, &legacy_corner, &[])],
+    );
+    write_synthetic_cache(
+        &env.corner_root(),
+        &[(hash, "stalehash0000", &primary_corner, &[project.clone()])],
+    );
+
+    let output = env.run_spocket(&project, &["sync-registry"]);
+    assert_success(&output);
+
+    // After rebuild, only ONE entry for `hash` should survive across both
+    // caches: the fresh legacy corner (birth_hash matches the dir name).
+    let primary_cache =
+        fs::read_to_string(env.corner_root().join("registry_cache.json")).unwrap();
+    let primary_value: serde_json::Value = serde_json::from_str(&primary_cache).unwrap();
+    let primary_entries = primary_value
+        .get("corners")
+        .and_then(|v| v.as_array())
+        .unwrap();
+    let primary_matches: Vec<&serde_json::Value> = primary_entries
+        .iter()
+        .filter(|v| v.get("hash").and_then(|h| h.as_str()) == Some(hash))
+        .collect();
+    assert!(
+        primary_matches.len() <= 1,
+        "expected at most one entry for {hash} in primary cache, got {}",
+        primary_matches.len()
+    );
+
+    let legacy_cache =
+        fs::read_to_string(env.legacy_safe_pocket_root().join("registry_cache.json")).unwrap();
+    let legacy_value: serde_json::Value = serde_json::from_str(&legacy_cache).unwrap();
+    let legacy_entries = legacy_value
+        .get("corners")
+        .and_then(|v| v.as_array())
+        .unwrap();
+    let legacy_matches: Vec<&serde_json::Value> = legacy_entries
+        .iter()
+        .filter(|v| v.get("hash").and_then(|h| h.as_str()) == Some(hash))
+        .collect();
+    assert!(
+        legacy_matches.len() <= 1,
+        "expected at most one entry for {hash} in legacy cache, got {}",
+        legacy_matches.len()
+    );
+
+    // locate should now resolve to the legacy corner with the fresh core_paths.
+    let locate = env.run_spocket(
+        &project,
+        &["locate", "--path", project.to_string_lossy().as_ref()],
+    );
+    assert_success(&locate);
+    let locate_value: serde_json::Value = serde_json::from_slice(&locate.stdout).unwrap();
+    let resolved = PathBuf::from(locate_value.get("corner_dir").unwrap().as_str().unwrap());
+    assert_eq!(resolved, legacy_corner);
+    let core_paths = locate_value.get("core_paths").unwrap().as_array().unwrap();
+    assert_eq!(core_paths.len(), 1);
+    assert_eq!(
+        PathBuf::from(core_paths[0].as_str().unwrap()),
+        canon(&project)
+    );
+}
+
+/// When `corner augment` updates a corner in a non-preferred root, the
+/// preferred root's cache must not keep a stale duplicate entry for the same
+/// hash. This is the split-brain propagation path: the augment prunes the
+/// duplicate so future lookups cannot pick the wrong corner.
+#[test]
+fn augment_in_legacy_root_prunes_duplicate_from_primary_cache() {
+    let env = TestEnv::new("augment-prunes-duplicate");
+    let project = env.project("project");
+    let extra = env.project("extra");
+
+    // Both roots exist; the primary root takes precedence for new corners.
+    fs::create_dir_all(env.corner_root()).unwrap();
+    fs::create_dir_all(env.legacy_safe_pocket_root()).unwrap();
+
+    // Seed a split-brain: same hash in both roots, legacy corner owns the
+    // hash (birth_hash matches).
+    let hash = "cafebabecafe";
+    let legacy_corner = env.legacy_safe_pocket_root().join(hash);
+    let primary_corner = env.corner_root().join(hash);
+
+    write_synthetic_corner(
+        &legacy_corner,
+        "legacyhash000",
+        &[project.clone()],
+        Some(hash),
+        Some(hash),
+    );
+    write_synthetic_corner(
+        &primary_corner,
+        "primaryhash0",
+        &[project.clone()],
+        Some("other00000000"),
+        Some(hash),
+    );
+
+    write_synthetic_cache(
+        &env.legacy_safe_pocket_root(),
+        &[(hash, "legacyhash000", &legacy_corner, &[project.clone()])],
+    );
+    write_synthetic_cache(
+        &env.corner_root(),
+        &[(hash, "primaryhash0", &primary_corner, &[project.clone()])],
+    );
+
+    // Run `corner augment --add extra` from the project directory. The lookup
+    // should resolve to the legacy corner (birth_hash matches), augment it in
+    // place, and prune the duplicate entry from the primary root's cache.
+    let augment = env.run_spocket(
+        &project,
+        &[
+            "augment",
+            "--add",
+            extra.to_string_lossy().as_ref(),
+            "--no-open",
+        ],
+    );
+    assert_success(&augment);
+
+    // The primary cache should no longer carry an entry whose `path` points
+    // at the primary corner. The augment upserts a fresh entry (pointing at
+    // the legacy corner) under the same hash, which is fine — the stale
+    // duplicate pointing at the primary corner is what must be gone.
+    let primary_cache =
+        fs::read_to_string(env.corner_root().join("registry_cache.json")).unwrap();
+    assert!(
+        !primary_cache
+            .contains(&format!("\"path\": \"{}\"", primary_corner.display())),
+        "expected primary cache to be pruned of the primary corner entry, got:\n{primary_cache}"
+    );
+
+    // The legacy root's cache should also be pruned of the duplicate hash so a
+    // future `load_cache_or_rebuild` cannot resurrect the stale entry.
+    let legacy_cache =
+        fs::read_to_string(env.legacy_safe_pocket_root().join("registry_cache.json")).unwrap();
+    assert!(
+        !legacy_cache.contains(&format!("\"hash\": \"{hash}\"")),
+        "expected legacy cache to be pruned of hash {hash} after augment upsert, got:\n{legacy_cache}"
+    );
+
+    // locate should resolve to the legacy corner with the augmented core_paths.
+    let locate = env.run_spocket(
+        &project,
+        &["locate", "--path", project.to_string_lossy().as_ref()],
+    );
+    assert_success(&locate);
+    let locate_value: serde_json::Value = serde_json::from_slice(&locate.stdout).unwrap();
+    let resolved = PathBuf::from(locate_value.get("corner_dir").unwrap().as_str().unwrap());
+    assert_eq!(resolved, legacy_corner);
+    let core_paths = locate_value.get("core_paths").unwrap().as_array().unwrap();
+    let resolved_paths: Vec<PathBuf> = core_paths
+        .iter()
+        .map(|v| PathBuf::from(v.as_str().unwrap()))
+        .collect();
+    assert!(resolved_paths.contains(&canon(&project)));
+    assert!(resolved_paths.contains(&canon(&extra)));
 }

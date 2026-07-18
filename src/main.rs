@@ -235,6 +235,8 @@ fn handle_command(command: Commands) -> Result<()> {
 
         Commands::SyncRegistryGit => handle_sync_registry_git(),
 
+        Commands::SyncRegistry => handle_sync_registry(),
+
         Commands::Backup { repo, schedule } => handle_backup(repo, schedule),
 
         Commands::Completions { shell } => {
@@ -1982,6 +1984,20 @@ fn handle_sync_registry_git() -> Result<()> {
     );
     let _ = event::append_registry_event(
         "registry.snapshot.sync",
+        serde_json::json!({ "corners": count }),
+    );
+    Ok(())
+}
+
+fn handle_sync_registry() -> Result<()> {
+    let count = registry::rebuild_all_caches()?;
+    println!(
+        "{} {} corner(s) across all registry roots",
+        "Rebuilt registry caches:".bright_green(),
+        count.to_string().bright_yellow()
+    );
+    let _ = event::append_registry_event(
+        "registry.cache.rebuild",
         serde_json::json!({ "corners": count }),
     );
     Ok(())
