@@ -2,6 +2,63 @@
 
 All notable changes to Corner will be documented in this file.
 
+## [2.1.0] - 2026-07-25
+
+Completes the Safe_pocket → Corner rename inside the template system, and makes
+the rename repeatable for future renames.
+
+### Added
+- **`#CORNER_*` template directives.** Corner's template grammar is now spelled
+  with the `CORNER` prefix:
+  `#CORNER_TEMPLATE_DESTINATION`, `#CORNER_INSTALL_DESTINATION`,
+  `#CORNER_QUIET_MERGE`, `#CORNER_MERGE_AT_RUNTIME`, and the runtime markers
+  `#CORNER_RUNTIME_CONTENT_START` / `#CORNER_RUNTIME_CONTENT_END`.
+  The legacy `#SPOCKET_*` spellings are still **recognised when reading**
+  templates and already-placed files, so nothing breaks before you migrate.
+  New content is always written with the `#CORNER_` prefix.
+- **`corner upgrade-installation`.** Rewrites legacy `#SPOCKET_*` directives and
+  runtime markers to their `#CORNER_*` equivalents, in place, across every known
+  config root (`~/.config/corner`, `~/.config/safe_pocket`, `~/.config/spocket`)
+  and registry root (`~/.corner`, `~/.safe_pocket`, `~/.spocket`). Supports
+  `--dry-run`, `--yes`, and `--root PATH` (repeatable). This is a one-way text
+  migration, never a sync: it never copies content from a project back into the
+  config templates directory. User-facing feature-tag names (e.g.
+  `SPOCKET_MUST_INSTALL`) are deliberately left intact.
+- **`corner install-default-assets --replace`.** Overwrites existing templates
+  and config assets instead of skipping files that already exist, clearing
+  `templates/` first so legacy-named files are removed.
+- `install.sh` now detects an existing `~/.config/corner/templates` directory and
+  asks whether to **replace** it with the new built-in templates, **skip** it, or
+  run **`upgrade-installation --dry-run`** to preview a token migration instead.
+  After installing it offers to run `corner upgrade-installation` if legacy
+  references are detected.
+
+### Fixed
+- **`corner -u` no longer destroys quiet-merge destinations.** `#CORNER_QUIET_MERGE`
+  templates were merged on corner *creation* but **overwritten** on upgrade, so
+  `corner -u <project>` would flatten a project's `.gitignore` down to the
+  template's single `.env` line and replace a populated `.env` with just the
+  template keys. Quiet-merge templates now merge in both modes, matching the
+  documented contract: existing content is preserved and only genuinely new
+  lines/keys are appended. Regression tests cover both `.env` and `.gitignore`.
+- **Templates no longer "backwards-sync" into existence.** Renaming a template in
+  `~/.config/corner/templates` used to see the old filename reappear on the next
+  `corner -i .`, because the old name was still baked into the binary's embedded
+  template set and re-staged on every launch. The shipped templates are now named
+  `corner.env.md` and `corner.gitignore.md` (previously `safe_pocket.env.md` and
+  `safe_pocket.gitignore.md`), so the stale names can no longer be resurrected.
+  Use `corner install-default-assets --replace` to clear leftovers.
+- **`.env` files now define every root.** Both the project `.env` and the corner
+  `.env` are seeded with `PROJECT_ROOT`, `CORNER_ROOT`, and the legacy
+  `SPOCKET_ROOT` alias, fixing the case where opening a project did not export
+  `CORNER_ROOT` or `PROJECT_ROOT`.
+- **Installation no longer aborts on orphaned corners.** `install-default-assets`
+  (and therefore `install.sh`) used to fail outright when any corner's manifest
+  referenced a project directory that no longer existed — a deleted repo, an
+  unmounted volume, or a stale temp-directory corner left behind by a test run.
+  Missing project directories are now skipped instead.
+- Removed a duplicated `CORNER_ROOT=` line from the corner `.env` template.
+
 ## [2.0.2] - 2026-07-18
 
 ### Fixed

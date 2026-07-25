@@ -6,6 +6,7 @@ mod event;
 mod feature;
 mod hash;
 mod manifest;
+mod migrate;
 mod registry;
 mod task;
 mod template;
@@ -103,7 +104,7 @@ fn run() -> Result<()> {
         Some(
             Commands::RuntimeMergeStart { .. }
                 | Commands::RuntimeMergeStop { .. }
-                | Commands::InstallDefaultAssets
+                | Commands::InstallDefaultAssets { .. }
         )
     );
     if !is_merge_cmd {
@@ -229,7 +230,13 @@ fn handle_command(command: Commands) -> Result<()> {
 
         Commands::RuntimeMergeStop { corner } => handle_merge_stop(corner),
 
-        Commands::InstallDefaultAssets => handle_install_default_assets(),
+        Commands::InstallDefaultAssets { replace } => handle_install_default_assets(replace),
+
+        Commands::UpgradeInstallation {
+            dry_run,
+            yes,
+            roots,
+        } => handle_upgrade_installation(dry_run, yes, roots),
 
         Commands::Augment {
             add,
@@ -341,9 +348,34 @@ fn handle_daily_feature(corner: String, new: bool, subpath: Option<String>) -> R
     Ok(())
 }
 
-fn handle_install_default_assets() -> Result<()> {
-    template::install_default_assets_to_current_roots()?;
+fn handle_install_default_assets(replace: bool) -> Result<()> {
+    if replace {
+        template::install_default_assets_to_current_roots_replacing()?;
+    } else {
+        template::install_default_assets_to_current_roots()?;
+    }
     migrate_post_install_root_state()
+}
+
+fn handle_upgrade_installation(dry_run: bool, yes: bool, roots: Vec<String>) -> Result<()> {
+    let config = Config::load()?;
+    let mut extra_roots = Vec::new();
+    for r in &roots {
+        extra_roots.push(config.resolve_path(r)?);
+    }
+    let options = migrate::UpgradeOptions {
+        dry_run,
+        yes,
+        extra_roots,
+    };
+    let result = migrate::run(options);
+    if result.is_ok() {
+        let _ = event::append_registry_event(
+            "upgrade-installation",
+            serde_json::json!({ "dry_run": dry_run, "yes": yes }),
+        );
+    }
+    result
 }
 
 fn migrate_post_install_root_state() -> Result<()> {
@@ -371,6 +403,20 @@ fn migrate_post_install_root_state() -> Result<()> {
 
         sync_root_env_file(&workspace.corner_dir.join(".env"), &workspace.corner_dir)?;
         for project_path in core_paths.iter().chain(manifest.worktrees.iter()) {
+            // A corner can outlive its project directory (deleted repos,
+            // temp-dir corners left behind by test runs, unmounted volumes).
+            // Writing a `.env` there would recreate the directory tree, and
+            // failing would abort the whole installation — so skip it instead.
+            if !project_path.is_dir() {
+                if verbose() {
+                    println!(
+                        "  {} {}",
+                        "Skipping missing project directory:".dimmed(),
+                        project_path.display().to_string().dimmed()
+                    );
+                }
+                continue;
+            }
             sync_root_env_file(&project_path.join(".env"), &workspace.corner_dir)?;
         }
     }

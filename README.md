@@ -96,6 +96,11 @@ corner
 │
 ├─ sync-registry-git            Refresh git snapshot of all corners
 │
+├─ upgrade-installation         Rewrite legacy #SPOCKET_* tokens to #CORNER_*
+│  ├─ --dry-run                Preview rewrites without changing files
+│  ├─ -y, --yes                Apply without prompting
+│  └─ --root PATH              Extra root to scan (repeatable)
+│
 ├─ backup                       Configure automatic backup
 │  ├─ --repo GIT_URL           Git remote for backups
 │  └─ --schedule CRON          Cron schedule (default: hourly)
@@ -220,7 +225,7 @@ corner -i . --no-readme
 ### Execution Control
 
 #### `--simulate-runtime`
-Inject runtime content into destination files without launching VS Code. Every file that would normally gain inject-at-runtime content (wrapped in `#SPOCKET_RUNTIME_CONTENT_START` / `#SPOCKET_RUNTIME_CONTENT_END` markers) gains that content even though VS Code is never started. Implies `--silent`.
+Inject runtime content into destination files without launching VS Code. Every file that would normally gain inject-at-runtime content (wrapped in `#CORNER_RUNTIME_CONTENT_START` / `#CORNER_RUNTIME_CONTENT_END` markers) gains that content even though VS Code is never started. Implies `--silent`.
 
 ```bash
 corner -i . --simulate-runtime --temporary
@@ -631,8 +636,22 @@ corner -i api -i frontend
 Customize files written into every new corner by editing templates in `~/.config/corner/templates/`, with fallback to legacy config roots when those directories already exist. Each template file must begin with:
 
 ```
-#SPOCKET_TEMPLATE_DESTINATION: <relative-path>
+#CORNER_TEMPLATE_DESTINATION: <relative-path>
 ```
+
+Supported directives:
+
+| Directive | Meaning |
+| --- | --- |
+| `#CORNER_TEMPLATE_DESTINATION: <path>` | Where the template is Placed inside a corner. A file may contain several, each starting a new block. |
+| `#CORNER_INSTALL_DESTINATION: <path>` | Place this file at an arbitrary path at **install** time only (e.g. `directory_structure.yaml` lands directly in `~/.config/corner`, not under `templates/`). Stripped from the placed file. |
+| `#CORNER_QUIET_MERGE` | Merge into an existing destination file instead of overwriting, de-duplicating `KEY=VALUE` lines. Used for `.env` and `.gitignore`. |
+| `#CORNER_MERGE_AT_RUNTIME` | Inject content when a session opens, wrapped in `#CORNER_RUNTIME_CONTENT_START` / `#CORNER_RUNTIME_CONTENT_END`, and strip it when the session closes. |
+
+The legacy `#SPOCKET_*` spellings of all of the above are still recognised when
+reading templates and already-placed files. New content is always written with
+the `#CORNER_` prefix. Run [`corner upgrade-installation`](#corner-upgrade-installation)
+to migrate old files in place.
 
 Supported variables:
 - `{{CORNER_ROOT}}` / `{{SPOCKET_ROOT}}` — Absolute path to the corner directory (`CORNER_*` preferred)
@@ -642,6 +661,51 @@ Supported variables:
 - `{{PROJECT_ROOT}}` — Absolute path to the first included project
 
 Directory structure is controlled by `~/.config/corner/directory_structure.yaml`.
+
+#### Placement
+
+Corner never syncs *from* a project *to* the templates. Templates are **Placed**,
+always one-way, in one of three ways:
+
+1. **Into config**, at install time — `src/templates` is materialised into
+   `~/.config/corner` (honouring `#CORNER_INSTALL_DESTINATION`).
+2. **Into a project**, when a corner is created with `corner -i .` — templates are
+   Placed per their `#CORNER_TEMPLATE_DESTINATION`. Edits you then make to the
+   *placed* copies never travel back to the templates.
+3. **At runtime into a project**, when a session opens — templates marked
+   `#CORNER_MERGE_AT_RUNTIME` are merged into their destination between the
+   runtime markers, and removed again when the session closes. Content you write
+   above or below the markers is preserved.
+
+`corner -u <path>` re-Places templates over an existing corner. This is
+destructive to the placed copies: local edits inside the corner are replaced with
+the current template content.
+
+#### `corner upgrade-installation`
+
+Rewrites legacy `#SPOCKET_*` directives and runtime markers to `#CORNER_*` in
+place, across every known config root (`~/.config/corner`,
+`~/.config/safe_pocket`, `~/.config/spocket`) and registry root (`~/.corner`,
+`~/.safe_pocket`, `~/.spocket`):
+
+```bash
+corner upgrade-installation --dry-run   # preview, change nothing
+corner upgrade-installation             # prompt, then apply
+corner upgrade-installation --yes       # apply without prompting
+corner upgrade-installation --root ~/some/other/tree
+```
+
+This is a one-way text migration, not a sync — it never copies content from a
+project back into the config templates directory. User-facing feature-tag names
+such as `SPOCKET_MUST_INSTALL` are deliberately left untouched, since they are
+defined in `feature_tags.yaml` and referenced from your feature files.
+
+To replace your installed templates outright with the ones built into the binary
+(clearing stale/legacy filenames):
+
+```bash
+corner install-default-assets --replace
+```
 
 ### Directory Structure
 

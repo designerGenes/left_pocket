@@ -1,5 +1,5 @@
-#SPOCKET_TEMPLATE_DESTINATION: {{CORNER_ROOT}}/.github/copilot-instructions.md
-#SPOCKET_MERGE_AT_RUNTIME
+#CORNER_TEMPLATE_DESTINATION: {{CORNER_ROOT}}/.github/copilot-instructions.md
+#CORNER_MERGE_AT_RUNTIME
 
 If an application will provide user-editable configuration files, the config files must live inside 
 

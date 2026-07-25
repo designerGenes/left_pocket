@@ -146,7 +146,58 @@ cp -f "$BINARY" "$LEGACY_SPOCKET"
 chmod +x "$LEGACY_SPOCKET"
 
 printf 'Seeding Corner assets under %s and %s\n' "$HOME/.config/corner" "$HOME/.corner"
-"$PRIMARY" install-default-assets >/dev/null
+
+# Detect an existing config templates directory and ask whether to replace it
+# with the freshly built embedded templates (overwriting stale/legacy files
+# such as safe_pocket.env.md) or skip and leave the user's current templates
+# in place.
+CONFIG_TEMPLATES_DIR="$HOME/.config/corner/templates"
+REPLACE_FLAG=""
+if [ -d "$CONFIG_TEMPLATES_DIR" ]; then
+    printf '\n%s\n' "Found existing templates in $CONFIG_TEMPLATES_DIR"
+    printf '%s\n' "  r) Replace them with the new built-in templates (overwrites customisations"
+    printf '%s\n' "     and removes legacy-named files like safe_pocket.env.md)"
+    printf '%s\n' "  s) Skip — keep the existing templates unchanged (recommended if you have"
+    printf '%s\n' "     local customisations you want to preserve)"
+    printf '%s\n' "  d) Dry-run upgrade-installation instead (rewrite legacy #SPOCKET_* references"
+    printf '%s\n' "     to #CORNER_* in-place without replacing files)"
+    printf '%s' "Choose [r/s/d]: "
+    read -r ASSET_CHOICE
+    case "$ASSET_CHOICE" in
+        r|R)
+            REPLACE_FLAG="--replace"
+            printf '%s\n' "Replacing existing templates with the new built-in set."
+            ;;
+        d|D)
+            printf '%s\n' "Running upgrade-installation in dry-run mode..."
+            "$PRIMARY" upgrade-installation --dry-run || true
+            REPLACE_FLAG=""
+            ;;
+        s|S|*)
+            printf '%s\n' "Keeping existing templates unchanged."
+            REPLACE_FLAG=""
+            ;;
+    esac
+fi
+
+"$PRIMARY" install-default-assets $REPLACE_FLAG >/dev/null
+
+# Offer to rewrite legacy #SPOCKET_* references in already-placed files across
+# all known Corner/Safe_pocket roots. This is a no-op if there is nothing to
+# migrate, so it is safe to run unconditionally.
+if "$PRIMARY" upgrade-installation --dry-run 2>/dev/null | grep -q "Found"; then
+    printf '\n%s\n' "Legacy #SPOCKET_* references were detected in installed files."
+    printf '%s' "Run `corner upgrade-installation` now to rewrite them? [y/N]: "
+    read -r UPGRADE_CHOICE
+    case "$UPGRADE_CHOICE" in
+        y|Y)
+            "$PRIMARY" upgrade-installation --yes || true
+            ;;
+        *)
+            printf '%s\n' "Skipped. You can run \`corner upgrade-installation\` later."
+            ;;
+    esac
+fi
 
 if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]]; then
     printf '\n%s is not in your PATH\n\n' "$INSTALL_DIR"
@@ -159,4 +210,6 @@ printf 'Try it out:\n'
 printf '  corner --help\n'
 printf '  safe_pocket --help\n'
 printf '  spocket --help\n'
-printf '  corner register myproject="%s"\n' "$(pwd)"
+printf '  corner register myproject="%s"\n\n' "$(pwd)"
+printf 'To refresh an existing project placed templates after upgrading:\n'
+printf '  corner -u <project-path>\n'

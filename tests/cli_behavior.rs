@@ -742,7 +742,7 @@ fn simulate_runtime_injects_content_without_launching_vscode() {
     let mut summary = TestSummary::new(
         "simulate_runtime_injects_content_without_launching_vscode",
         "`--simulate-runtime` injects runtime content into destination files \
-         (between #SPOCKET_RUNTIME_CONTENT_START/END markers) without launching VS Code",
+         (between #CORNER_RUNTIME_CONTENT_START/END markers) without launching VS Code",
         "the temporary HOME, project tree, and code log are deleted on drop",
     );
 
@@ -763,8 +763,8 @@ fn simulate_runtime_injects_content_without_launching_vscode() {
     ];
     let injected = candidates.iter().filter(|p| p.is_file()).any(|p| {
         let body = fs::read_to_string(p).unwrap_or_default();
-        body.contains("#SPOCKET_RUNTIME_CONTENT_START")
-            && body.contains("#SPOCKET_RUNTIME_CONTENT_END")
+        body.contains("#CORNER_RUNTIME_CONTENT_START")
+            && body.contains("#CORNER_RUNTIME_CONTENT_END")
     });
     assert!(
         injected,
@@ -825,10 +825,166 @@ fn new_corner_has_no_beads_artifacts() {
     summary.print();
 }
 
+/// Both the project `.env` and the corner `.env` must carry PROJECT_ROOT,
+/// CORNER_ROOT and the legacy SPOCKET_ROOT alias, so shells and tools can
+/// resolve either root regardless of which directory they start in.
+#[test]
+fn env_files_carry_project_and_corner_roots() {
+    let env = TestEnv::new("env-roots");
+    let project = env.project("project");
+    let mut summary = TestSummary::new(
+        "env_files_carry_project_and_corner_roots",
+        "project/.env and corner/.env both define PROJECT_ROOT, CORNER_ROOT and SPOCKET_ROOT",
+        "the isolated HOME and temp root are removed recursively on drop",
+    );
+
+    let output = env.run_spocket(&project, &["-i", ".", "--silent"]);
+    assert_success(&output);
+    summary.step("Created a workspace with `corner -i . --silent`".to_string());
+
+    let corner = env.only_corner();
+
+    let project_env = fs::read_to_string(project.join(".env")).unwrap();
+    for key in ["PROJECT_ROOT=", "CORNER_ROOT=", "SPOCKET_ROOT="] {
+        assert!(
+            project_env.contains(key),
+            "project .env missing {key}\n--- .env ---\n{project_env}"
+        );
+    }
+    summary.step("Verified project/.env defines PROJECT_ROOT, CORNER_ROOT, SPOCKET_ROOT".to_string());
+
+    let corner_env = fs::read_to_string(corner.join(".env")).unwrap();
+    for key in ["PROJECT_ROOT=", "CORNER_ROOT="] {
+        assert!(
+            corner_env.contains(key),
+            "corner .env missing {key}\n--- .env ---\n{corner_env}"
+        );
+    }
+    summary.step("Verified corner/.env defines PROJECT_ROOT and CORNER_ROOT".to_string());
+    summary.print();
+}
+
+/// `install-default-assets` must not abort when a corner's manifest references
+/// a project directory that no longer exists (deleted repo, stale temp-dir
+/// corner from a previous test run, unmounted volume).
+#[test]
+fn install_default_assets_tolerates_missing_project_directory() {
+    let env = TestEnv::new("install-missing-project");
+    let project = env.project("doomed-project");
+    let mut summary = TestSummary::new(
+        "install_default_assets_tolerates_missing_project_directory",
+        "install-default-assets skips corners whose project directory is gone instead of failing",
+        "the isolated HOME and temp root are removed recursively on drop",
+    );
+
+    let created = env.run_spocket(&project, &["-i", ".", "--silent"]);
+    assert_success(&created);
+    summary.step("Created a corner for a project directory".to_string());
+
+    // Delete the project directory, leaving the corner's manifest pointing at
+    // a path that no longer exists.
+    fs::remove_dir_all(&project).unwrap();
+    assert!(!project.exists());
+    summary.step("Deleted the project directory, orphaning the corner".to_string());
+
+    // Run from an unrelated directory that still exists.
+    let elsewhere = env.project("elsewhere");
+    let output = env.run_spocket(&elsewhere, &["install-default-assets"]);
+    assert_success(&output);
+    summary.step("`install-default-assets` still succeeded despite the orphaned corner".to_string());
+    summary.print();
+}
+
+/// `corner upgrade-installation` rewrites legacy `#SPOCKET_*` directives and
+/// runtime markers to their `#CORNER_*` equivalents across the installed roots,
+/// leaves user-facing feature-tag names alone, and honours `--dry-run`.
+#[test]
+fn upgrade_installation_rewrites_legacy_spocket_tokens() {
+    let env = TestEnv::new("upgrade-installation");
+    let project = env.project("project");
+    let mut summary = TestSummary::new(
+        "upgrade_installation_rewrites_legacy_spocket_tokens",
+        "`corner upgrade-installation` migrates legacy #SPOCKET_* tokens to #CORNER_* in place",
+        "the isolated HOME and temp root are removed recursively on drop",
+    );
+
+    let created = env.run_spocket(&project, &["-i", ".", "--silent"]);
+    assert_success(&created);
+    let corner = env.only_corner();
+
+    // Plant a file carrying every legacy token, plus a feature-tag name that
+    // must survive untouched.
+    let legacy = corner.join("legacy-notes.md");
+    let legacy_body = "#SPOCKET_TEMPLATE_DESTINATION: x.md\n\
+                       #SPOCKET_QUIET_MERGE\n\
+                       #SPOCKET_MERGE_AT_RUNTIME\n\
+                       #SPOCKET_INSTALL_DESTINATION: y.yaml\n\
+                       #SPOCKET_RUNTIME_CONTENT_START\n\
+                       body\n\
+                       #SPOCKET_RUNTIME_CONTENT_END\n\
+                       <!-- BEGIN SPOCKET TASK INTEGRATION -->\n\
+                       <!-- END SPOCKET TASK INTEGRATION -->\n\
+                       #SPOCKET_MUST_INSTALL\n";
+    fs::write(&legacy, legacy_body).unwrap();
+    summary.step("Planted a file containing every legacy #SPOCKET_* token".to_string());
+
+    // A dry run must report findings without touching the file.
+    let dry = env.run_spocket(&project, &["upgrade-installation", "--dry-run"]);
+    assert_success(&dry);
+    let dry_stdout = String::from_utf8_lossy(&dry.stdout);
+    assert!(
+        dry_stdout.contains("Dry run only"),
+        "dry run should say so:\n{dry_stdout}"
+    );
+    assert_eq!(
+        fs::read_to_string(&legacy).unwrap(),
+        legacy_body,
+        "dry run must not modify any file"
+    );
+    summary.step("Verified `--dry-run` reported findings without modifying files".to_string());
+
+    // The real run rewrites the structural tokens.
+    let applied = env.run_spocket(&project, &["upgrade-installation", "--yes"]);
+    assert_success(&applied);
+    let after = fs::read_to_string(&legacy).unwrap();
+
+    for token in [
+        "#CORNER_TEMPLATE_DESTINATION",
+        "#CORNER_QUIET_MERGE",
+        "#CORNER_MERGE_AT_RUNTIME",
+        "#CORNER_INSTALL_DESTINATION",
+        "#CORNER_RUNTIME_CONTENT_START",
+        "#CORNER_RUNTIME_CONTENT_END",
+        "<!-- BEGIN CORNER TASK INTEGRATION -->",
+        "<!-- END CORNER TASK INTEGRATION -->",
+    ] {
+        assert!(
+            after.contains(token),
+            "expected {token} after upgrade\n--- file ---\n{after}"
+        );
+    }
+    summary.step("Verified all structural directives/markers became #CORNER_*".to_string());
+
+    assert!(
+        after.contains("#SPOCKET_MUST_INSTALL"),
+        "user-facing feature-tag names must NOT be rewritten\n--- file ---\n{after}"
+    );
+    summary.step("Verified the #SPOCKET_MUST_INSTALL feature tag was left intact".to_string());
+
+    // Running again is a no-op.
+    let again = env.run_spocket(&project, &["upgrade-installation", "--dry-run"]);
+    assert_success(&again);
+    assert!(
+        String::from_utf8_lossy(&again.stdout).contains("nothing to upgrade"),
+        "a second pass should find nothing left to migrate"
+    );
+    summary.step("Verified the migration is idempotent".to_string());
+    summary.print();
+}
+
 /// AGENTS.md should advertise the built-in `corner task` tracker at runtime.
 #[test]
-fn runtime_agents_md_advertises_task_tracker() {
-    let env = TestEnv::new("task-block");
+fn runtime_agents_md_advertises_task_tracker() {    let env = TestEnv::new("task-block");
     let project = env.project("project");
     let mut summary = TestSummary::new(
         "runtime_agents_md_advertises_task_tracker",
@@ -872,7 +1028,7 @@ fn missing_template_destination_warning_is_verbose_only() {
     let quiet = env.run_spocket(&project, &["-i", ".", "--temporary", "--silent"]);
     assert_success(&quiet);
     assert!(
-        !String::from_utf8_lossy(&quiet.stderr).contains("missing #SPOCKET_TEMPLATE_DESTINATION"),
+        !String::from_utf8_lossy(&quiet.stderr).contains("missing #CORNER_TEMPLATE_DESTINATION"),
         "non-verbose run should not warn about referenced feature tag files"
     );
 
@@ -880,7 +1036,7 @@ fn missing_template_destination_warning_is_verbose_only() {
     let verbose = env.run_spocket(&other, &["-i", ".", "--temporary", "--silent", "--verbose"]);
     assert_success(&verbose);
     assert!(
-        String::from_utf8_lossy(&verbose.stderr).contains("missing #SPOCKET_TEMPLATE_DESTINATION"),
+        String::from_utf8_lossy(&verbose.stderr).contains("missing #CORNER_TEMPLATE_DESTINATION"),
         "verbose run should surface skipped template diagnostics"
     );
 }

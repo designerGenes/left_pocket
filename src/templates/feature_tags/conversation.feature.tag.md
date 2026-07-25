@@ -1,4 +1,4 @@
-#SPOCKET_INSTALL_DESTINATION: {{CORNER_CONFIG_ROOT}}/feature_tags/conversation.feature.tag.yaml
+#CORNER_INSTALL_DESTINATION: {{CORNER_CONFIG_ROOT}}/feature_tags/conversation.feature.tag.yaml
 
 description: |
   sometimes copilot will need a response from the user or need the user to conduct some form of input which copilot cannot mimic (such as pressing buttons in an iOS simulator)

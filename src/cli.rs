@@ -45,7 +45,10 @@ TEMPLATES
   ~/.config/safe_pocket/templates/ and ~/.config/spocket/templates/.
   Each template file must begin with:
 
-    #SPOCKET_TEMPLATE_DESTINATION: <relative-path>
+    #CORNER_TEMPLATE_DESTINATION: <relative-path>
+
+  (The legacy #SPOCKET_TEMPLATE_DESTINATION form is still recognised when
+  reading templates for backwards compatibility.)
 
   Supported variables: {{CORNER_ROOT}}/{{SPOCKET_ROOT}}, {{PROJECT_ROOT}},
   {{CORNER_NAME}}/{{SPOCKET_NAME}}, {{CORNER_CONFIG_ROOT}}/{{SPOCKET_CONFIG_ROOT}},
@@ -166,7 +169,7 @@ pub struct Cli {
     ///
     /// Simulates how files would look at VS Code runtime. Every file that would
     /// normally gain inject-at-runtime content (wrapped in
-    /// #SPOCKET_RUNTIME_CONTENT_START / #SPOCKET_RUNTIME_CONTENT_END markers)
+    /// #CORNER_RUNTIME_CONTENT_START / #CORNER_RUNTIME_CONTENT_END markers)
     /// gains that content even though the runtime (VS Code) is never started.
     /// Implies --silent: VS Code is not opened.
     ///
@@ -368,7 +371,7 @@ pub enum Commands {
 
     /// Inject runtime content into destination files (called by the VS Code extension on open)
     ///
-    /// For each template marked with `#SPOCKET_MERGE_AT_RUNTIME`, injects the expanded
+    /// For each template marked with `#CORNER_MERGE_AT_RUNTIME`, injects the expanded
     /// template content into the destination file wrapped in runtime markers.
     #[command(name = "runtime-merge-start", hide = true)]
     RuntimeMergeStart {
@@ -379,8 +382,8 @@ pub enum Commands {
 
     /// Strip runtime content from destination files (called by the VS Code extension on close)
     ///
-    /// Removes any content between `#SPOCKET_RUNTIME_CONTENT_START` and
-    /// `#SPOCKET_RUNTIME_CONTENT_END` markers from destination files.
+    /// Removes any content between `#CORNER_RUNTIME_CONTENT_START` and
+    /// `#CORNER_RUNTIME_CONTENT_END` markers from destination files.
     #[command(name = "runtime-merge-stop", hide = true)]
     RuntimeMergeStop {
         /// Path to the corner directory containing the manifest
@@ -390,7 +393,44 @@ pub enum Commands {
 
     /// Seed Corner's canonical config and registry roots with default assets
     #[command(name = "install-default-assets", hide = true)]
-    InstallDefaultAssets,
+    InstallDefaultAssets {
+        /// Overwrite existing templates and config assets instead of skipping
+        /// files that already exist. Clears the `templates/` directory first,
+        /// which also removes legacy-named files (e.g. `safe_pocket.env.md`).
+        #[arg(long = "replace")]
+        replace: bool,
+    },
+
+    /// Rewrite legacy Spocket/Safe_pocket references to Corner across installed roots
+    ///
+    /// Scans the known config roots (~/.config/corner, ~/.config/safe_pocket,
+    /// ~/.config/spocket) and registry roots (~/.corner, ~/.safe_pocket,
+    /// ~/.spocket) for files that still contain legacy `#SPOCKET_*` directive
+    /// or runtime markers, and rewrites them in place to their `#CORNER_*`
+    /// equivalents.
+    ///
+    /// This is a one-way text migration, NOT a template sync. It never copies
+    /// content from a project back into the config templates directory. User-
+    /// facing feature-tag names (e.g. `SPOCKET_MUST_INSTALL`) are left intact;
+    /// only structural directive/marker tokens are rewritten.
+    ///
+    ///   corner upgrade-installation
+    ///   corner upgrade-installation --dry-run
+    ///   corner upgrade-installation --yes
+    #[command(name = "upgrade-installation")]
+    UpgradeInstallation {
+        /// Preview the rewrites without modifying any files
+        #[arg(long = "dry-run")]
+        dry_run: bool,
+
+        /// Apply rewrites without prompting for confirmation
+        #[arg(short = 'y', long = "yes")]
+        yes: bool,
+
+        /// Additional roots to scan (repeatable)
+        #[arg(long = "root", value_name = "PATH")]
+        roots: Vec<String>,
+    },
 
     /// Print a shell completion script to stdout
     ///

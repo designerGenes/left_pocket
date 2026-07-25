@@ -1,5 +1,5 @@
-#SPOCKET_TEMPLATE_DESTINATION: {{CORNER_ROOT}}/.github/copilot-instructions.md
-#SPOCKET_MERGE_AT_RUNTIME
+#CORNER_TEMPLATE_DESTINATION: {{CORNER_ROOT}}/.github/copilot-instructions.md
+#CORNER_MERGE_AT_RUNTIME
 
 
 - You must always use full paths whenever you reference any file or directory. NEVER use relative paths.

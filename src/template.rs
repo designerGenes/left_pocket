@@ -49,7 +49,7 @@ const LEGACY_BEADS_END_MARKER: &str = "<!-- END BEADS INTEGRATION -->";
 
 /// Agent-facing guidance injected into AGENTS.md at runtime, describing
 /// Corner's built-in task tracker (`corner task`).
-const TASK_RUNTIME_BLOCK: &str = r#"<!-- BEGIN SPOCKET TASK INTEGRATION -->
+const TASK_RUNTIME_BLOCK: &str = r#"<!-- BEGIN CORNER TASK INTEGRATION -->
 ## Issue Tracking with `corner task`
 
 **IMPORTANT**: This project tracks all work in Corner's built-in task
@@ -108,7 +108,7 @@ corner task <ID> describe --raw    # JSON
 - ✅ Use `--raw` when you need structured (JSON) output.
 - ❌ Do NOT create markdown TODO lists.
 - ❌ Do NOT use external issue trackers.
-<!-- END SPOCKET TASK INTEGRATION -->
+<!-- END CORNER TASK INTEGRATION -->
 "#;
 
 /// Replace `{{CORNER_ROOT}}`/`{{SPOCKET_ROOT}}`, `{{PROJECT_ROOT}}`,
@@ -143,6 +143,34 @@ const CONFIG_ROOT_TOKEN: &str = "{{SPOCKET_CONFIG_ROOT}}";
 const CORNER_CONFIG_ROOT_TOKEN: &str = "{{CORNER_CONFIG_ROOT}}";
 const REGISTRY_ROOT_TOKEN: &str = "{{SPOCKET_REGISTRY_ROOT}}";
 const CORNER_REGISTRY_ROOT_TOKEN: &str = "{{CORNER_REGISTRY_ROOT}}";
+
+// ── Directive prefixes ───────────────────────────────────────────────────────
+//
+// Corner writes `#CORNER_*` directives and runtime markers. The legacy
+// `#SPOCKET_*` forms are still recognised when *reading* templates and placed
+// files so that corners created before the rename keep working without a
+// manual upgrade. New content is always emitted with the `#CORNER_` prefix.
+
+const CORNER_DIRECTIVE_PREFIX: &str = "#CORNER_";
+const SPOCKET_DIRECTIVE_PREFIX: &str = "#SPOCKET_";
+
+/// Return the directive suffix (the part after `#CORNER_` / `#SPOCKET_`) if
+/// `line` begins with either prefix, else `None`.
+fn directive_suffix(line: &str) -> Option<&str> {
+    let trimmed = line.trim_start();
+    if let Some(rest) = trimmed.strip_prefix(CORNER_DIRECTIVE_PREFIX) {
+        return Some(rest);
+    }
+    if let Some(rest) = trimmed.strip_prefix(SPOCKET_DIRECTIVE_PREFIX) {
+        return Some(rest);
+    }
+    None
+}
+
+/// True if `line` is any recognised directive line (`#CORNER_*` or `#SPOCKET_*`).
+fn is_directive_line(line: &str) -> bool {
+    directive_suffix(line).is_some()
+}
 
 /// Expand only the two install-known roots (`{{SPOCKET_CONFIG_ROOT}}` and
 /// `{{SPOCKET_REGISTRY_ROOT}}`). Corner-level variables such as
@@ -268,15 +296,15 @@ pub fn parse_template_content(raw: &str, source: &Path) -> Result<Vec<Template>>
             if line.trim().is_empty() {
                 continue;
             }
-            // Tolerate other `#SPOCKET_*` directive lines (e.g. a stray
-            // `#SPOCKET_INSTALL_DESTINATION`) that may precede the first
+            // Tolerate other directive lines (e.g. a stray
+            // `#CORNER_INSTALL_DESTINATION`) that may precede the first
             // template block — they are install-time metadata and are simply
             // stripped here.
-            if line.trim_start().starts_with("#SPOCKET") {
+            if is_directive_line(line) {
                 continue;
             }
             return Err(anyhow!(
-                "Template file '{}' is missing #SPOCKET_TEMPLATE_DESTINATION before its content.\n\
+                "Template file '{}' is missing #CORNER_TEMPLATE_DESTINATION before its content.\n\
                      Found: {}",
                 path.display(),
                 line
@@ -284,12 +312,13 @@ pub fn parse_template_content(raw: &str, source: &Path) -> Result<Vec<Template>>
         };
 
         let trimmed = line.trim();
-        if trimmed == "#SPOCKET_QUIET_MERGE" {
+        if trimmed == "#CORNER_QUIET_MERGE" || trimmed == "#SPOCKET_QUIET_MERGE" {
             current.quiet_merge = true;
-        } else if trimmed == "#SPOCKET_MERGE_AT_RUNTIME" {
+        } else if trimmed == "#CORNER_MERGE_AT_RUNTIME" || trimmed == "#SPOCKET_MERGE_AT_RUNTIME" {
             current.merge_at_runtime = true;
-        } else if line.starts_with("#SPOCKET") {
-            // Strip unrecognised metadata directives.
+        } else if is_directive_line(line) {
+            // Strip unrecognised metadata directives (both #CORNER_* and
+            // #SPOCKET_*).
         } else {
             current.lines.push(line.to_string());
         }
@@ -297,7 +326,7 @@ pub fn parse_template_content(raw: &str, source: &Path) -> Result<Vec<Template>>
 
     if blocks.is_empty() {
         return Err(anyhow!(
-            "Template file '{}' is missing #SPOCKET_TEMPLATE_DESTINATION.",
+            "Template file '{}' is missing #CORNER_TEMPLATE_DESTINATION.",
             path.display()
         ));
     }
@@ -341,18 +370,14 @@ pub fn parse_template_content(raw: &str, source: &Path) -> Result<Vec<Template>>
     Ok(templates)
 }
 
-/// Parse the `#SPOCKET_TEMPLATE_DESTINATION` directive from a line.
-/// Accepts both `#SPOCKET_TEMPLATE_DESTINATION: path` and
-/// `#SPOCKET_TEMPLATE_DESTINATION path` (with or without colon).
+/// Parse a `#CORNER_TEMPLATE_DESTINATION` (or legacy `#SPOCKET_TEMPLATE_DESTINATION`)
+/// directive from a line. Accepts both `#CORNER_TEMPLATE_DESTINATION: path` and
+/// `#CORNER_TEMPLATE_DESTINATION path` (with or without colon).
 fn parse_destination_directive(line: &str) -> Option<String> {
     let line = line.trim();
-    let prefix = "#SPOCKET_TEMPLATE_DESTINATION";
-
-    if !line.starts_with(prefix) {
-        return None;
-    }
-
-    let rest = &line[prefix.len()..];
+    let suffix = directive_suffix(line)?;
+    let directive = "TEMPLATE_DESTINATION";
+    let rest = suffix.strip_prefix(directive)?;
     // Strip optional colon and whitespace
     let rest = rest.trim_start_matches(':').trim();
 
@@ -482,15 +507,43 @@ pub fn ensure_default_assets() -> Result<()> {
 /// legacy safe_pocket directories already exist. This is used by the install
 /// script so installation always seeds `~/.config/corner` and `~/.corner`.
 pub fn install_default_assets_to_current_roots() -> Result<()> {
+    install_default_assets_to_current_roots_with_mode(false)
+}
+
+/// Force-install default assets into Corner's canonical roots, overwriting any
+/// existing templates and config assets. Used by
+/// `corner install-default-assets --replace` and the install script's "replace"
+/// path. Legacy-named template files (e.g. `safe_pocket.env.md`) are removed
+/// because the `templates/` directory is cleared first.
+pub fn install_default_assets_to_current_roots_replacing() -> Result<()> {
+    install_default_assets_to_current_roots_with_mode(true)
+}
+
+fn install_default_assets_to_current_roots_with_mode(force: bool) -> Result<()> {
     let config_dir = crate::branding::current_config_root()?;
     let tmpl_dir = config_dir.join("templates");
-    fs::create_dir_all(&tmpl_dir).context("Failed to create primary templates directory")?;
+    if force {
+        if tmpl_dir.exists() {
+            fs::remove_dir_all(&tmpl_dir).with_context(|| {
+                format!("Failed to remove templates dir: {}", tmpl_dir.display())
+            })?;
+        }
+        fs::create_dir_all(&tmpl_dir)
+            .context("Failed to create primary templates directory")?;
+    } else {
+        fs::create_dir_all(&tmpl_dir)
+            .context("Failed to create primary templates directory")?;
+    }
 
     let registry_root = crate::registry::current_registry_dir()?;
     fs::create_dir_all(registry_root.join("observations"))
         .context("Failed to create primary global observations directory")?;
 
-    install_embedded_templates(&config_dir, &registry_root)
+    if force {
+        install_embedded_templates_replacing(&config_dir, &registry_root)
+    } else {
+        install_embedded_templates(&config_dir, &registry_root)
+    }
 }
 
 /// Materialise every embedded template into the user's config directory, never
@@ -498,20 +551,48 @@ pub fn install_default_assets_to_current_roots() -> Result<()> {
 ///
 /// Placement is driven entirely by directives inside each file (no hard-coded
 /// file names):
-/// - `#SPOCKET_INSTALL_DESTINATION: <path>` places the file at `<path>` (one or
-///   more) at install time. These directives are **stripped** from the placed
-///   file. Used for assets that live directly in the config root, e.g.
-///   `directory_structure.yaml`, `feature_tags.yaml`, and the conversation
-///   feature-tag definition.
-/// - When a file has **no** `#SPOCKET_INSTALL_DESTINATION`, it is mirrored to
+/// - `#SPOCKET_INSTALL_DESTINATION` / `#CORNER_INSTALL_DESTINATION` places the
+///   file at `<path>` (one or more) at install time. These directives are
+///   **stripped** from the placed file. Used for assets that live directly in
+///   the config root, e.g. `directory_structure.yaml`, `feature_tags.yaml`,
+///   and the conversation feature-tag definition.
+/// - When a file has **no** install destination, it is mirrored to
 ///   `<config_dir>/templates/<relative_path>` so the runtime loader can find it.
 ///
-/// `#SPOCKET_TEMPLATE_DESTINATION` directives are always **left intact** in the
-/// placed file — they are consumed later, at runtime, when a new corner is
-/// created.
+/// `#SPOCKET_TEMPLATE_DESTINATION` / `#CORNER_TEMPLATE_DESTINATION` directives
+/// are always **left intact** in the placed file — they are consumed later, at
+/// runtime, when a new corner is created.
 pub fn install_embedded_templates(config_dir: &Path, registry_root: &Path) -> Result<()> {
+    install_embedded_templates_with_mode(config_dir, registry_root, false)
+}
+
+/// Force-install every embedded template, overwriting existing files and
+/// clearing the `templates/` directory first so legacy-named files (e.g. a
+/// `safe_pocket.env.md` left over after a rename to `corner.env.md`) are
+/// removed. Config-root assets (`directory_structure.yaml`, `feature_tags.yaml`,
+/// …) are overwritten in place.
+///
+/// This is the destructive "replace" path invoked by
+/// `corner install-default-assets --replace`. User customisations inside
+/// `templates/` are lost; the user is expected to re-apply them or skip the
+/// replace step.
+pub fn install_embedded_templates_replacing(config_dir: &Path, registry_root: &Path) -> Result<()> {
+    let tmpl_dir = config_dir.join("templates");
+    if tmpl_dir.exists() {
+        fs::remove_dir_all(&tmpl_dir).with_context(|| {
+            format!("Failed to remove existing templates dir: {}", tmpl_dir.display())
+        })?;
+    }
+    install_embedded_templates_with_mode(config_dir, registry_root, true)
+}
+
+fn install_embedded_templates_with_mode(
+    config_dir: &Path,
+    registry_root: &Path,
+    force: bool,
+) -> Result<()> {
     for (rel, content) in EMBEDDED_TEMPLATES {
-        install_one_embedded(rel, content, config_dir, registry_root)?;
+        install_one_embedded(rel, content, config_dir, registry_root, force)?;
     }
     Ok(())
 }
@@ -521,9 +602,11 @@ fn install_one_embedded(
     content: &str,
     config_dir: &Path,
     registry_root: &Path,
+    force: bool,
 ) -> Result<()> {
     // Collect any explicit install destinations and produce the placed body
-    // (the same content with every `#SPOCKET_INSTALL_DESTINATION` line removed).
+    // (the same content with every `#SPOCKET_INSTALL_DESTINATION` /
+    // `#CORNER_INSTALL_DESTINATION` line removed).
     let install_dirs: Vec<String> = content
         .lines()
         .filter_map(parse_install_destination_directive)
@@ -534,13 +617,13 @@ fn install_one_embedded(
         // Default: mirror into the system-wide templates directory so the
         // runtime loader can pick it up (its TEMPLATE_DESTINATION is preserved).
         let staged = config_dir.join("templates").join(rel);
-        return write_if_absent(&staged, &placed, "template");
+        return write_template(&staged, &placed, "template", force);
     }
 
     // Explicit install destination(s): place directly into the config tree.
     for dir in &install_dirs {
         let dest = expand_install_roots(dir, config_dir, registry_root);
-        write_if_absent(Path::new(&dest), &placed, "config asset")?;
+        write_template(Path::new(&dest), &placed, "config asset", force)?;
     }
     Ok(())
 }
@@ -572,15 +655,15 @@ fn strip_install_directives(content: &str) -> String {
     body
 }
 
-/// Parse a `#SPOCKET_INSTALL_DESTINATION` directive from a line. Accepts both
-/// `#SPOCKET_INSTALL_DESTINATION: path` and `#SPOCKET_INSTALL_DESTINATION path`.
+/// Parse a `#CORNER_INSTALL_DESTINATION` (or legacy `#SPOCKET_INSTALL_DESTINATION`)
+/// directive from a line. Accepts both `#CORNER_INSTALL_DESTINATION: path` and
+/// `#CORNER_INSTALL_DESTINATION path`.
 fn parse_install_destination_directive(line: &str) -> Option<String> {
     let line = line.trim();
-    let prefix = "#SPOCKET_INSTALL_DESTINATION";
-    if !line.starts_with(prefix) {
-        return None;
-    }
-    let rest = line[prefix.len()..].trim_start_matches(':').trim();
+    let suffix = directive_suffix(line)?;
+    let directive = "INSTALL_DESTINATION";
+    let rest = suffix.strip_prefix(directive)?;
+    let rest = rest.trim_start_matches(':').trim();
     if rest.is_empty() {
         None
     } else {
@@ -588,8 +671,8 @@ fn parse_install_destination_directive(line: &str) -> Option<String> {
     }
 }
 
-fn write_if_absent(target: &Path, content: &str, label: &str) -> Result<()> {
-    if target.exists() {
+fn write_template(target: &Path, content: &str, label: &str, force: bool) -> Result<()> {
+    if target.exists() && !force {
         return Ok(());
     }
     if let Some(parent) = target.parent() {
@@ -606,6 +689,11 @@ fn write_if_absent(target: &Path, content: &str, label: &str) -> Result<()> {
         );
     }
     Ok(())
+}
+
+#[allow(dead_code)]
+fn write_if_absent(target: &Path, content: &str, label: &str) -> Result<()> {
+    write_template(target, content, label, false)
 }
 pub fn load_templates() -> Result<Vec<Template>> {
     let tmpl_dir = templates_dir()?;
@@ -742,8 +830,15 @@ pub fn load_directory_structure(project_dir: Option<&Path>) -> Result<Vec<PathBu
 
 // ── Runtime merge ────────────────────────────────────────────────────────────
 
-pub const RUNTIME_START_MARKER: &str = "#SPOCKET_RUNTIME_CONTENT_START";
-pub const RUNTIME_END_MARKER: &str = "#SPOCKET_RUNTIME_CONTENT_END";
+pub const RUNTIME_START_MARKER: &str = "#CORNER_RUNTIME_CONTENT_START";
+pub const RUNTIME_END_MARKER: &str = "#CORNER_RUNTIME_CONTENT_END";
+
+/// Legacy runtime markers from the Spocket era. New content is always written
+/// with the `#CORNER_*` markers above, but we still recognise (and strip) the
+/// old ones so corners created before the rename get cleaned up on the next
+/// runtime merge.
+const LEGACY_RUNTIME_START_MARKER: &str = "#SPOCKET_RUNTIME_CONTENT_START";
+const LEGACY_RUNTIME_END_MARKER: &str = "#SPOCKET_RUNTIME_CONTENT_END";
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum TemplateApplyMode {
@@ -752,26 +847,15 @@ enum TemplateApplyMode {
 }
 
 fn strip_markers(content: &str) -> String {
-    let mut result = String::with_capacity(content.len());
-    let mut in_block = false;
-
-    for line in content.split_inclusive('\n') {
-        let line_content = line.strip_suffix('\n').unwrap_or(line);
-        let trimmed = line_content.trim();
-        if trimmed == RUNTIME_START_MARKER {
-            in_block = true;
-            continue;
-        }
-        if trimmed == RUNTIME_END_MARKER {
-            in_block = false;
-            continue;
-        }
-        if !in_block {
-            result.push_str(line);
-        }
-    }
-
-    result
+    // Strip both the current `#CORNER_RUNTIME_CONTENT_*` markers and the
+    // legacy `#SPOCKET_RUNTIME_CONTENT_*` markers so old runtime blocks are
+    // removed alongside new ones.
+    let after_primary = strip_managed_block(content, RUNTIME_START_MARKER, RUNTIME_END_MARKER);
+    strip_managed_block(
+        &after_primary,
+        LEGACY_RUNTIME_START_MARKER,
+        LEGACY_RUNTIME_END_MARKER,
+    )
 }
 
 fn strip_managed_block(content: &str, start_marker: &str, end_marker: &str) -> String {
@@ -806,7 +890,7 @@ fn expand_runtime_variables_in_content(content: &str, ctx: &TemplateContext) -> 
             None => (line, ""),
         };
 
-        if line_content.starts_with("#SPOCKET") {
+        if is_directive_line(line_content) {
             result.push_str(line_content);
         } else {
             result.push_str(&expand_variables(line_content, ctx));
@@ -885,7 +969,9 @@ pub fn strip_runtime_content(dest_path: &Path) -> Result<bool> {
     let existing = fs::read_to_string(dest_path)
         .with_context(|| format!("Failed to read: {}", dest_path.display()))?;
 
-    if !existing.contains(RUNTIME_START_MARKER) {
+    if !existing.contains(RUNTIME_START_MARKER)
+        && !existing.contains(LEGACY_RUNTIME_START_MARKER)
+    {
         return Ok(false);
     }
 
@@ -1135,8 +1221,14 @@ fn apply_template_set(
 
             let existing = fs::read_to_string(&dest_path).unwrap_or_default();
 
-            if tmpl.quiet_merge && mode == TemplateApplyMode::Create {
-                // Quiet merge: add new keys/lines to existing file without overwriting
+            // Quiet-merge templates ALWAYS merge, in both Create and Upgrade
+            // mode. This is the whole point of `#CORNER_QUIET_MERGE`: the
+            // destination is a file Corner shares with the user and other tools
+            // (`.env`, `.gitignore`), so existing content must be preserved and
+            // only genuinely new lines/keys appended. Overwriting here would
+            // silently destroy user content — e.g. flattening a project's
+            // 27-line .gitignore down to the template's single `.env` line.
+            if tmpl.quiet_merge {
                 let merged = merge_content(&existing, &content);
                 if merged == existing {
                     // Nothing new to add
@@ -1997,7 +2089,7 @@ mod tests {
         assert!(inject_runtime_content(&file, "Bark like a dog\n").unwrap());
         assert_eq!(
             fs::read_to_string(&file).unwrap(),
-            "Meow like a cat\n#SPOCKET_RUNTIME_CONTENT_START\nBark like a dog\n#SPOCKET_RUNTIME_CONTENT_END\n"
+            "Meow like a cat\n#CORNER_RUNTIME_CONTENT_START\nBark like a dog\n#CORNER_RUNTIME_CONTENT_END\n"
         );
 
         assert!(strip_runtime_content(&file).unwrap());
@@ -2015,6 +2107,95 @@ mod tests {
             expand_runtime_variables_in_content(input, &ctx),
             "Path: /corner\n#SPOCKET_NOTE: {{SPOCKET_ROOT}}\n"
         );
+    }
+
+    #[test]
+    fn test_runtime_variable_expansion_skips_corner_directives() {
+        let ctx = make_ctx("/corner", "/project", "hash");
+        let input = "Path: {{CORNER_ROOT}}\n#CORNER_NOTE: {{CORNER_ROOT}}\n";
+
+        assert_eq!(
+            expand_runtime_variables_in_content(input, &ctx),
+            "Path: /corner\n#CORNER_NOTE: {{CORNER_ROOT}}\n"
+        );
+    }
+
+    #[test]
+    fn test_parse_destination_recognises_corner_prefix() {
+        assert_eq!(
+            parse_destination_directive(
+                "#CORNER_TEMPLATE_DESTINATION: .github/copilot-instructions.md",
+            ),
+            Some(".github/copilot-instructions.md".to_string())
+        );
+        assert_eq!(
+            parse_destination_directive("#CORNER_TEMPLATE_DESTINATION {{CORNER_ROOT}}/AGENTS.md"),
+            Some("{{CORNER_ROOT}}/AGENTS.md".to_string())
+        );
+        // Legacy SPOCKET form is still recognised.
+        assert_eq!(
+            parse_destination_directive("#SPOCKET_TEMPLATE_DESTINATION: legacy.md"),
+            Some("legacy.md".to_string())
+        );
+    }
+
+    #[test]
+    fn test_parse_template_recognises_corner_directives() {
+        let dir = std::env::temp_dir().join("corner_test_parse_corner_directives");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        let file = dir.join("test.md");
+        fs::write(
+            &file,
+            "#CORNER_TEMPLATE_DESTINATION: .env\n#CORNER_QUIET_MERGE\n\nMY_KEY=value\n",
+        )
+        .unwrap();
+
+        let tmpl = parse_template(&file).unwrap().remove(0);
+        assert_eq!(tmpl.destination, ".env");
+        assert!(tmpl.quiet_merge);
+        assert_eq!(tmpl.content, "MY_KEY=value\n");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_strip_markers_removes_legacy_spocket_runtime_block() {
+        let existing = "User content\n#SPOCKET_RUNTIME_CONTENT_START\nold runtime\n#SPOCKET_RUNTIME_CONTENT_END\nmore user\n";
+        assert_eq!(
+            strip_markers(existing),
+            "User content\nmore user\n"
+        );
+    }
+
+    #[test]
+    fn test_strip_markers_removes_both_corner_and_spocket_runtime_blocks() {
+        let existing = "a\n#CORNER_RUNTIME_CONTENT_START\nc1\n#CORNER_RUNTIME_CONTENT_END\nb\n#SPOCKET_RUNTIME_CONTENT_START\ns1\n#SPOCKET_RUNTIME_CONTENT_END\nc\n";
+        assert_eq!(strip_markers(existing), "a\nb\nc\n");
+    }
+
+    #[test]
+    fn test_inject_runtime_replaces_legacy_spocket_block_with_corner() {
+        let dir = std::env::temp_dir().join("corner_test_inject_replaces_legacy");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        let file = dir.join("AGENTS.md");
+        fs::write(
+            &file,
+            "keep\n#SPOCKET_RUNTIME_CONTENT_START\nold\n#SPOCKET_RUNTIME_CONTENT_END\n",
+        )
+        .unwrap();
+
+        assert!(inject_runtime_content(&file, "new runtime\n").unwrap());
+        let after = fs::read_to_string(&file).unwrap();
+        assert!(!after.contains("#SPOCKET_RUNTIME_CONTENT"));
+        assert!(after.contains("#CORNER_RUNTIME_CONTENT_START"));
+        assert!(after.contains("new runtime"));
+        assert!(after.contains("keep"));
+
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -2041,7 +2222,7 @@ mod tests {
 
         let content = runtime_content_for_template(&tmpl, &ctx);
         assert!(content.contains("Base runtime"));
-        assert!(content.contains("<!-- BEGIN SPOCKET TASK INTEGRATION -->"));
+        assert!(content.contains("<!-- BEGIN CORNER TASK INTEGRATION -->"));
         assert!(content.contains("corner task"));
     }
 
@@ -2164,8 +2345,11 @@ mod tests {
     }
 
     #[test]
-    fn test_upgrade_mode_resets_quiet_merge_template() {
-        let dir = std::env::temp_dir().join("spocket_test_upgrade_resets_quiet_merge");
+    fn test_upgrade_mode_merges_quiet_merge_template_preserving_user_content() {
+        // Per the "Quiet merging" contract: on `corner -u`, a #CORNER_QUIET_MERGE
+        // template must PRESERVE existing user content and only add genuinely new
+        // lines. It must never overwrite the destination.
+        let dir = std::env::temp_dir().join("corner_test_upgrade_merges_quiet_merge");
         let _ = fs::remove_dir_all(&dir);
         let corner_dir = dir.join("corner");
         fs::create_dir_all(&corner_dir).unwrap();
@@ -2189,10 +2373,60 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(
-            fs::read_to_string(corner_dir.join(".env")).unwrap(),
-            "TEMPLATE_KEY=value\n"
+        let result = fs::read_to_string(corner_dir.join(".env")).unwrap();
+        assert!(
+            result.contains("USER_KEY=custom"),
+            "upgrade must preserve the user's existing key, got: {result}"
         );
+        assert!(
+            result.contains("TEMPLATE_KEY=value"),
+            "upgrade must add the new template key, got: {result}"
+        );
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_upgrade_mode_quiet_merge_does_not_truncate_gitignore() {
+        // Regression test for the bug where `corner -u` flattened a project's
+        // multi-line .gitignore down to the template's single `.env` line.
+        let dir = std::env::temp_dir().join("corner_test_upgrade_gitignore_preserved");
+        let _ = fs::remove_dir_all(&dir);
+        let corner_dir = dir.join("corner");
+        fs::create_dir_all(&corner_dir).unwrap();
+
+        let user_gitignore = ".env\ntarget/**/*\nnode_modules/\n*.log\n.DS_Store\n";
+        fs::write(corner_dir.join(".gitignore"), user_gitignore).unwrap();
+
+        let templates = vec![Template {
+            destination: ".gitignore".to_string(),
+            content: ".env\n".to_string(),
+            quiet_merge: true,
+            merge_at_runtime: false,
+            source_path: dir.join("gitignore-template.md"),
+        }];
+        let ctx = make_ctx(&corner_dir.to_string_lossy(), "/project", "hash");
+
+        apply_template_set(
+            &templates,
+            &corner_dir,
+            &ctx,
+            false,
+            TemplateApplyMode::Upgrade,
+        )
+        .unwrap();
+
+        let result = fs::read_to_string(corner_dir.join(".gitignore")).unwrap();
+        assert_eq!(
+            result, user_gitignore,
+            "the template adds nothing new, so the .gitignore must be untouched"
+        );
+        for needed in ["target/**/*", "node_modules/", "*.log", ".DS_Store"] {
+            assert!(
+                result.contains(needed),
+                "upgrade destroyed .gitignore entry {needed}, got: {result}"
+            );
+        }
 
         let _ = fs::remove_dir_all(&dir);
     }
@@ -2337,9 +2571,41 @@ mod tests {
         // The new task block lives inside the runtime markers.
         let start_idx = updated.find(RUNTIME_START_MARKER).unwrap();
         let runtime_block = &updated[start_idx..];
-        assert!(runtime_block.contains("<!-- BEGIN SPOCKET TASK INTEGRATION -->"));
+        assert!(runtime_block.contains("<!-- BEGIN CORNER TASK INTEGRATION -->"));
 
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_install_replacing_overwrites_and_clears_legacy_files() {
+        let base = std::env::temp_dir().join("corner_test_install_replacing");
+        let _ = fs::remove_dir_all(&base);
+        let config_dir = base.join("config");
+        let registry_root = base.join("registry");
+        let tmpl_dir = config_dir.join("templates");
+        fs::create_dir_all(&tmpl_dir).unwrap();
+        fs::create_dir_all(&registry_root).unwrap();
+
+        // Pre-seed a stale legacy-named template the new embedded set no longer
+        // ships, plus a user-customised AGENTS.md that should be overwritten.
+        fs::write(tmpl_dir.join("safe_pocket.env.md"), "STALE\n").unwrap();
+        fs::write(tmpl_dir.join("AGENTS.md"), "USER CUSTOM\n").unwrap();
+
+        install_embedded_templates_replacing(&config_dir, &registry_root).unwrap();
+
+        // Legacy-named file must be gone (templates/ was cleared).
+        assert!(
+            !tmpl_dir.join("safe_pocket.env.md").exists(),
+            "replace mode must clear legacy-named template files"
+        );
+        // AGENTS.md must be overwritten with the embedded content.
+        let agents = fs::read_to_string(tmpl_dir.join("AGENTS.md")).unwrap();
+        assert!(agents.contains("#CORNER_TEMPLATE_DESTINATION"));
+        assert!(!agents.contains("USER CUSTOM"));
+        // The new corner.env.md must be present.
+        assert!(tmpl_dir.join("corner.env.md").exists());
+
+        let _ = fs::remove_dir_all(&base);
     }
 
     // ── merge_content ───────────────────────────────────────────────────
@@ -2426,7 +2692,7 @@ mod tests {
         );
         let ds = fs::read_to_string(&dir_struct).unwrap();
         assert!(
-            !ds.contains("#SPOCKET_INSTALL_DESTINATION"),
+            !ds.contains("#CORNER_INSTALL_DESTINATION"),
             "INSTALL directive must be stripped from the placed file"
         );
         assert!(
@@ -2461,7 +2727,7 @@ mod tests {
         assert!(
             fs::read_to_string(&staged_agents)
                 .unwrap()
-                .contains("#SPOCKET_TEMPLATE_DESTINATION"),
+                .contains("#CORNER_TEMPLATE_DESTINATION"),
             "mirrored template must keep its TEMPLATE_DESTINATION directive"
         );
 
@@ -2514,11 +2780,16 @@ mod tests {
     #[test]
     fn test_parse_install_destination_directive() {
         assert_eq!(
-            parse_install_destination_directive("#SPOCKET_INSTALL_DESTINATION: /a/b.yaml"),
+            parse_install_destination_directive("#CORNER_INSTALL_DESTINATION: /a/b.yaml"),
             Some("/a/b.yaml".to_string())
         );
         assert_eq!(
-            parse_install_destination_directive("#SPOCKET_INSTALL_DESTINATION /a/b.yaml"),
+            parse_install_destination_directive("#CORNER_INSTALL_DESTINATION /a/b.yaml"),
+            Some("/a/b.yaml".to_string())
+        );
+        // Legacy SPOCKET form is still recognised.
+        assert_eq!(
+            parse_install_destination_directive("#SPOCKET_INSTALL_DESTINATION: /a/b.yaml"),
             Some("/a/b.yaml".to_string())
         );
         // Must not match the runtime directive or arbitrary lines.

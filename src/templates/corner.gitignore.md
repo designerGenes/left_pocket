@@ -1,5 +1,5 @@
-#SPOCKET_TEMPLATE_DESTINATION: {{CORNER_ROOT}}/.gitignore
-#SPOCKET_QUIET_MERGE
+#CORNER_TEMPLATE_DESTINATION: {{CORNER_ROOT}}/.gitignore
+#CORNER_QUIET_MERGE
 
 .env
 # Per-project AI agents are rendered into the corner on every open; they are
