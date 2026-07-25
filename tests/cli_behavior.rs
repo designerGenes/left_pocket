@@ -358,7 +358,12 @@ fn install_default_assets_migrates_renamed_root_state() {
 
     let migrated_env = fs::read_to_string(project.join(".env")).unwrap();
     assert!(migrated_env.contains(&format!("CORNER_ROOT={}", renamed_corner.display())));
-    assert!(migrated_env.contains(&format!("SPOCKET_ROOT={}", renamed_corner.display())));
+    // The rename is complete: migration rewrites CORNER_ROOT and drops the stale
+    // legacy key rather than carrying a second, contradictory root forward.
+    assert!(
+        !migrated_env.contains("SPOCKET_ROOT="),
+        "migration should not re-emit the legacy root key, got:\n{migrated_env}"
+    );
 
     let migrated_workspace_text = fs::read_to_string(&renamed_workspace).unwrap();
     assert!(migrated_workspace_text.contains(&renamed_corner.display().to_string()));
@@ -816,25 +821,23 @@ fn new_corner_has_no_beads_artifacts() {
     // The project .env should still be written, just without a BEADS_DIR line.
     let project_env = fs::read_to_string(project.join(".env")).unwrap();
     assert!(project_env.contains("CORNER_ROOT="));
-    assert!(project_env.contains("SPOCKET_ROOT="));
     assert!(!project_env.contains("BEADS_DIR="));
     summary.step(
-        "Verified `.env` carries both CORNER_ROOT and SPOCKET_ROOT, with no BEADS_DIR line"
-            .to_string(),
+        "Verified `.env` carries CORNER_ROOT, with no BEADS_DIR line".to_string(),
     );
     summary.print();
 }
 
-/// Both the project `.env` and the corner `.env` must carry PROJECT_ROOT,
-/// CORNER_ROOT and the legacy SPOCKET_ROOT alias, so shells and tools can
-/// resolve either root regardless of which directory they start in.
+/// Both the project `.env` and the corner `.env` must carry PROJECT_ROOT and
+/// CORNER_ROOT. The Spocket rename is complete, so the legacy `SPOCKET_ROOT`
+/// key must NOT be written any more; compatibility is read-only.
 #[test]
 fn env_files_carry_project_and_corner_roots() {
     let env = TestEnv::new("env-roots");
     let project = env.project("project");
     let mut summary = TestSummary::new(
         "env_files_carry_project_and_corner_roots",
-        "project/.env and corner/.env both define PROJECT_ROOT, CORNER_ROOT and SPOCKET_ROOT",
+        "project/.env and corner/.env define PROJECT_ROOT and CORNER_ROOT, and never write legacy SPOCKET_ROOT",
         "the isolated HOME and temp root are removed recursively on drop",
     );
 
@@ -845,13 +848,19 @@ fn env_files_carry_project_and_corner_roots() {
     let corner = env.only_corner();
 
     let project_env = fs::read_to_string(project.join(".env")).unwrap();
-    for key in ["PROJECT_ROOT=", "CORNER_ROOT=", "SPOCKET_ROOT="] {
+    for key in ["PROJECT_ROOT=", "CORNER_ROOT="] {
         assert!(
             project_env.contains(key),
             "project .env missing {key}\n--- .env ---\n{project_env}"
         );
     }
-    summary.step("Verified project/.env defines PROJECT_ROOT, CORNER_ROOT, SPOCKET_ROOT".to_string());
+    assert!(
+        !project_env.contains("SPOCKET_ROOT="),
+        "project .env must not write the legacy root key\n--- .env ---\n{project_env}"
+    );
+    summary.step(
+        "Verified project/.env defines PROJECT_ROOT and CORNER_ROOT with no legacy key".to_string(),
+    );
 
     let corner_env = fs::read_to_string(corner.join(".env")).unwrap();
     for key in ["PROJECT_ROOT=", "CORNER_ROOT="] {
@@ -2128,4 +2137,236 @@ fn augment_in_legacy_root_prunes_duplicate_from_primary_cache() {
         .collect();
     assert!(resolved_paths.contains(&canon(&project)));
     assert!(resolved_paths.contains(&canon(&extra)));
+}
+
+#[test]
+fn installed_real_world_harness_passes_in_isolation() {
+    let env = TestEnv::new("real-world-harness");
+    let cwd = env.project("command-cwd");
+
+    let output = env.run_spocket(&cwd, &["tests", "--all"]);
+    assert_success(&output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Installed-binary real-world tests"));
+    assert!(stdout.contains("14"));
+    assert!(stdout.contains("passed,"));
+    assert!(stdout.contains("0"));
+    assert!(stdout.contains("failed,"));
+    assert!(stdout.contains("3"));
+    assert!(stdout.contains("skipped"));
+    assert!(stdout.contains("Placed edits never reverse-sync"));
+    assert!(stdout.contains("corner -u upgrade semantics"));
+    assert!(stdout.contains("Bulk clean commands"));
+    assert!(stdout.contains("intentionally never invoked"));
+    assert!(stdout.contains("Removed isolated test fixture"));
+}
+
+#[test]
+fn literal_root_artifact_cleanup_backs_up_and_removes_only_safe_shape() {
+    let env = TestEnv::new("literal-root-cleanup");
+    let cwd = env.project("command-cwd");
+    let safe = env
+        .corner_root()
+        .join("abc123/{{SPOCKET_CONFIG_ROOT}}");
+    let unsafe_dir = env
+        .corner_root()
+        .join("def456/{{SPOCKET_CONFIG_ROOT}}");
+    fs::create_dir_all(&safe).unwrap();
+    fs::create_dir_all(&unsafe_dir).unwrap();
+    fs::write(safe.join("feature_tags.yaml"), "safe: true\n").unwrap();
+    fs::write(unsafe_dir.join("feature_tags.yaml"), "safe: false\n").unwrap();
+    fs::write(unsafe_dir.join("do-not-delete.txt"), "important\n").unwrap();
+
+    let output = env.run_spocket(
+        &cwd,
+        &[
+            "upgrade-installation",
+            "--clean-literal-root-artifacts",
+            "--yes",
+        ],
+    );
+    assert_success(&output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("unexpected contents; left untouched"));
+    assert!(!safe.exists(), "safe artifact directory should be removed");
+    assert!(unsafe_dir.is_dir(), "unsafe artifact directory must remain");
+    assert!(unsafe_dir.join("do-not-delete.txt").is_file());
+
+    let backups = env.corner_root().join("upgrade-backups");
+    let backup_file_count = fs::read_dir(backups)
+        .unwrap()
+        .filter_map(Result::ok)
+        .flat_map(|entry| fs::read_dir(entry.path()).unwrap().filter_map(Result::ok))
+        .filter(|entry| entry.path().join("feature_tags.yaml").is_file())
+        .count();
+    assert_eq!(backup_file_count, 1, "safe artifact must be backed up once");
+}
+
+// NOTE: unregistered-project coverage for `locate --read-only` lives in
+// `read_only_locate_creates_no_config_or_registry_state` below, which also
+// asserts the `read_only` flag in the JSON payload.
+
+#[test]
+fn real_world_include_supports_unregistered_project_without_mutating_it() {
+    let env = TestEnv::new("real-world-unregistered-include");
+    let project = env.project("unregistered-project");
+    fs::write(project.join("keep.txt"), "unchanged\n").unwrap();
+
+    let output = env.run_spocket(
+        &project,
+        &[
+            "tests",
+            "--all",
+            "-i",
+            project.to_string_lossy().as_ref(),
+        ],
+    );
+    assert_success(&output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("supplied project has no registered corner"));
+    assert!(stdout.contains("project is unregistered"));
+    assert_eq!(fs::read_to_string(project.join("keep.txt")).unwrap(), "unchanged\n");
+    assert!(!project.join(".env").exists());
+
+    // `-i` intentionally retains the harness-owned fixture for users. This test
+    // removes only that isolated fixture after proving the retention behavior.
+    if let Some(line) = stdout
+        .lines()
+        .find(|line| line.contains("Retained real-world test fixture:"))
+    {
+        if let Some(path) = line.split_whitespace().last() {
+            let path = PathBuf::from(path);
+            if path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .map(|name| name.starts_with("corner-real-world-"))
+                .unwrap_or(false)
+            {
+                let _ = fs::remove_dir_all(path);
+            }
+        }
+    }
+}
+
+/// `locate --read-only` exists so audits and the post-install harness can ask
+/// "which corner owns this?" without the question itself mutating state. An
+/// unregistered project is the sharpest version of that promise: nothing about
+/// it should cause a config root, a registry root, or a cache to spring into
+/// existence.
+#[test]
+fn read_only_locate_creates_no_config_or_registry_state() {
+    let env = TestEnv::new("locate-read-only");
+    let project = env.project("unregistered");
+    let mut summary = TestSummary::new(
+        "read_only_locate_creates_no_config_or_registry_state",
+        "`locate --read-only` audits an unregistered project without creating config, templates, or registry state",
+        "the temporary HOME is deleted wholesale when the test environment drops",
+    );
+
+    let output = env.run_spocket(&project, &["locate", "--read-only", "--path", "."]);
+    assert_success(&output);
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(
+        value.get("status").and_then(|v| v.as_str()),
+        Some("not_found")
+    );
+    assert_eq!(value.get("read_only").and_then(|v| v.as_bool()), Some(true));
+    summary.step(
+        "Ran `corner locate --read-only` against a project with no registered corner".to_string(),
+    );
+
+    assert!(
+        !env.config_root().exists(),
+        "read-only locate created a config root at {}",
+        env.config_root().display()
+    );
+    assert!(
+        !env.corner_root().exists(),
+        "read-only locate created a registry root at {}",
+        env.corner_root().display()
+    );
+    summary.step(
+        "Verified neither the config root nor the registry root was created".to_string(),
+    );
+    summary.print();
+}
+
+/// The read-only path must not rebuild the registry cache even when one is
+/// missing. Deleting the cache first and contrasting the two code paths is what
+/// makes this meaningful: the normal path is still allowed to rebuild.
+/// Regression: `locate --read-only` used to return the first manifest whose
+/// project path was a *prefix* of the requested path, so a corner registered for
+/// `~/dev/bin` won over the corner for `~/dev/bin/app`. Because `corner tests -i`
+/// uses this to decide what to back up and clone, resolving an ancestor meant
+/// auditing the wrong corner. The most specific match must win.
+#[test]
+fn read_only_locate_prefers_the_most_specific_project_match() {
+    let env = TestEnv::new("locate-read-only-specific");
+    let parent = env.project("workspace");
+    let child = parent.join("nested-app");
+    fs::create_dir_all(&child).unwrap();
+
+    // Register the ancestor first so it is the older/earlier candidate.
+    assert_success(&env.run_spocket(&parent, &["-i", ".", "--silent"]));
+    assert_success(&env.run_spocket(&child, &["-i", ".", "--silent"]));
+
+    let normal = env.run_spocket(&child, &["locate", "--path", "."]);
+    assert_success(&normal);
+    let normal_value: serde_json::Value = serde_json::from_slice(&normal.stdout).unwrap();
+    let expected = normal_value.get("corner_dir").unwrap().as_str().unwrap();
+
+    let read_only = env.run_spocket(&child, &["locate", "--read-only", "--path", "."]);
+    assert_success(&read_only);
+    let value: serde_json::Value = serde_json::from_slice(&read_only.stdout).unwrap();
+    assert_eq!(
+        value.get("corner_dir").and_then(|v| v.as_str()),
+        Some(expected),
+        "read-only locate must agree with normal locate, not resolve the ancestor project"
+    );
+}
+
+#[test]
+fn read_only_locate_does_not_rebuild_the_registry_cache() {
+    let env = TestEnv::new("locate-read-only-cache");
+    let project = env.project("project");
+    let mut summary = TestSummary::new(
+        "read_only_locate_does_not_rebuild_the_registry_cache",
+        "`locate --read-only` resolves a registered corner without writing a registry cache",
+        "the temporary HOME is deleted wholesale when the test environment drops",
+    );
+
+    assert_success(&env.run_spocket(&project, &["-i", ".", "--silent"]));
+    let corner = env.only_corner();
+    let cache = env.registry_file("registry_cache.json");
+    if cache.exists() {
+        fs::remove_file(&cache).expect("failed to remove registry cache");
+    }
+    summary.step("Created a corner, then deleted the registry cache".to_string());
+
+    let output = env.run_spocket(&project, &["locate", "--read-only", "--path", "."]);
+    assert_success(&output);
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(
+        value.get("corner_dir").and_then(|v| v.as_str()),
+        Some(corner.to_string_lossy().as_ref())
+    );
+    assert!(
+        !cache.exists(),
+        "read-only locate rebuilt the registry cache at {}",
+        cache.display()
+    );
+    summary.step(
+        "Read-only locate resolved the corner straight from the manifest, writing no cache"
+            .to_string(),
+    );
+
+    assert_success(&env.run_spocket(&project, &["locate", "--path", "."]));
+    assert!(
+        cache.exists(),
+        "the normal locate path should still rebuild the registry cache"
+    );
+    summary.step(
+        "Confirmed the contrast: the normal locate path does rebuild the cache".to_string(),
+    );
+    summary.print();
 }

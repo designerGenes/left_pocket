@@ -332,6 +332,11 @@ pub enum Commands {
     Locate {
         #[arg(long = "path", value_name = "PATH", default_value = ".")]
         path: String,
+
+        /// Scan manifests directly without loading/migrating config or writing
+        /// registry caches. Intended for audits and post-install tests.
+        #[arg(long = "read-only")]
+        read_only: bool,
     },
 
     /// Refresh the top-level corner registry git snapshot
@@ -430,6 +435,43 @@ pub enum Commands {
         /// Additional roots to scan (repeatable)
         #[arg(long = "root", value_name = "PATH")]
         roots: Vec<String>,
+
+        /// Back up and remove literal {{SPOCKET_CONFIG_ROOT}} /
+        /// {{CORNER_CONFIG_ROOT}} artifact directories, but only when they
+        /// contain exactly one regular `feature_tags.yaml` file. Lists every
+        /// target and asks for explicit confirmation unless --yes is supplied.
+        #[arg(long = "clean-literal-root-artifacts")]
+        clean_literal_root_artifacts: bool,
+    },
+
+    /// Run post-installation operational tests against this installed binary
+    ///
+    /// Without `-i`, creates an isolated temporary HOME/project, exercises the
+    /// major Corner workflows, prints a detailed checklist, then removes only
+    /// that harness-owned fixture. With `-i`, first backs up the existing corner
+    /// and performs non-destructive idempotency checks against it; the separate
+    /// operational fixture is retained for inspection.
+    ///
+    ///   corner tests --all
+    ///   corner tests --all --verbose
+    ///   corner tests --all -i .
+    #[command(name = "tests")]
+    Tests {
+        /// Run the complete suite, including augment, alias, heal and audits
+        #[arg(long = "all")]
+        all: bool,
+
+        /// Existing project to audit non-destructively before isolated tests
+        #[arg(short = 'i', long = "include", value_name = "PATH")]
+        include: Option<String>,
+
+        /// Print stdout/stderr for every command executed by the harness
+        #[arg(long = "verbose")]
+        verbose: bool,
+
+        /// Keep the isolated temporary fixture after testing
+        #[arg(long = "keep")]
+        keep: bool,
     },
 
     /// Print a shell completion script to stdout

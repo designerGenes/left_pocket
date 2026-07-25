@@ -92,14 +92,23 @@ corner
 │  └─ --corner CORNER          Corner directory
 │
 ├─ locate                       Find corner for a path
-│  └─ --path PATH              Project path (default: .)
+│  ├─ --path PATH              Project path (default: .)
+│  └─ --read-only              Resolve without writing config/registry caches
 │
 ├─ sync-registry-git            Refresh git snapshot of all corners
 │
 ├─ upgrade-installation         Rewrite legacy #SPOCKET_* tokens to #CORNER_*
 │  ├─ --dry-run                Preview rewrites without changing files
 │  ├─ -y, --yes                Apply without prompting
-│  └─ --root PATH              Extra root to scan (repeatable)
+│  ├─ --root PATH              Extra root to scan (repeatable)
+│  └─ --clean-literal-root-artifacts
+│                              Back up/remove safe unresolved-variable dirs
+│
+├─ tests                        Run installed-binary operational tests
+│  ├─ --all                    Add extended augment/alias/heal/audit checks
+│  ├─ -i, --include PATH       Audit an existing project safely first
+│  ├─ --verbose                Show every child command's output
+│  └─ --keep                   Retain the isolated fixture
 │
 ├─ backup                       Configure automatic backup
 │  ├─ --repo GIT_URL           Git remote for backups
@@ -333,10 +342,21 @@ Locate the corner associated with a project or corner path. Outputs JSON for edi
 
 ```bash
 corner locate --path ~/dev/myproject
+corner locate --read-only --path ~/dev/myproject
 ```
 
 **Options:**
 - `--path PATH` — Project path to locate (default: current directory)
+- `--read-only` — Resolve by reading manifests directly, without loading or
+  migrating alias config and without creating or rebuilding a registry cache
+
+Normal `locate` may create or refresh the registry cache as a side effect, which
+is undesirable when auditing an installation you must not disturb. `--read-only`
+guarantees no writes, adds `"read_only": true` to the payload, and reports the
+corner's directory name as `hash` alongside the manifest's own `manifest_hash`
+(these differ for a renamed corner). Both forms resolve the most specific
+matching project, so a corner registered for a parent directory never shadows the
+corner for a nested project. This is the mode `corner tests -i` uses.
 
 ---
 
@@ -397,6 +417,51 @@ corner backup --repo git@github.com:you/corner-backup.git --schedule "0 */6 * * 
 ---
 
 ### Development & Configuration
+
+#### `tests`
+Run a post-installation, real-world operational suite against the **currently
+running Corner executable**. The harness does not call internal workspace or
+template functions and does not assume a source checkout exists.
+
+```bash
+corner tests --all
+corner tests --all --verbose
+corner tests --all -i .
+```
+
+Without `-i`, Corner creates an isolated temporary `HOME`, config tree, registry,
+projects, and fake `code` executable. It tests:
+
+- creating and locating a normal corner inside the temporary isolated HOME;
+- `.env` roots and quiet template merging;
+- repeated/open idempotency and reverse-sync prevention;
+- runtime merge start/stop and preservation outside managed markers;
+- `corner -u` replacement versus quiet-merge preservation;
+- augment add/remove/idempotency;
+- alias lifecycle;
+- healing a corner to a different project;
+- per-corner OpenCode agent placement;
+- unresolved config-root artifacts; and
+- `upgrade-installation` idempotency.
+
+It prints every command and a final PASS/FAIL/SKIP checklist, then removes only
+the harness-owned temporary root. It never invokes `corner clean --all`,
+`corner clean --hard`, remote backup configuration, or a real VS Code process.
+
+With `-i PATH`, Corner uses read-only `locate` on the original. If it has a
+Corner, a complete byte-identical backup is retained under
+`<registry>/real-world-test-backups/`; unregistered projects are supported too.
+The supplied project is copied (excluding generated `.git`, `node_modules`,
+`target`, and `graphify-out` trees) into the isolated HOME, and the operational
+suite runs against that retained copy. Only `.opencode` and artifact reporting
+reads the original corner. The original project/corner is never opened,
+upgraded, augmented, healed, restored, or deleted.
+
+**Options:**
+- `--all` - Add augment, alias, heal, OpenCode sync, artifact, and migration checks
+- `-i`, `--include PATH` - Safely audit an existing project before isolated tests
+- `--verbose` - Print stdout/stderr for every child command
+- `--keep` - Retain the default isolated fixture instead of removing it
 
 #### `completions SHELL`
 Print a shell completion script to stdout. Generates tab-completion definitions for your shell. Pipe the output to the appropriate location for your shell, then source it.
@@ -693,12 +758,23 @@ corner upgrade-installation --dry-run   # preview, change nothing
 corner upgrade-installation             # prompt, then apply
 corner upgrade-installation --yes       # apply without prompting
 corner upgrade-installation --root ~/some/other/tree
+corner upgrade-installation --clean-literal-root-artifacts  # lists, backs up, prompts
 ```
 
 This is a one-way text migration, not a sync — it never copies content from a
 project back into the config templates directory. User-facing feature-tag names
 such as `SPOCKET_MUST_INSTALL` are deliberately left untouched, since they are
 defined in `feature_tags.yaml` and referenced from your feature files.
+
+The command also reports active-corner directories whose literal name is
+`{{SPOCKET_CONFIG_ROOT}}` or `{{CORNER_CONFIG_ROOT}}`. These are artifacts from
+an older install-time template bug. Historical `snapshots/` and `unhoused/`
+archives are intentionally excluded. Artifacts are report-only by default. Cleanup is
+deliberately conservative: `--clean-literal-root-artifacts` accepts only a
+directory containing exactly one regular `feature_tags.yaml`, copies that file
+to `~/.corner/upgrade-backups/`, lists every target, and requires typing
+`REMOVE` (or separately supplying `--yes`). Any unexpected contents cause that
+directory to be skipped.
 
 To replace your installed templates outright with the ones built into the binary
 (clearing stale/legacy filenames):
@@ -737,6 +813,20 @@ View all corners:
 ```bash
 corner list-workspaces
 ```
+
+### The `.opencode` Directory
+
+Corner renders its managed OpenCode agent definitions into
+`<corner>/.opencode/agent/` whenever a corner is created/opened or
+`corner sync agents` runs. Those Markdown files are generated and small; deleting
+them is safe, but Corner will recreate them.
+
+Corner does **not** install `.opencode/node_modules`, `package.json`, or
+`package-lock.json`. If those exist, an OpenCode/plugin/npm setup created them.
+They may be removed if the project does not rely on local OpenCode plugins or
+dependencies, but Corner deliberately does not remove them. Deleting the whole
+`.opencode` directory also removes any hand-authored OpenCode configuration;
+only Corner's managed `agent/` files will come back automatically.
 
 ---
 

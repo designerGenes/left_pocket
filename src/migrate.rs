@@ -15,6 +15,7 @@
 //! feature files. A future `--include-feature-tags` flag may handle that.
 
 use anyhow::{Context, Result};
+use chrono::Utc;
 use colored::Colorize;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -22,12 +23,24 @@ use std::path::{Path, PathBuf};
 /// Token rewrites applied to every visited file. Order matters: longer/more
 /// specific tokens are listed first so they win when one is a prefix of another.
 const TOKEN_REPLACEMENTS: &[(&str, &str)] = &[
-    ("#SPOCKET_RUNTIME_CONTENT_START", "#CORNER_RUNTIME_CONTENT_START"),
-    ("#SPOCKET_RUNTIME_CONTENT_END", "#CORNER_RUNTIME_CONTENT_END"),
-    ("#SPOCKET_TEMPLATE_DESTINATION", "#CORNER_TEMPLATE_DESTINATION"),
+    (
+        "#SPOCKET_RUNTIME_CONTENT_START",
+        "#CORNER_RUNTIME_CONTENT_START",
+    ),
+    (
+        "#SPOCKET_RUNTIME_CONTENT_END",
+        "#CORNER_RUNTIME_CONTENT_END",
+    ),
+    (
+        "#SPOCKET_TEMPLATE_DESTINATION",
+        "#CORNER_TEMPLATE_DESTINATION",
+    ),
     ("#SPOCKET_QUIET_MERGE", "#CORNER_QUIET_MERGE"),
     ("#SPOCKET_MERGE_AT_RUNTIME", "#CORNER_MERGE_AT_RUNTIME"),
-    ("#SPOCKET_INSTALL_DESTINATION", "#CORNER_INSTALL_DESTINATION"),
+    (
+        "#SPOCKET_INSTALL_DESTINATION",
+        "#CORNER_INSTALL_DESTINATION",
+    ),
     (
         "<!-- BEGIN SPOCKET TASK INTEGRATION -->",
         "<!-- BEGIN CORNER TASK INTEGRATION -->",
@@ -39,13 +52,24 @@ const TOKEN_REPLACEMENTS: &[(&str, &str)] = &[
 ];
 
 /// Directory names that are never descended into during a scan.
+///
+/// The two backup trees matter as much as the archive trees. `upgrade-backups`
+/// is where this command quarantines artifacts and `real-world-test-backups` is
+/// where `corner tests -i` retains a complete pre-test copy of a corner.
+/// Descending into either would let an upgrade rewrite tokens *inside a backup*,
+/// so restoring from it would no longer restore the original state, and would
+/// make the artifact audit re-report every copied artifact — inflating the
+/// reported count on each run and offering backup copies up for cleanup.
 const SKIP_DIRS: &[&str] = &[
     ".git",
     "target",
     "node_modules",
     "unhoused",
+    "snapshots",
     ".session-tools",
     "graphify-out",
+    crate::registry::UPGRADE_BACKUPS_DIR,
+    crate::registry::REAL_WORLD_TEST_BACKUPS_DIR,
 ];
 
 /// Maximum file size (in bytes) we are willing to read and rewrite. Larger
@@ -56,6 +80,7 @@ pub struct UpgradeOptions {
     pub dry_run: bool,
     pub yes: bool,
     pub extra_roots: Vec<PathBuf>,
+    pub clean_literal_root_artifacts: bool,
 }
 
 pub fn run(options: UpgradeOptions) -> Result<()> {
@@ -93,11 +118,35 @@ pub fn run(options: UpgradeOptions) -> Result<()> {
     println!();
 
     let mut plan: Vec<(PathBuf, usize)> = Vec::new();
+    let mut artifacts: Vec<PathBuf> = Vec::new();
     for root in &roots {
         collect_rewrites(root, &mut plan)?;
+        collect_literal_root_artifacts(root, &mut artifacts)?;
+    }
+    artifacts.sort();
+    artifacts.dedup();
+
+    if !artifacts.is_empty() {
+        println!(
+            "{} {} active literal config-root artifact director{} found (archives and retained backups excluded):",
+            "Warning:".bright_yellow(),
+            artifacts.len().to_string().bright_yellow(),
+            if artifacts.len() == 1 { "y" } else { "ies" }
+        );
+        for artifact in &artifacts {
+            println!("  {}", artifact.display().to_string().bright_blue());
+        }
+        if !options.clean_literal_root_artifacts {
+            println!(
+                "  {}",
+                "Report only. Re-run with --clean-literal-root-artifacts to back up and remove safe artifacts."
+                    .dimmed()
+            );
+        }
+        println!();
     }
 
-    if plan.is_empty() {
+    if plan.is_empty() && !options.clean_literal_root_artifacts {
         println!(
             "{}",
             "No legacy references found — nothing to upgrade.".bright_green()
@@ -105,37 +154,33 @@ pub fn run(options: UpgradeOptions) -> Result<()> {
         return Ok(());
     }
 
-    let total_replacements: usize = plan.iter().map(|(_, n)| *n).sum();
-    println!(
-        "{} {} replacement(s) across {} file(s):",
-        "Found".bright_yellow(),
-        total_replacements.to_string().bright_yellow(),
-        plan.len().to_string().bright_yellow()
-    );
-    for (path, n) in &plan {
+    if !plan.is_empty() {
+        let total_replacements: usize = plan.iter().map(|(_, n)| *n).sum();
         println!(
-            "  {} ({} replacement{})",
-            path.display().to_string().bright_blue(),
-            n.to_string().bright_yellow(),
-            if *n == 1 { "" } else { "s" }
+            "{} {} replacement(s) across {} file(s):",
+            "Found".bright_yellow(),
+            total_replacements.to_string().bright_yellow(),
+            plan.len().to_string().bright_yellow()
         );
+        for (path, n) in &plan {
+            println!(
+                "  {} ({} replacement{})",
+                path.display().to_string().bright_blue(),
+                n.to_string().bright_yellow(),
+                if *n == 1 { "" } else { "s" }
+            );
+        }
+        println!();
     }
-    println!();
 
     if options.dry_run {
-        println!(
-            "{}",
-            "Dry run only — no files were modified.".dimmed()
-        );
+        println!("{}", "Dry run only — no files were modified.".dimmed());
         return Ok(());
     }
 
-    if !options.yes {
+    if !plan.is_empty() && !options.yes {
         use std::io::{self, Write as IoWrite};
-        print!(
-            "{} ",
-            "Apply these rewrites? [y/N]:".bright_white()
-        );
+        print!("{} ", "Apply these rewrites? [y/N]:".bright_white());
         io::stdout().flush()?;
         let mut input = String::new();
         io::stdin().read_line(&mut input)?;
@@ -164,12 +209,158 @@ pub fn run(options: UpgradeOptions) -> Result<()> {
         "Upgrade complete:".bright_green(),
         applied.to_string().bright_yellow()
     );
+
+    if options.clean_literal_root_artifacts {
+        clean_literal_root_artifacts(&artifacts, options.yes)?;
+    }
     println!(
         "{}",
-        "Run `corner -u <project>` to re-place templates from the upgraded config."
-            .dimmed()
+        "Run `corner -u <project>` to re-place templates from the upgraded config.".dimmed()
     );
     Ok(())
+}
+
+fn collect_literal_root_artifacts(root: &Path, artifacts: &mut Vec<PathBuf>) -> Result<()> {
+    if !root.is_dir() {
+        return Ok(());
+    }
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let entries = match fs::read_dir(&dir) {
+            Ok(entries) => entries,
+            Err(_) => continue,
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let file_type = match entry.file_type() {
+                Ok(file_type) => file_type,
+                Err(_) => continue,
+            };
+            // Never follow symlinks while discovering cleanup candidates. A
+            // symlink named {{SPOCKET_CONFIG_ROOT}} could otherwise point at an
+            // unrelated tree outside the registry.
+            if file_type.is_symlink() || !file_type.is_dir() {
+                continue;
+            }
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if name == "{{SPOCKET_CONFIG_ROOT}}" || name == "{{CORNER_CONFIG_ROOT}}" {
+                artifacts.push(path);
+                continue;
+            }
+            if SKIP_DIRS.contains(&name.as_ref()) {
+                continue;
+            }
+            stack.push(path);
+        }
+    }
+    Ok(())
+}
+
+fn clean_literal_root_artifacts(artifacts: &[PathBuf], yes: bool) -> Result<()> {
+    let mut safe = Vec::new();
+    for artifact in artifacts {
+        if safe_literal_artifact(artifact)? {
+            safe.push(artifact.clone());
+        } else {
+            println!(
+                "  {} {} (unexpected contents; left untouched)",
+                "Skipped:".bright_yellow(),
+                artifact.display().to_string().bright_blue()
+            );
+        }
+    }
+    if safe.is_empty() {
+        println!("{}", "No safe literal-root artifacts to clean.".dimmed());
+        return Ok(());
+    }
+
+    println!(
+        "{}",
+        "The following directories contain only feature_tags.yaml and are eligible for cleanup:"
+            .bright_white()
+    );
+    for artifact in &safe {
+        println!("  {}", artifact.display().to_string().bright_blue());
+    }
+    if !yes {
+        use std::io::{self, Write as IoWrite};
+        print!(
+            "{} ",
+            "Type REMOVE to back them up and remove them:".bright_white()
+        );
+        io::stdout().flush()?;
+        let mut input = String::new();
+        io::stdin().read_line(&mut input)?;
+        if input.trim() != "REMOVE" {
+            println!("{}", "Artifact cleanup aborted.".dimmed());
+            return Ok(());
+        }
+    }
+
+    let registry = crate::branding::current_registry_root()?;
+    let backup = registry.join("upgrade-backups").join(format!(
+        "literal-root-artifacts-{}-{}",
+        Utc::now().format("%Y%m%dT%H%M%S%.9fZ"),
+        std::process::id()
+    ));
+    fs::create_dir_all(&backup)?;
+    let mut manifest = String::new();
+    // Atomically quarantine the entire directory. This is both the backup and
+    // the removal from the active corner: even if feature_tags.yaml changes
+    // after validation, the current directory and all current contents move
+    // together. No copy-then-delete race and no remove_dir_all.
+    for (index, artifact) in safe.iter().enumerate() {
+        if !safe_literal_artifact(artifact)? {
+            println!(
+                "  {} {} (contents changed before quarantine; left untouched)",
+                "Skipped:".bright_yellow(),
+                artifact.display().to_string().bright_blue()
+            );
+            continue;
+        }
+        let destination = backup.join(format!("{index:04}-artifact"));
+        fs::rename(artifact, &destination).with_context(|| {
+            format!(
+                "Failed to atomically quarantine {} to {} (nothing was removed)",
+                artifact.display(),
+                destination.display()
+            )
+        })?;
+        manifest.push_str(&format!(
+            "{}\t{}\n",
+            artifact.display(),
+            destination.display()
+        ));
+        println!(
+            "  {} {}",
+            "Quarantined:".bright_green(),
+            artifact.display().to_string().bright_blue()
+        );
+    }
+    fs::write(backup.join("MANIFEST.tsv"), manifest)?;
+    println!("Backup retained at {}", backup.display());
+    Ok(())
+}
+
+fn safe_literal_artifact(path: &Path) -> Result<bool> {
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(_) => return Ok(false),
+    };
+    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        return Ok(false);
+    }
+    let entries = match fs::read_dir(path) {
+        Ok(entries) => entries.filter_map(Result::ok).collect::<Vec<_>>(),
+        Err(_) => return Ok(false),
+    };
+    if entries.len() != 1 {
+        return Ok(false);
+    }
+    let entry = &entries[0];
+    let file_type = entry.file_type()?;
+    Ok(entry.file_name() == "feature_tags.yaml" && file_type.is_file() && !file_type.is_symlink())
 }
 
 fn collect_rewrites(root: &Path, plan: &mut Vec<(PathBuf, usize)>) -> Result<()> {
@@ -303,5 +494,58 @@ mod tests {
         assert_eq!(plan[0].1, 1);
 
         let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn literal_artifact_scan_skips_archives_and_finds_active_corners() {
+        let base = std::env::temp_dir().join("corner_test_literal_artifact_scan");
+        let _ = fs::remove_dir_all(&base);
+        fs::create_dir_all(base.join("abc123/{{SPOCKET_CONFIG_ROOT}}")).unwrap();
+        fs::create_dir_all(base.join("snapshots/abc123/{{SPOCKET_CONFIG_ROOT}}")).unwrap();
+
+        let mut artifacts = Vec::new();
+        collect_literal_root_artifacts(&base, &mut artifacts).unwrap();
+
+        assert_eq!(artifacts, vec![base.join("abc123/{{SPOCKET_CONFIG_ROOT}}")]);
+        let _ = fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn literal_artifact_is_safe_only_with_one_feature_tags_file() {
+        let base = std::env::temp_dir().join("corner_test_literal_artifact_safety");
+        let _ = fs::remove_dir_all(&base);
+        fs::create_dir_all(&base).unwrap();
+        fs::write(base.join("feature_tags.yaml"), "tags: {}\n").unwrap();
+        assert!(safe_literal_artifact(&base).unwrap());
+
+        fs::write(base.join("unexpected.txt"), "do not delete\n").unwrap();
+        assert!(!safe_literal_artifact(&base).unwrap());
+
+        let _ = fs::remove_dir_all(base);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn literal_artifact_scan_and_safety_reject_symlinks() {
+        use std::os::unix::fs::symlink;
+
+        let base = std::env::temp_dir().join("corner_test_literal_artifact_symlink");
+        let outside = std::env::temp_dir().join("corner_test_literal_artifact_outside");
+        let _ = fs::remove_dir_all(&base);
+        let _ = fs::remove_dir_all(&outside);
+        fs::create_dir_all(base.join("abc123")).unwrap();
+        fs::create_dir_all(&outside).unwrap();
+        fs::write(outside.join("feature_tags.yaml"), "important: true\n").unwrap();
+        let link = base.join("abc123/{{SPOCKET_CONFIG_ROOT}}");
+        symlink(&outside, &link).unwrap();
+
+        let mut artifacts = Vec::new();
+        collect_literal_root_artifacts(&base, &mut artifacts).unwrap();
+        assert!(artifacts.is_empty());
+        assert!(!safe_literal_artifact(&link).unwrap());
+        assert!(outside.join("feature_tags.yaml").is_file());
+
+        let _ = fs::remove_dir_all(base);
+        let _ = fs::remove_dir_all(outside);
     }
 }

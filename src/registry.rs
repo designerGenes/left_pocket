@@ -15,6 +15,19 @@ const CACHE_VERSION: u32 = 1;
 const LEGACY_CONFIG_OBSERVATIONS: &str = ".config/safe_pocket/observations";
 const SNAPSHOTS_DIR: &str = "snapshots";
 const TEMPORARY_DIR: &str = "temporary";
+
+/// Retained backup trees written *inside* a registry root.
+///
+/// `upgrade-backups` is produced by
+/// `upgrade-installation --clean-literal-root-artifacts`;
+/// `real-world-test-backups` is produced by `corner tests -i`. Both hold
+/// verbatim copies of live corner content, so every scanner that walks a
+/// registry root must treat them as opaque: they are not corners, they must not
+/// be text-rewritten by migrations, and artifact audits must not re-report the
+/// copies they contain. A backup that a later command silently edits is not a
+/// backup.
+pub const UPGRADE_BACKUPS_DIR: &str = "upgrade-backups";
+pub const REAL_WORLD_TEST_BACKUPS_DIR: &str = "real-world-test-backups";
 const SNAPSHOT_CHUNK_SIZE: usize = 45 * 1024 * 1024;
 const REGISTRY_GITIGNORE: &str =
     ".DS_Store\n/*/\n!/observations/\n!/snapshots/\n!/snapshots/**\n/temporary/\n";
@@ -727,11 +740,36 @@ fn collect_corners_from_dir(root: &Path, cache: &mut RegistryCache) -> Result<()
     Ok(())
 }
 
+/// Directory names inside a registry root that are never corners.
+///
+/// A registry root hosts more than corners: task storage (`global_data`), the
+/// root git repository (`.git`), archived corners (`snapshots`, `unhoused`),
+/// the temporary corner area, and the retained backup trees above. This is the
+/// single authoritative list — `corner locate --read-only` and every other
+/// registry walker share it, so adding an operational directory here cannot
+/// leave one code path treating it as a corner.
+pub const RESERVED_REGISTRY_DIRS: &[&str] = &[
+    ".git",
+    "global_data",
+    "observations",
+    "registry",
+    "unhoused",
+    SNAPSHOTS_DIR,
+    TEMPORARY_DIR,
+    UPGRADE_BACKUPS_DIR,
+    REAL_WORLD_TEST_BACKUPS_DIR,
+];
+
+/// True when `name` is a reserved registry directory rather than a corner.
+pub fn is_reserved_registry_name(name: &str) -> bool {
+    RESERVED_REGISTRY_DIRS.contains(&name)
+}
+
 fn is_reserved_registry_dir(path: &Path) -> bool {
-    matches!(
-        path.file_name().and_then(|name| name.to_str()),
-        Some("observations" | "registry" | "unhoused" | SNAPSHOTS_DIR | TEMPORARY_DIR)
-    )
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .map(is_reserved_registry_name)
+        .unwrap_or(false)
 }
 
 fn root_has_corner_dirs(root: &Path) -> Result<bool> {

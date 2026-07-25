@@ -1083,6 +1083,30 @@ mod tests {
         assert_eq!(parse_env_value(c, "MISSING"), None);
     }
 
+    /// Backwards compatibility: Corner no longer *writes* `SPOCKET_ROOT`, but a
+    /// pre-existing project `.env` that only carries the legacy key must still
+    /// resolve to the right corner.
+    #[test]
+    fn test_detect_prefix_from_legacy_only_env() {
+        let base = std::env::temp_dir().join("corner_task_prefix_legacy_only");
+        let _ = fs::remove_dir_all(&base);
+        let project = base.join("legacy_project");
+        fs::create_dir_all(&project).unwrap();
+        fs::write(
+            project.join(".env"),
+            "SPOCKET_ROOT=/Users/x/.safe_pocket/legacyhash1\n",
+        )
+        .unwrap();
+
+        let prefix = detect_prefix(&project).unwrap();
+        assert_eq!(
+            prefix, "legacyhash1",
+            "a legacy-only .env must still resolve for backwards compatibility"
+        );
+
+        let _ = fs::remove_dir_all(&base);
+    }
+
     #[test]
     fn test_parse_preferred_env_value_prefers_corner_root() {
         let c = "SPOCKET_ROOT=/old/hash\nCORNER_ROOT=/new/hash\n";

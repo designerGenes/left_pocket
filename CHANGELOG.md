@@ -2,6 +2,92 @@
 
 All notable changes to Corner will be documented in this file.
 
+## [2.2.0] - 2026-07-25
+
+### Added
+- **`corner tests --all` installed-binary operational harness.** Runs the
+  currently executing Corner binary through create/open, locate, environment
+  placement, quiet merge, reverse-sync prevention, runtime merge, template
+  upgrade, augment, alias, heal, OpenCode-agent, unresolved-variable, and
+  migration-idempotency scenarios. Every destructive scenario uses a fully
+  isolated temporary HOME/registry/project and a fake VS Code executable. The
+  command prints each child command plus a final PASS/FAIL/SKIP checklist.
+- **Safe existing-project mode:** `corner tests --all -i PATH` performs only
+  read-only locate/artifact audits on the original, retains a complete content
+  backup (file bytes and symlink targets) under `real-world-test-backups/`, and
+  runs the operational suite against a retained isolated project copy. Projects
+  without an existing registered Corner are supported too.
+- `corner upgrade-installation` now reports literal
+  `{{SPOCKET_CONFIG_ROOT}}` / `{{CORNER_CONFIG_ROOT}}` artifact directories.
+  `--clean-literal-root-artifacts` can clean only directories containing exactly
+  one regular `feature_tags.yaml`; it backs every file up, lists every target,
+  and requires explicit confirmation. Unexpected contents are never removed.
+- `install.sh -h` / `--help`, `--bump-version`,
+  `--bump-extension-version`, `--set-version`, and
+  `--set-extension-version`. Bumps accept major/minor/patch or exact SemVer.
+  Legacy bump syntax remains compatible.
+- **`corner locate --read-only`.** Resolves a project's corner by reading
+  manifests directly, without loading/migrating alias config and without
+  creating or rebuilding a registry cache. This is what makes the `corner tests
+  -i` audit genuinely non-mutating.
+
+### Changed
+- **`SPOCKET_ROOT` is no longer written.** The Spocket/Safe_pocket rename is
+  complete: the project and corner `.env` templates and `sync_root_env_file` now
+  emit only `PROJECT_ROOT` and `CORNER_ROOT`, and a stale `SPOCKET_ROOT` line is
+  removed on migration rather than carried forward as a second, contradictory
+  root. Backwards compatibility is preserved on the **read** side —
+  `branding::LEGACY_ROOT_ENV_KEYS` and `corner task` prefix detection still
+  accept a pre-existing `SPOCKET_ROOT`, so a legacy-only `.env` keeps resolving.
+- Installer version editing moved from an inline Python heredoc to the testable
+  `scripts/bump_versions.py` helper. `install.sh` can now be invoked from any
+  working directory and contains no heredocs.
+- Documented `.opencode` ownership: Corner manages only `.opencode/agent`;
+  project-local npm packages/configuration are external and are never removed.
+
+### Fixed
+- **`locate --read-only` resolved an ancestor project.** It returned the first
+  manifest whose project path was merely a *prefix* of the requested path, so a
+  corner registered for `~/dev/bin` beat the corner for `~/dev/bin/corner`.
+  Because `corner tests -i` uses this to choose what to back up and clone, an
+  audit could operate on the wrong corner entirely. Candidates are now ranked by
+  specificity (exact match, then longest matching path), and the reported `hash`
+  is the corner's directory name with the manifest's own hash exposed separately
+  as `manifest_hash`.
+- **A seeded existing corner was never adopted, producing silent false PASSes.**
+  The isolated clone was keyed to the original project's hash, so
+  `find_workspace_by_manifest_paths` could never match it; `corner -i` created a
+  second blank corner and every "existing state" check ran against empty state
+  while still reporting PASS. The clone is now re-keyed
+  (`hash_paths`, `manifest.hash`, workspace filename, lineage fields cleared) and
+  a dedicated `Seeded existing corner is adopted, not replaced` case fails loudly
+  if adoption does not happen.
+- **`upgrade-installation` rewrote files inside its own backups.** `SKIP_DIRS`
+  excluded `snapshots`/`unhoused` but not `upgrade-backups` or
+  `real-world-test-backups`, so retained backups were text-rewritten in place
+  (a backup a later command edits is not a backup) and artifact counts inflated
+  on every run. Both trees are now excluded, and the reported artifact count is
+  stable across repeated runs.
+- Consolidated four divergent reserved-registry-directory lists into
+  `registry::RESERVED_REGISTRY_DIRS` / `is_reserved_registry_name`. The
+  read-only locate copy had been missing `registry` and `.git`, so an audit
+  could try to parse a manifest out of the registry's own git repository.
+- `install.sh` ran `read -r` under `set -e`, so a piped/CI invocation aborted
+  after copying the binaries but before seeding assets — a half-install. Both
+  prompts are now guarded with `[ -t 0 ]` and fall back to the safe default.
+- The isolated project clone no longer copies `node_modules`/`target`/`.git`,
+  and never preserves project symlinks (an absolute or escaping link could route
+  fixture writes back into the real project). The retained backup remains
+  deliberately complete.
+
+### Safety
+- The operational harness never invokes `corner clean --all`, hard cleanup,
+  remote backup configuration, or a real editor process.
+- No existing literal-root artifact directory is automatically removed. Cleanup
+  remains an explicit, confirmed operation, and now moves the whole directory
+  into a timestamped quarantine via a single atomic rename instead of
+  copy-then-delete.
+
 ## [2.1.0] - 2026-07-25
 
 Completes the Safe_pocket → Corner rename inside the template system, and makes

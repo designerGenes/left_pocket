@@ -8,6 +8,7 @@ mod hash;
 mod manifest;
 mod migrate;
 mod registry;
+mod real_world_tests;
 mod task;
 mod template;
 mod workspace;
@@ -105,6 +106,9 @@ fn run() -> Result<()> {
             Commands::RuntimeMergeStart { .. }
                 | Commands::RuntimeMergeStop { .. }
                 | Commands::InstallDefaultAssets { .. }
+                | Commands::Tests { .. }
+                | Commands::Locate { .. }
+                | Commands::UpgradeInstallation { dry_run: true, .. }
         )
     );
     if !is_merge_cmd {
@@ -236,7 +240,20 @@ fn handle_command(command: Commands) -> Result<()> {
             dry_run,
             yes,
             roots,
-        } => handle_upgrade_installation(dry_run, yes, roots),
+            clean_literal_root_artifacts,
+        } => handle_upgrade_installation(dry_run, yes, roots, clean_literal_root_artifacts),
+
+        Commands::Tests {
+            all,
+            include,
+            verbose,
+            keep,
+        } => real_world_tests::run(real_world_tests::Options {
+            all,
+            include: include.map(PathBuf::from),
+            verbose,
+            keep,
+        }),
 
         Commands::Augment {
             add,
@@ -260,7 +277,13 @@ fn handle_command(command: Commands) -> Result<()> {
             corner,
         } => handle_heal(project, alias, corner),
 
-        Commands::Locate { path } => handle_locate(path),
+        Commands::Locate { path, read_only } => {
+            if read_only {
+                handle_locate_read_only(path)
+            } else {
+                handle_locate(path)
+            }
+        }
 
         Commands::SyncRegistryGit => handle_sync_registry_git(),
 
@@ -357,7 +380,12 @@ fn handle_install_default_assets(replace: bool) -> Result<()> {
     migrate_post_install_root_state()
 }
 
-fn handle_upgrade_installation(dry_run: bool, yes: bool, roots: Vec<String>) -> Result<()> {
+fn handle_upgrade_installation(
+    dry_run: bool,
+    yes: bool,
+    roots: Vec<String>,
+    clean_literal_root_artifacts: bool,
+) -> Result<()> {
     let config = Config::load()?;
     let mut extra_roots = Vec::new();
     for r in &roots {
@@ -367,6 +395,7 @@ fn handle_upgrade_installation(dry_run: bool, yes: bool, roots: Vec<String>) -> 
         dry_run,
         yes,
         extra_roots,
+        clean_literal_root_artifacts,
     };
     let result = migrate::run(options);
     if result.is_ok() {
@@ -426,6 +455,13 @@ fn migrate_post_install_root_state() -> Result<()> {
     Ok(())
 }
 
+/// Rewrite the `CORNER_ROOT` entry in an `.env` file.
+///
+/// Corner writes only `CORNER_ROOT`. The legacy `SPOCKET_ROOT` key is no longer
+/// emitted, and any stale copy is removed here so a renamed corner cannot leave
+/// a contradictory legacy path behind. Backwards compatibility is preserved on
+/// the *read* side instead: `branding::LEGACY_ROOT_ENV_KEYS` and
+/// `task::detect_prefix` still accept `SPOCKET_ROOT` in pre-existing files.
 fn sync_root_env_file(env_path: &Path, corner_dir: &Path) -> Result<()> {
     let mut lines = if env_path.exists() {
         fs::read_to_string(env_path)
@@ -442,7 +478,6 @@ fn sync_root_env_file(env_path: &Path, corner_dir: &Path) -> Result<()> {
     };
 
     lines.push(format!("CORNER_ROOT={}", corner_dir.display()));
-    lines.push(format!("SPOCKET_ROOT={}", corner_dir.display()));
 
     let content = if lines.is_empty() {
         String::new()
@@ -1543,7 +1578,9 @@ fn handle_completion_spec() -> Result<()> {
             "subcommands": {
                 "task": ["list", "create", "assign", "start", "log", "close", "discard", "describe", "reprefix"],
                 "worktree": ["add", "remove", "list"],
-                "completions": ["bash", "zsh", "fish", "powershell", "elvish"]
+                "completions": ["bash", "zsh", "fish", "powershell", "elvish"],
+                "tests": ["--all", "--include", "--verbose", "--keep"],
+                "upgrade-installation": ["--dry-run", "--yes", "--root", "--clean-literal-root-artifacts"]
             }
         }
     });
@@ -1960,6 +1997,133 @@ fn handle_locate(path: String) -> Result<()> {
         }
     }
 
+    Ok(())
+}
+
+/// Read-only locate for audits. Unlike `handle_locate`, this deliberately does
+/// not load Config (which can migrate aliases) and does not use registry cache
+/// helpers (which can create/rebuild caches). It reads manifest JSON directly.
+fn handle_locate_read_only(path: String) -> Result<()> {
+    let expanded = shellexpand::tilde(&path).into_owned();
+    let requested = PathBuf::from(expanded);
+    let requested = if requested.is_absolute() {
+        requested
+    } else {
+        std::env::current_dir()?.join(requested)
+    };
+    let resolved = requested.canonicalize().unwrap_or(requested);
+
+    // Rank every candidate rather than returning the first hit. A first-match
+    // scan resolves an ancestor project (e.g. `~/dev/bin` for
+    // `~/dev/bin/corner`), which for an audit is actively dangerous: `corner
+    // tests -i` would back up and clone the wrong corner. Specificity wins:
+    // an exact project/corner match beats a containing one, and among
+    // containing matches the longest matched path wins.
+    let mut best: Option<(u8, usize, PathBuf, Manifest)> = None;
+
+    for root in crate::branding::known_registry_roots()? {
+        for container in [root.clone(), root.join("temporary")] {
+            let entries = match fs::read_dir(&container) {
+                Ok(entries) => entries,
+                Err(_) => continue,
+            };
+            for entry in entries.filter_map(Result::ok) {
+                let corner_dir = entry.path();
+                let file_type = match entry.file_type() {
+                    Ok(file_type) => file_type,
+                    Err(_) => continue,
+                };
+                if file_type.is_symlink() || !file_type.is_dir() {
+                    continue;
+                }
+                let name = entry.file_name();
+                let name = name.to_string_lossy();
+                // Share the registry scanner's list rather than keeping a
+                // second copy here. The two had already drifted: this one was
+                // missing `registry` and `.git`, so an audit could try to read
+                // a manifest out of the registry's own git repository.
+                if registry::is_reserved_registry_name(name.as_ref()) {
+                    continue;
+                }
+                let manifest_path = corner_dir.join("manifest.json");
+                let manifest: Manifest = match fs::read_to_string(&manifest_path)
+                    .ok()
+                    .and_then(|text| serde_json::from_str(&text).ok())
+                {
+                    Some(manifest) => manifest,
+                    None => continue,
+                };
+
+                let corner_canonical = corner_dir
+                    .canonicalize()
+                    .unwrap_or_else(|_| corner_dir.clone());
+
+                let mut rank: Option<(u8, usize)> = None;
+                let mut consider = |exact: bool, len: usize| {
+                    let candidate = (if exact { 2u8 } else { 1u8 }, len);
+                    if rank.map_or(true, |current| candidate > current) {
+                        rank = Some(candidate);
+                    }
+                };
+
+                if resolved == corner_canonical {
+                    consider(true, corner_canonical.as_os_str().len());
+                } else if resolved.starts_with(&corner_canonical) {
+                    consider(false, corner_canonical.as_os_str().len());
+                }
+                for project in manifest.core_paths.iter().chain(manifest.worktrees.iter()) {
+                    let project = project
+                        .canonicalize()
+                        .unwrap_or_else(|_| project.to_path_buf());
+                    if resolved == project {
+                        consider(true, project.as_os_str().len());
+                    } else if resolved.starts_with(&project) {
+                        consider(false, project.as_os_str().len());
+                    }
+                }
+
+                let Some((kind, len)) = rank else {
+                    continue;
+                };
+                let is_better = best
+                    .as_ref()
+                    .map_or(true, |(best_kind, best_len, _, _)| {
+                        (kind, len) > (*best_kind, *best_len)
+                    });
+                if is_better {
+                    best = Some((kind, len, corner_dir, manifest));
+                }
+            }
+        }
+    }
+
+    if let Some((_, _, corner_dir, manifest)) = best {
+        // Corners are addressed by directory name; a renamed corner can carry a
+        // divergent `manifest.hash`. Report the directory name so the value is
+        // usable, and expose the manifest's own hash separately.
+        let dir_hash = corner_dir
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_else(|| manifest.hash.clone());
+        let out = serde_json::json!({
+            "status": "found",
+            "hash": dir_hash,
+            "manifest_hash": manifest.hash,
+            "corner_dir": corner_dir,
+            "core_paths": manifest.core_paths,
+            "temporary": manifest.temporary,
+            "read_only": true,
+        });
+        println!("{}", serde_json::to_string(&out)?);
+        return Ok(());
+    }
+
+    let out = serde_json::json!({
+        "status": "not_found",
+        "path": resolved,
+        "read_only": true,
+    });
+    println!("{}", serde_json::to_string(&out)?);
     Ok(())
 }
 
