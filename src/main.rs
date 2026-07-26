@@ -2668,6 +2668,19 @@ fn open_with_merge(ws: &Workspace) -> Result<()> {
     }
 
     if let Ok(ctx) = build_template_context(&ws.corner_dir) {
+        // Apply quiet-merge templates on every open so that files which were
+        // added to the template set after this corner was created (e.g. the
+        // project .env) get written retroactively.  This is idempotent and
+        // non-destructive: merge_content only adds missing keys/lines.
+        if let Err(e) = template::apply_quiet_merge_templates(&ws.corner_dir, &ctx) {
+            if verbose() {
+                eprintln!(
+                    "{} {}",
+                    "Warning: quiet-merge templates failed:".bright_yellow(),
+                    e
+                );
+            }
+        }
         if let Err(e) = template::apply_merge_at_runtime(&ws.corner_dir, &ctx) {
             eprintln!(
                 "{} {}",

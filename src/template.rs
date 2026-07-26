@@ -1082,6 +1082,90 @@ pub fn strip_merge_at_runtime(corner_dir: &Path, ctx: &TemplateContext) -> Resul
     Ok(count)
 }
 
+/// Apply all quiet-merge templates to the corner, creating or updating each
+/// destination file.  Unlike the initial `apply_templates` call (Create mode),
+/// this function is safe to run on every workspace open because:
+///
+/// 1. **Idempotent** — `merge_content` only appends lines/keys that are not
+///    already present.  Running it twice on a fully-populated file is a no-op.
+/// 2. **Non-destructive** — existing content is always preserved; only missing
+///    keys are inserted.
+///
+/// This is used to catch templates that were added (or updated) after a corner
+/// was first created so that the project `.env` and other managed files are
+/// kept up to date without requiring users to manually upgrade or recreate
+/// their corners.
+pub fn apply_quiet_merge_templates(corner_dir: &Path, ctx: &TemplateContext) -> Result<usize> {
+    let templates = load_templates()?;
+    apply_quiet_merge_template_set(&templates, corner_dir, ctx)
+}
+
+/// Inner implementation of quiet-merge, factored out so tests can supply their
+/// own template list without touching the filesystem config directories.
+fn apply_quiet_merge_template_set(
+    templates: &[Template],
+    corner_dir: &Path,
+    ctx: &TemplateContext,
+) -> Result<usize> {
+    let mut count = 0;
+
+    for tmpl in templates.iter().filter(|t| t.quiet_merge) {
+        let dest_rel = expand_variables(&tmpl.destination, ctx);
+        let dest_path = resolve_template_destination(&dest_rel, corner_dir, ctx);
+        let content =
+            expand_template_content(&filter_template_content(&tmpl.content, ctx), ctx);
+
+        if content.is_empty() {
+            continue;
+        }
+
+        // Ensure parent directory exists (best-effort; if it fails, skip this template)
+        if let Some(parent) = dest_path.parent() {
+            if let Err(e) = fs::create_dir_all(parent) {
+                if crate::verbose() {
+                    eprintln!(
+                        "  {} could not create parent dir for {}: {}",
+                        "Warning:".bright_yellow(),
+                        dest_path.display(),
+                        e
+                    );
+                }
+                continue;
+            }
+        }
+
+        let existing = if dest_path.exists() {
+            fs::read_to_string(&dest_path).unwrap_or_default()
+        } else {
+            String::new()
+        };
+
+        let merged = merge_content(&existing, &content);
+        if merged == existing {
+            // Nothing new to add — already up to date
+            continue;
+        }
+
+        fs::write(&dest_path, &merged).with_context(|| {
+            format!(
+                "Failed to apply quiet-merge template to: {}",
+                dest_path.display()
+            )
+        })?;
+        count += 1;
+
+        if crate::verbose() {
+            println!(
+                "  {} {}",
+                "Quiet-merged:".bright_green(),
+                dest_path.display().to_string().bright_blue()
+            );
+        }
+    }
+
+    Ok(count)
+}
+
 // ── Apply templates to a corner ──────────────────────────────────────────────
 
 /// Merge template content into existing file content.
@@ -2822,5 +2906,217 @@ mod tests {
         let content = "#SPOCKET_INSTALL_DESTINATION: /a.yaml\n\nreal content\n";
         let out = strip_install_directives(content);
         assert_eq!(out, "real content\n");
+    }
+
+    // ── apply_quiet_merge_template_set ────────────────────────────────────────
+
+    /// Helper: build a single quiet-merge Template pointing at `destination`
+    /// (relative or absolute) with the given `content`.
+    fn qm_template(destination: &str, content: &str) -> Template {
+        Template {
+            destination: destination.to_string(),
+            content: content.to_string(),
+            quiet_merge: true,
+            merge_at_runtime: false,
+            source_path: PathBuf::from("test-template.md"),
+        }
+    }
+
+    #[test]
+    fn test_quiet_merge_creates_missing_project_env() {
+        // Simulates the "challenges" scenario: a corner that was created before
+        // project.env.md existed.  The project directory exists but has no .env.
+        let dir = std::env::temp_dir().join("corner_test_quiet_merge_creates_project_env");
+        let _ = fs::remove_dir_all(&dir);
+
+        let corner_dir = dir.join("corner");
+        let project_dir = dir.join("project");
+        fs::create_dir_all(&corner_dir).unwrap();
+        fs::create_dir_all(&project_dir).unwrap();
+
+        let project_str = project_dir.to_string_lossy().into_owned();
+        let corner_str = corner_dir.to_string_lossy().into_owned();
+
+        let ctx = make_ctx(&corner_str, &project_str, "testhash");
+
+        // Template targets PROJECT_ROOT/.env — mimics project.env.md
+        let templates = vec![qm_template(
+            &format!("{}/.env", project_str),
+            "PROJECT_ROOT={{PROJECT_ROOT}}\nCORNER_ROOT={{CORNER_ROOT}}\n",
+        )];
+
+        let count = apply_quiet_merge_template_set(&templates, &corner_dir, &ctx).unwrap();
+
+        assert_eq!(count, 1, "should have written 1 file");
+
+        let env_content = fs::read_to_string(project_dir.join(".env")).unwrap();
+        assert!(
+            env_content.contains(&format!("PROJECT_ROOT={}", project_str)),
+            "project .env must contain PROJECT_ROOT, got: {env_content}"
+        );
+        assert!(
+            env_content.contains(&format!("CORNER_ROOT={}", corner_str)),
+            "project .env must contain CORNER_ROOT, got: {env_content}"
+        );
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_quiet_merge_adds_missing_key_to_existing_env() {
+        // Corner .env exists but is missing PROJECT_ROOT (e.g. written by the
+        // old sync_root_env_file which only wrote CORNER_ROOT).
+        let dir = std::env::temp_dir().join("corner_test_quiet_merge_adds_missing_key");
+        let _ = fs::remove_dir_all(&dir);
+
+        let corner_dir = dir.join("corner");
+        let project_dir = dir.join("project");
+        fs::create_dir_all(&corner_dir).unwrap();
+        fs::create_dir_all(&project_dir).unwrap();
+
+        let project_str = project_dir.to_string_lossy().into_owned();
+        let corner_str = corner_dir.to_string_lossy().into_owned();
+
+        // Pre-populate with only CORNER_ROOT (simulates migrate_post_install_root_state output)
+        let existing_env = format!("CORNER_ROOT={}\n", corner_str);
+        fs::write(project_dir.join(".env"), &existing_env).unwrap();
+
+        let ctx = make_ctx(&corner_str, &project_str, "testhash");
+
+        let templates = vec![qm_template(
+            &format!("{}/.env", project_str),
+            "PROJECT_ROOT={{PROJECT_ROOT}}\nCORNER_ROOT={{CORNER_ROOT}}\n",
+        )];
+
+        let count = apply_quiet_merge_template_set(&templates, &corner_dir, &ctx).unwrap();
+
+        assert_eq!(count, 1, "should have written 1 file (added PROJECT_ROOT)");
+
+        let env_content = fs::read_to_string(project_dir.join(".env")).unwrap();
+        assert!(
+            env_content.contains(&format!("PROJECT_ROOT={}", project_str)),
+            "PROJECT_ROOT must have been added, got: {env_content}"
+        );
+        assert!(
+            env_content.contains(&format!("CORNER_ROOT={}", corner_str)),
+            "existing CORNER_ROOT must be preserved, got: {env_content}"
+        );
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_quiet_merge_is_idempotent_when_file_complete() {
+        // Calling apply_quiet_merge_template_set twice on a fully-populated file
+        // must be a no-op on the second call.
+        let dir = std::env::temp_dir().join("corner_test_quiet_merge_idempotent");
+        let _ = fs::remove_dir_all(&dir);
+
+        let corner_dir = dir.join("corner");
+        let project_dir = dir.join("project");
+        fs::create_dir_all(&corner_dir).unwrap();
+        fs::create_dir_all(&project_dir).unwrap();
+
+        let project_str = project_dir.to_string_lossy().into_owned();
+        let corner_str = corner_dir.to_string_lossy().into_owned();
+
+        let ctx = make_ctx(&corner_str, &project_str, "testhash");
+
+        let templates = vec![qm_template(
+            &format!("{}/.env", project_str),
+            "PROJECT_ROOT={{PROJECT_ROOT}}\nCORNER_ROOT={{CORNER_ROOT}}\n",
+        )];
+
+        // First call — creates the file
+        apply_quiet_merge_template_set(&templates, &corner_dir, &ctx).unwrap();
+
+        let after_first = fs::read_to_string(project_dir.join(".env")).unwrap();
+
+        // Second call — must be a no-op
+        let count =
+            apply_quiet_merge_template_set(&templates, &corner_dir, &ctx).unwrap();
+
+        assert_eq!(count, 0, "second call must be a no-op");
+
+        let after_second = fs::read_to_string(project_dir.join(".env")).unwrap();
+        assert_eq!(
+            after_first, after_second,
+            "file content must be unchanged after second call"
+        );
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_quiet_merge_preserves_existing_user_content() {
+        // User has custom keys in their .env — they must not be removed.
+        let dir = std::env::temp_dir().join("corner_test_quiet_merge_preserves_user_content");
+        let _ = fs::remove_dir_all(&dir);
+
+        let corner_dir = dir.join("corner");
+        let project_dir = dir.join("project");
+        fs::create_dir_all(&corner_dir).unwrap();
+        fs::create_dir_all(&project_dir).unwrap();
+
+        let project_str = project_dir.to_string_lossy().into_owned();
+        let corner_str = corner_dir.to_string_lossy().into_owned();
+
+        // Existing file has user content AND the corner keys are missing
+        let existing_env = "DATABASE_URL=postgres://localhost/mydb\nSECRET_KEY=supersecret\n";
+        fs::write(project_dir.join(".env"), existing_env).unwrap();
+
+        let ctx = make_ctx(&corner_str, &project_str, "testhash");
+
+        let templates = vec![qm_template(
+            &format!("{}/.env", project_str),
+            "PROJECT_ROOT={{PROJECT_ROOT}}\nCORNER_ROOT={{CORNER_ROOT}}\n",
+        )];
+
+        apply_quiet_merge_template_set(&templates, &corner_dir, &ctx).unwrap();
+
+        let env_content = fs::read_to_string(project_dir.join(".env")).unwrap();
+        assert!(
+            env_content.contains("DATABASE_URL=postgres://localhost/mydb"),
+            "user DATABASE_URL must be preserved, got: {env_content}"
+        );
+        assert!(
+            env_content.contains("SECRET_KEY=supersecret"),
+            "user SECRET_KEY must be preserved, got: {env_content}"
+        );
+        assert!(
+            env_content.contains(&format!("PROJECT_ROOT={}", project_str)),
+            "PROJECT_ROOT must have been added, got: {env_content}"
+        );
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_quiet_merge_skips_non_quiet_templates() {
+        // Templates without quiet_merge must not be touched by apply_quiet_merge_template_set.
+        let dir = std::env::temp_dir().join("corner_test_quiet_merge_skips_non_quiet");
+        let _ = fs::remove_dir_all(&dir);
+
+        let corner_dir = dir.join("corner");
+        fs::create_dir_all(&corner_dir).unwrap();
+
+        let ctx = make_ctx(&corner_dir.to_string_lossy(), "/project", "testhash");
+
+        let templates = vec![Template {
+            destination: "should_not_be_created.txt".to_string(),
+            content: "some content\n".to_string(),
+            quiet_merge: false,
+            merge_at_runtime: false,
+            source_path: PathBuf::from("test.md"),
+        }];
+
+        let count = apply_quiet_merge_template_set(&templates, &corner_dir, &ctx).unwrap();
+        assert_eq!(count, 0, "non-quiet template must be skipped");
+        assert!(
+            !corner_dir.join("should_not_be_created.txt").exists(),
+            "file must not be created for non-quiet template"
+        );
+
+        let _ = fs::remove_dir_all(&dir);
     }
 }
