@@ -11,6 +11,8 @@ use crate::manifest::Manifest;
 const ALIASES_FILE: &str = "aliases";
 const CACHE_FILE: &str = "registry_cache.json";
 const CACHE_TMP: &str = "registry_cache.json.tmp";
+const PROMPT_PATHS_FILE: &str = "prompt_paths";
+const PROMPT_PATHS_TMP: &str = "prompt_paths.tmp";
 const CACHE_VERSION: u32 = 1;
 const LEGACY_CONFIG_OBSERVATIONS: &str = ".config/safe_pocket/observations";
 const SNAPSHOTS_DIR: &str = "snapshots";
@@ -169,6 +171,14 @@ fn cache_path_for(root: &Path) -> PathBuf {
 
 fn cache_tmp_path_for(root: &Path) -> PathBuf {
     root.join(CACHE_TMP)
+}
+
+fn prompt_paths_path_for(root: &Path) -> PathBuf {
+    root.join(PROMPT_PATHS_FILE)
+}
+
+fn prompt_paths_tmp_path_for(root: &Path) -> PathBuf {
+    root.join(PROMPT_PATHS_TMP)
 }
 
 pub fn is_registry_corner_dir(corner_dir: &Path) -> Result<bool> {
@@ -680,6 +690,33 @@ fn write_cache_to(root: &Path, cache: &RegistryCache) -> Result<()> {
     let tmp_path = cache_tmp_path_for(root);
     fs::write(&tmp_path, content).context("Failed to write registry cache tmp file")?;
     fs::rename(&tmp_path, cache_path_for(root)).context("Failed to rename registry cache")?;
+
+    write_prompt_paths_to(root, cache)?;
+    Ok(())
+}
+
+/// Write a compact, line-oriented registry view for the interactive shell.
+///
+/// Parsing JSON or launching `corner` on every prompt redraw is needlessly
+/// expensive. Each record is a tab-separated kind and absolute path: `C` for
+/// a Corner directory and `P` for one of its registered project paths.
+fn write_prompt_paths_to(root: &Path, cache: &RegistryCache) -> Result<()> {
+    let mut paths = Vec::new();
+    for corner in &cache.corners {
+        paths.push(("C", corner.path.clone()));
+        paths.extend(corner.all_paths().cloned().map(|path| ("P", path)));
+    }
+    paths.sort();
+    paths.dedup();
+
+    let content = paths
+        .into_iter()
+        .map(|(kind, path)| format!("{kind}\t{}\n", path.display()))
+        .collect::<String>();
+    let tmp_path = prompt_paths_tmp_path_for(root);
+    fs::write(&tmp_path, content).context("Failed to write prompt paths tmp file")?;
+    fs::rename(&tmp_path, prompt_paths_path_for(root))
+        .context("Failed to rename prompt paths file")?;
     Ok(())
 }
 
@@ -1110,6 +1147,28 @@ mod tests {
         assert_eq!(
             cache.corners[0].worktrees,
             vec![PathBuf::from("/p-worktree")]
+        );
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn test_rebuild_cache_writes_prompt_paths_for_corners_projects_and_worktrees() {
+        let root = std::env::temp_dir().join("spocket_registry_prompt_paths_test");
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+
+        let corner_dir = root.join("abc123");
+        fs::create_dir_all(&corner_dir).unwrap();
+        let mut manifest = Manifest::new("manifest_hash".to_string(), vec![PathBuf::from("/p")]);
+        manifest.worktrees.push(PathBuf::from("/p-worktree"));
+        manifest.save(&corner_dir).unwrap();
+
+        rebuild_cache_from(&root).unwrap();
+
+        assert_eq!(
+            fs::read_to_string(prompt_paths_path_for(&root)).unwrap(),
+            format!("C\t{}\nP\t/p\nP\t/p-worktree\n", corner_dir.display())
         );
 
         let _ = fs::remove_dir_all(&root);

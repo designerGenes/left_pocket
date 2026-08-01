@@ -2,6 +2,15 @@
 
 All notable changes to Corner will be documented in this file.
 
+## [2.3.0] - 2026-08-01
+
+### Added
+- **Corner-aware terminal prompt index.** Registry cache updates now atomically
+  write a compact `prompt_paths` file containing registered project and Corner
+  paths. The Zsh prompt uses this index without launching `corner` or parsing
+  JSON, so project paths can render cobalt and Corner paths yellow immediately
+  after a directory change.
+
 ## [2.2.0] - 2026-07-25
 
 ### Added
