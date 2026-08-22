@@ -1,7 +1,7 @@
 ```
 ╭────────╮
 │        │
-│     ╭──┤   corner
+│     ╭──┤   left_pocket
 │     │▓▓│
 ╰─────┴──╯
 ```
@@ -12,7 +12,7 @@
 2. Install VS Code extension that this generates
 3. run `{{PROJECT_ROOT}}/install.sh`
 
-You can also use `cargo install --path .` to install the Corner CLI tool, but this is not necessary if you run the install.sh script, which will do this for you. The install script installs the primary `corner` binary plus compatibility aliases for `safe_pocket` and `spocket`, seeds default assets into `$HOME/.config/corner/`, and creates the canonical Corner registry root at `$HOME/.corner/`.
+You can also use `cargo install --path .` to install the left_pocket CLI tool, but this is not necessary if you run the install.sh script, which will do this for you. The install script installs the primary `left_pocket` binary plus compatibility aliases for `safe_pocket` and `spocket`, seeds default assets into `$HOME/.config/left_pocket/`, and creates the canonical left_pocket registry root at `$HOME/.left_pocket/`.
 
 ## Installer options
 
@@ -36,5 +36,5 @@ The installer asks before replacing existing config templates. After installing,
 run the installed-binary operational suite:
 
 ```bash
-corner tests --all
+left_pocket tests --all
 ```

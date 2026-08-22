@@ -1,4 +1,4 @@
-#CORNER_INSTALL_DESTINATION: {{CORNER_CONFIG_ROOT}}/feature_tags.yaml
+#LEFT_POCKET_INSTALL_DESTINATION: {{LEFT_POCKET_CONFIG_ROOT}}/feature_tags.yaml
 
 SPOCKET_MUST_RUN_INSTALL_COMMAND:
   description: "before this feature is considered complete, the agent must run this specific series of install commands line by line and verify that the full process was successful."
@@ -25,12 +25,12 @@ SPOCKET_MUST_CREATE_NEW_FILES:
   type: "done hook"
 SPOCKET_MUST_BACKUP_BEFORE:
   andPush: true/false
-  description: "before making any changes to the project, the agent must create a backup of the current state of the project.  This is to ensure that if anything goes wrong during the development of the feature, we can easily revert back to the previous state of the project.  If andPush is true, then the agent must also commit the backup to the corner's local repository and push it to the larger $HOME/.corner folder repository."
+  description: "before making any changes to the project, the agent must create a backup of the current state of the project.  This is to ensure that if anything goes wrong during the development of the feature, we can easily revert back to the previous state of the project.  If andPush is true, then the agent must also commit the backup to the left_pocket's local repository and push it to the larger $HOME/.left_pocket folder repository."
   type: "start hook"
 SPOCKET_MUST_BACKUP_AFTER:
   andPush: true/false
-  description: "after making changes to the project, the agent must commit to the corner's local repository and the larger $HOME/.corner folder repository.  If andPush is true, then the agent must also commit the backup to the corner's local repository and push it to the larger $HOME/.corner folder repository."
+  description: "after making changes to the project, the agent must commit to the left_pocket's local repository and the larger $HOME/.left_pocket folder repository.  If andPush is true, then the agent must also commit the backup to the left_pocket's local repository and push it to the larger $HOME/.left_pocket folder repository."
   type: "done hook"
 SPOCKET_CONVERSATION_ENABLED:
-  description: "{{CORNER_CONFIG_ROOT}}/feature_tags/conversation.feature.tag.yaml"
+  description: "{{LEFT_POCKET_CONFIG_ROOT}}/feature_tags/conversation.feature.tag.yaml"
   type: "during hook"

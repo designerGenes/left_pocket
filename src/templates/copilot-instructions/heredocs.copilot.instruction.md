@@ -1,5 +1,5 @@
-#CORNER_TEMPLATE_DESTINATION: {{CORNER_ROOT}}/.github/copilot-instructions.md
-#CORNER_MERGE_AT_RUNTIME
+#LEFT_POCKET_TEMPLATE_DESTINATION: {{LEFT_POCKET_ROOT}}/.github/copilot-instructions.md
+#LEFT_POCKET_MERGE_AT_RUNTIME
 
 # No Heredocs 
 

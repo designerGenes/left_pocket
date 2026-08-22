@@ -6,7 +6,7 @@ SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
 usage() {
-    printf '%s\n' 'Install Corner and its compatibility aliases.'
+    printf '%s\n' 'Install left_pocket and its compatibility aliases.'
     printf '\n%s\n' 'Usage:'
     printf '%s\n' '  ./install.sh [OPTIONS]'
     printf '\n%s\n' 'Options:'
@@ -167,14 +167,16 @@ if [ "$PACKAGE_EXTENSION" = true ]; then
     fi
 fi
 
-printf 'Building Corner...\n'
+printf 'Building left_pocket...\n'
 cargo build --release
 
-BINARY="$SCRIPT_DIR/target/release/corner"
+BINARY="$SCRIPT_DIR/target/release/left_pocket"
 INSTALL_DIR="${INSTALL_DIR:-$HOME/.local/bin}"
-PRIMARY="$INSTALL_DIR/corner"
-LEGACY_SAFE_POCKET="$INSTALL_DIR/safe_pocket"
-LEGACY_SPOCKET="$INSTALL_DIR/spocket"
+PRIMARY="$INSTALL_DIR/left_pocket"
+ALIAS_LOCKET="$INSTALL_DIR/locket"
+ALIAS_CORNER="$INSTALL_DIR/corner"
+ALIAS_SAFE_POCKET="$INSTALL_DIR/safe_pocket"
+ALIAS_SPOCKET="$INSTALL_DIR/spocket"
 
 if [ ! -f "$BINARY" ]; then
     printf 'Build failed: binary not found\n' >&2
@@ -187,17 +189,15 @@ printf 'Installing %s\n' "$PRIMARY"
 cp -f "$BINARY" "$PRIMARY"
 chmod +x "$PRIMARY"
 
-printf 'Installing compatibility alias %s\n' "$LEGACY_SAFE_POCKET"
-cp -f "$BINARY" "$LEGACY_SAFE_POCKET"
-chmod +x "$LEGACY_SAFE_POCKET"
+for ALIAS in "$ALIAS_LOCKET" "$ALIAS_CORNER" "$ALIAS_SAFE_POCKET" "$ALIAS_SPOCKET"; do
+    printf 'Installing compatibility alias %s\n' "$ALIAS"
+    cp -f "$BINARY" "$ALIAS"
+    chmod +x "$ALIAS"
+done
 
-printf 'Installing compatibility alias %s\n' "$LEGACY_SPOCKET"
-cp -f "$BINARY" "$LEGACY_SPOCKET"
-chmod +x "$LEGACY_SPOCKET"
+printf 'Seeding left_pocket assets under %s and %s\n' "$HOME/.config/left_pocket" "$HOME/.left_pocket"
 
-printf 'Seeding Corner assets under %s and %s\n' "$HOME/.config/corner" "$HOME/.corner"
-
-CONFIG_TEMPLATES_DIR="$HOME/.config/corner/templates"
+CONFIG_TEMPLATES_DIR="$HOME/.config/left_pocket/templates"
 REPLACE_FLAG=""
 if [ -d "$CONFIG_TEMPLATES_DIR" ]; then
     printf '\n%s\n' "Found existing templates in $CONFIG_TEMPLATES_DIR"
@@ -205,8 +205,8 @@ if [ -d "$CONFIG_TEMPLATES_DIR" ]; then
     printf '%s\n' "     and removes legacy-named files like safe_pocket.env.md)"
     printf '%s\n' "  s) Skip - keep the existing templates unchanged (recommended if you have"
     printf '%s\n' "     local customisations you want to preserve)"
-    printf '%s\n' "  d) Dry-run upgrade-installation instead (rewrite legacy #SPOCKET_* references"
-    printf '%s\n' "     to #CORNER_* in-place without replacing files)"
+    printf '%s\n' "  d) Dry-run upgrade-installation instead (rewrite legacy #CORNER_*/#SPOCKET_* references"
+    printf '%s\n' "     to #LEFT_POCKET_* in-place without replacing files)"
     # `set -e` is on: a bare `read` at EOF returns non-zero and aborts the
     # script here, after the binaries are already copied but before assets are
     # seeded, leaving a half-install. Non-interactive runs take the safe
@@ -236,16 +236,16 @@ fi
 "$PRIMARY" install-default-assets $REPLACE_FLAG >/dev/null
 
 if "$PRIMARY" upgrade-installation --dry-run 2>/dev/null | grep -q "Found"; then
-    printf '\n%s\n' "Legacy #SPOCKET_* references were detected in installed files."
+    printf '\n%s\n' "Legacy #CORNER_*/#SPOCKET_* references were detected in installed files."
     if [ -t 0 ]; then
-        printf '%s' "Run corner upgrade-installation now to rewrite them? [y/N]: "
+        printf '%s' "Run left_pocket upgrade-installation now to rewrite them? [y/N]: "
         read -r UPGRADE_CHOICE || UPGRADE_CHOICE="n"
     else
         UPGRADE_CHOICE="n"
     fi
     case "$UPGRADE_CHOICE" in
         y|Y) "$PRIMARY" upgrade-installation --yes || true ;;
-        *) printf '%s\n' "Skipped. You can run corner upgrade-installation later." ;;
+        *) printf '%s\n' "Skipped. You can run left_pocket upgrade-installation later." ;;
     esac
 fi
 
@@ -257,10 +257,12 @@ fi
 
 printf 'Installation complete.\n\n'
 printf 'Try it out:\n'
+printf '  left_pocket --help\n'
+printf '  left_pocket tests --all\n'
+printf '  locket --help\n'
 printf '  corner --help\n'
-printf '  corner tests --all\n'
 printf '  safe_pocket --help\n'
 printf '  spocket --help\n'
-printf '  corner register myproject="%s"\n\n' "$SCRIPT_DIR"
+printf '  left_pocket register myproject="%s"\n\n' "$SCRIPT_DIR"
 printf 'To refresh an existing project placed templates after upgrading:\n'
-printf '  corner -u <project-path>\n'
+printf '  left_pocket -u <project-path>\n'

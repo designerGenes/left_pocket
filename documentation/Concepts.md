@@ -1,30 +1,30 @@
 ```
 ╭────────╮
 │        │
-│     ╭──┤   corner
+│     ╭──┤   left_pocket
 │     │▓▓│
 ╰─────┴──╯
 ```
 
-# What is corner about
+# What is left_pocket about
 
-Corner is about creating ephemeral borders around arbitrary files/folders, in a way that AI understands.  That's really it, but it has many more implications than may at first seem.
+left_pocket is about creating ephemeral borders around arbitrary files/folders, in a way that AI understands.  That's really it, but it has many more implications than may at first seem.
 
 Whenever you work in VS Code, you have access to Copilot in the sidebar, or various terminal AI agents in the Terminal.  However you arrive at this, the context is limited to the immediate working directory.  In the real world, your projects often involve multiple folders, and the folders involved can change over time.  You can make short metaprojects involving one feature of a monorepo and another feature of the same monorepo.  Your project is defined as not just a folder: it's now "all the folders involved in this momentary project".
 
-So if your AI scope is just a project folder, you've probably injected lots of custom instructions and agents and prompts into that folder (perhaps in its .github subdirectory).  When your next project involves that folder, and another folder, you would normally lose those custom details.  Corner lets you share your "template" customizations in any new or existing project, without overwriting them when you make your own customizations.
+So if your AI scope is just a project folder, you've probably injected lots of custom instructions and agents and prompts into that folder (perhaps in its .github subdirectory).  When your next project involves that folder, and another folder, you would normally lose those custom details.  left_pocket lets you share your "template" customizations in any new or existing project, without overwriting them when you make your own customizations.
 
-These customizations are very important for a project, because they allow you to make AI much more deterministic and computer-like.  The baseline Copilot that you begin with is a language model, and does not instinctively know where project files are located, or should be located, or the baseline rules of interacting with a project (such as not creating new documentation without being asked).  Normally you have to put these instructions manually in every new folder-based project.  But with Corner, a folder isn't a project.  A project is just a border of files and folders, and so everything in that border is a project and gets your templates and custom controls for AI automatically applied.
+These customizations are very important for a project, because they allow you to make AI much more deterministic and computer-like.  The baseline Copilot that you begin with is a language model, and does not instinctively know where project files are located, or should be located, or the baseline rules of interacting with a project (such as not creating new documentation without being asked).  Normally you have to put these instructions manually in every new folder-based project.  But with left_pocket, a folder isn't a project.  A project is just a border of files and folders, and so everything in that border is a project and gets your templates and custom controls for AI automatically applied.
 
 
-# Corner ships with these features
+# left_pocket ships with these features
 - flexible arbitrary border definition
     - store/recall files related to multiple repos or features, without needing to get it merged/PR'd into the remote repo
-    - metaprojects:  you can define a project as a border around multiple folders, and Corner will treat it as a single project for AI purposes
+    - metaprojects:  you can define a project as a border around multiple folders, and left_pocket will treat it as a single project for AI purposes
     - scratch pad directory for creating files about a project which you will need later, but don't want to commit to the shared repo.
-    - AI automatically gets the context of both the project directory and the corner directory, seamlessly working in one while orchestrated by the other.
+    - AI automatically gets the context of both the project directory and the left_pocket directory, seamlessly working in one while orchestrated by the other.
 - templating engine
-    - "corner destination" tags to place templates with interpolated parameters into any specific place or file in the resulting corner
+    - "left_pocket destination" tags to place templates with interpolated parameters into any specific place or file in the resulting left_pocket
     - copilot-instructions and AGENTS.md runtime insertion.  This allows you to customize instructions for any project, but also apply your baseline instructions to any project.
     - feature-based development workflow by default 
     - template tags
@@ -39,10 +39,10 @@ a monorepo is an example of a project.  Usually within a monorepo are many subpr
 In IDE's like XCode, creating a new "project" automatically assembles a large number of files for you immediately.  When interacting with AI in VS Code, you also need some files assembled precisely for you, in order to 
 
 - use AI in the right context.
-    Our corner lives outside of the project folder itself, so we need some way of deterministically pointing the AI at the project folder, so it knows where to work.
+    Our left_pocket lives outside of the project folder itself, so we need some way of deterministically pointing the AI at the project folder, so it knows where to work.
 - use AI in a deterministic way
-    Our corner should introduce some basic rules for all new projects, which we (the user) believe should apply to just about every new project, no matter the size or contents.  Corner ships with default rules but these can be overridden to any degree, at the global or project level.
+    Our left_pocket should introduce some basic rules for all new projects, which we (the user) believe should apply to just about every new project, no matter the size or contents.  left_pocket ships with default rules but these can be overridden to any degree, at the global or project level.
 
-So in order for a "project" of any size to automatically get these AI baelines, we need to define some files and put them in certain locations.  If we do it right, we can put them outside of your project folder, inside a generated and carefully managed "corner" folder, stored usually at $HOME/.corner/(some hash id).  This corner folder is a border around your project, and it contains the files that define the project for AI purposes.
+So in order for a "project" of any size to automatically get these AI baelines, we need to define some files and put them in certain locations.  If we do it right, we can put them outside of your project folder, inside a generated and carefully managed "left_pocket" folder, stored usually at $HOME/.left_pocket/(some hash id).  This left_pocket folder is a border around your project, and it contains the files that define the project for AI purposes.
 
-You don't want to lose your corner folder, but if you do, you can use `corner heal` in the cli from inside of your project folder.  All corner folders are their own git repo, in case you want to back especially important ones up.
+You don't want to lose your left_pocket folder, but if you do, you can use `left_pocket heal` in the cli from inside of your project folder.  All left_pocket folders are their own git repo, in case you want to back especially important ones up.

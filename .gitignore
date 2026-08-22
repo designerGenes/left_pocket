@@ -2,7 +2,7 @@
 target/**/*
 ingest_templates.sh
 
-# Generated analysis and output (stored in corner, linked here)
+# Generated analysis and output (stored in left_pocket, linked here)
 graphify-out/
 graphify-out
 *.graph
@@ -25,3 +25,5 @@ CHANGELOG.md
 .graphifyignore
 opencode.json
 Cargo.lock
+.slopignore
+.soupignore

@@ -364,12 +364,12 @@ pub struct DailyFeatureOutcome {
 /// Newly created files are seeded with `place_automatically` tags read from
 /// `feature_tags_yaml`.
 pub fn resolve_daily_feature(
-    corner_dir: &Path,
+    left_pocket_dir: &Path,
     subpath: &str,
     force_new: bool,
     feature_tags_yaml: &Path,
 ) -> Result<DailyFeatureOutcome> {
-    let features_dir = corner_dir.join("FEATURES");
+    let features_dir = left_pocket_dir.join("FEATURES");
     let date_key = today_date_key();
 
     if !force_new {

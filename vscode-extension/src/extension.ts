@@ -6,10 +6,10 @@ import * as os from "os";
 
 let statusBarItem: vscode.StatusBarItem | undefined;
 let syncInProgress = false;
-let activeCornerDir: string | undefined;
+let active_left_pocket_dir: string | undefined;
 
-const CORNER_ROOT_NAMES = [".corner", ".safe_pocket", ".spocket"];
-const CONFIG_ROOT_NAMES = ["corner", "safe_pocket", "spocket"];
+const POCKET_ROOT_NAMES = [".left_pocket", ".safe_pocket", ".spocket"];
+const CONFIG_ROOT_NAMES = ["left_pocket", "corner", "safe_pocket", "spocket"];
 
 interface SyncResult {
   status: "unchanged" | "synced" | "error";
@@ -23,15 +23,15 @@ interface SyncResult {
 
 interface LocateResult {
   status: "found" | "not_found";
-  corner_dir?: string;
+  left_pocket_dir?: string;
   message?: string;
 }
 
-function getCornerRoots(): string[] {
-  return CORNER_ROOT_NAMES.map((name) => path.join(os.homedir(), name));
+function getpocketRoots(): string[] {
+  return POCKET_ROOT_NAMES.map((name) => path.join(os.homedir(), name));
 }
 
-function isCornerWorkspace(
+function isLeftPocketWorkspace(
   workspaceFile: vscode.Uri | undefined
 ): string | undefined {
   if (!workspaceFile) {
@@ -39,8 +39,8 @@ function isCornerWorkspace(
   }
 
   const filePath = workspaceFile.fsPath;
-  for (const cornerRootDir of getCornerRoots()) {
-    if (filePath.startsWith(cornerRootDir)) {
+  for (const pocketRootDir of getpocketRoots()) {
+    if (filePath.startsWith(pocketRootDir)) {
       return path.dirname(filePath);
     }
   }
@@ -49,28 +49,28 @@ function isCornerWorkspace(
 }
 
 function getBinaryPath(): string {
-  const config = vscode.workspace.getConfiguration("corner");
+  const config = vscode.workspace.getConfiguration("left_pocket");
   const configured = config.get<string>("binaryPath")?.trim();
 
-  if (configured && configured !== "corner") {
+  if (configured && configured !== "left_pocket") {
     return configured;
   }
 
-  for (const binaryName of ["corner", "safe_pocket", "spocket"]) {
+  for (const binaryName of ["left_pocket", "corner", "safe_pocket", "spocket"]) {
     const installedBinary = path.join(os.homedir(), ".local", "bin", binaryName);
     if (fs.existsSync(installedBinary)) {
       return installedBinary;
     }
   }
 
-  return "corner";
+  return "left_pocket";
 }
 
-function runSync(cornerDir: string): Promise<SyncResult> {
+function runSync(left_pocket_dir: string): Promise<SyncResult> {
   return new Promise((resolve) => {
     const binary = getBinaryPath();
 
-    execFile(binary, ["sync", "--corner", cornerDir], (error, stdout) => {
+    execFile(binary, ["sync", "--left_pocket", left_pocket_dir], (error, stdout) => {
       if (error) {
         resolve({
           status: "error",
@@ -94,33 +94,33 @@ function runSync(cornerDir: string): Promise<SyncResult> {
 
 function runMergeCommand(
   action: "runtime-merge-start" | "runtime-merge-stop",
-  cornerDir: string
+  left_pocket_dir: string
 ): Promise<void> {
   return new Promise((resolve) => {
     const binary = getBinaryPath();
-    execFile(binary, [action, "--corner", cornerDir], (error) => {
+    execFile(binary, [action, "--left_pocket", left_pocket_dir], (error) => {
       if (error) {
-        console.error(`corner ${action} failed: ${error.message}`);
+        console.error(`left_pocket ${action} failed: ${error.message}`);
       }
       resolve();
     });
   });
 }
 
-function locateCornerDir(workspacePath: string): Promise<string | undefined> {
+function locateLeftPocketDir(workspacePath: string): Promise<string | undefined> {
   return new Promise((resolve) => {
     const binary = getBinaryPath();
 
     execFile(binary, ["locate", "--path", workspacePath], (error, stdout) => {
       if (error) {
-        console.error(`corner locate failed: ${error.message}`);
+        console.error(`left_pocket locate failed: ${error.message}`);
         resolve(undefined);
         return;
       }
 
       try {
         const result: LocateResult = JSON.parse(stdout.trim());
-        resolve(result.status === "found" ? result.corner_dir : undefined);
+        resolve(result.status === "found" ? result.left_pocket_dir : undefined);
       } catch {
         console.error(`Failed to parse locate output: ${stdout}`);
         resolve(undefined);
@@ -129,15 +129,15 @@ function locateCornerDir(workspacePath: string): Promise<string | undefined> {
   });
 }
 
-async function resolveActiveCornerDir(): Promise<string | undefined> {
-  if (activeCornerDir) {
-    return activeCornerDir;
+async function resolveActiveLeftPocketDir(): Promise<string | undefined> {
+  if (active_left_pocket_dir) {
+    return active_left_pocket_dir;
   }
 
-  const workspaceCorner = isCornerWorkspace(vscode.workspace.workspaceFile);
-  if (workspaceCorner) {
-    activeCornerDir = workspaceCorner;
-    return workspaceCorner;
+  const workspaceLeftPocket = isLeftPocketWorkspace(vscode.workspace.workspaceFile);
+  if (workspaceLeftPocket) {
+    active_left_pocket_dir = workspaceLeftPocket;
+    return workspaceLeftPocket;
   }
 
   for (const folder of vscode.workspace.workspaceFolders ?? []) {
@@ -145,9 +145,9 @@ async function resolveActiveCornerDir(): Promise<string | undefined> {
       continue;
     }
 
-    const located = await locateCornerDir(folder.uri.fsPath);
+    const located = await locateLeftPocketDir(folder.uri.fsPath);
     if (located) {
-      activeCornerDir = located;
+      active_left_pocket_dir = located;
       return located;
     }
   }
@@ -233,17 +233,17 @@ interface DailyFeatureResult {
 }
 
 function runDailyFeature(
-  cornerDir: string,
+  left_pocket_dir: string,
   isNew: boolean
 ): Promise<DailyFeatureResult> {
   return new Promise((resolve) => {
     const binary = getBinaryPath();
-    const args = ["daily-feature", "--corner", cornerDir];
+    const args = ["daily-feature", "--left_pocket", left_pocket_dir];
     if (isNew) {
       args.push("--new");
     }
 
-    const config = vscode.workspace.getConfiguration("corner");
+    const config = vscode.workspace.getConfiguration("left_pocket");
     const subpath = config.get<string>("dailyFeatureSubpath")?.trim();
     if (subpath) {
       args.push("--subpath", subpath);
@@ -276,22 +276,22 @@ function featureTagsYamlPath(): string {
     }
   }
 
-  return path.join(os.homedir(), ".config", "corner", "feature_tags.yaml");
+  return path.join(os.homedir(), ".config", "left_pocket", "feature_tags.yaml");
 }
 
 /**
  * Determine whether `fsPath` is "today's" feature file: a markdown file living
- * under the corner's FEATURES directory whose name parses to today's date.
+ * under the left_pocket's FEATURES directory whose name parses to today's date.
  */
 function isTodaysFeatureFile(
-  cornerDir: string,
+  left_pocket_dir: string,
   fsPath: string | undefined
 ): boolean {
   if (!fsPath) {
     return false;
   }
 
-  const featuresDir = path.join(cornerDir, "FEATURES");
+  const featuresDir = path.join(left_pocket_dir, "FEATURES");
   if (fsPath !== featuresDir && !fsPath.startsWith(featuresDir + path.sep)) {
     return false;
   }
@@ -336,23 +336,23 @@ async function openFeatureTagsYaml(): Promise<void> {
  * - Otherwise, open (or create) today's daily feature file.
  */
 async function openDailyFeature(): Promise<void> {
-  const cornerDir = await resolveActiveCornerDir();
+  const left_pocket_dir = await resolveActiveLeftPocketDir();
 
-  if (!cornerDir) {
-    vscode.window.showWarningMessage("Corner: no active corner workspace.");
+  if (!left_pocket_dir) {
+    vscode.window.showWarningMessage("left_pocket: no active left_pocket workspace.");
     return;
   }
 
   const activePath = vscode.window.activeTextEditor?.document.uri.fsPath;
-  if (isTodaysFeatureFile(cornerDir, activePath)) {
+  if (isTodaysFeatureFile(left_pocket_dir, activePath)) {
     await openFeatureTagsYaml();
     return;
   }
 
-  const result = await runDailyFeature(cornerDir, false);
+  const result = await runDailyFeature(left_pocket_dir, false);
   if (result.status !== "ok" || !result.path) {
     vscode.window.showWarningMessage(
-      `Corner: failed to open daily feature: ${result.message ?? "unknown error"}`
+      `left_pocket: failed to open daily feature: ${result.message ?? "unknown error"}`
     );
     return;
   }
@@ -366,17 +366,17 @@ async function openDailyFeature(): Promise<void> {
  * file for today.
  */
 async function newDailyFeature(): Promise<void> {
-  const cornerDir = await resolveActiveCornerDir();
+  const left_pocket_dir = await resolveActiveLeftPocketDir();
 
-  if (!cornerDir) {
-    vscode.window.showWarningMessage("Corner: no active corner workspace.");
+  if (!left_pocket_dir) {
+    vscode.window.showWarningMessage("left_pocket: no active left_pocket workspace.");
     return;
   }
 
-  const result = await runDailyFeature(cornerDir, true);
+  const result = await runDailyFeature(left_pocket_dir, true);
   if (result.status !== "ok" || !result.path) {
     vscode.window.showWarningMessage(
-      `Corner: failed to create daily feature: ${result.message ?? "unknown error"}`
+      `left_pocket: failed to create daily feature: ${result.message ?? "unknown error"}`
     );
     return;
   }
@@ -386,45 +386,45 @@ async function newDailyFeature(): Promise<void> {
 }
 
 /**
- * Keep the `corner.inTodaysFeature` context key in sync with the active editor
+ * Keep the `left_pocket.inTodaysFeature` context key in sync with the active editor
  * so the shift+hotkey binding can be gated to today's feature file.
  */
 async function updateFeatureContext(): Promise<void> {
-  const cornerDir = activeCornerDir ?? (await resolveActiveCornerDir());
+  const left_pocket_dir = active_left_pocket_dir ?? (await resolveActiveLeftPocketDir());
   const activePath = vscode.window.activeTextEditor?.document.uri.fsPath;
-  const inTodaysFeature = cornerDir
-    ? isTodaysFeatureFile(cornerDir, activePath)
+  const inTodaysFeature = left_pocket_dir
+    ? isTodaysFeatureFile(left_pocket_dir, activePath)
     : false;
 
   await vscode.commands.executeCommand(
     "setContext",
-    "corner.inTodaysFeature",
+    "left_pocket.inTodaysFeature",
     inTodaysFeature
   );
 }
 
-async function handleFolderChange(cornerDir: string): Promise<void> {
+async function handleFolderChange(left_pocket_dir: string): Promise<void> {
   if (syncInProgress) {
     return;
   }
 
   syncInProgress = true;
-  updateStatusBar("$(sync~spin) Corner syncing...");
+  updateStatusBar("$(sync~spin) left_pocket syncing...");
 
   try {
-    const result = await runSync(cornerDir);
+    const result = await runSync(left_pocket_dir);
 
     switch (result.status) {
       case "unchanged":
         updateStatusBar(
-          `$(check) Corner`,
+          `$(check) left_pocket`,
           `Hash: ${result.hash}\nBirth: ${result.birth_hash}`
         );
         break;
 
       case "synced": {
         updateStatusBar(
-          `$(check) Corner`,
+          `$(check) left_pocket`,
           `Hash: ${result.new_hash}\nBirth: ${result.birth_hash}`
         );
 
@@ -435,21 +435,21 @@ async function handleFolderChange(cornerDir: string): Promise<void> {
             ((result.new_hash !== result.old_hash ? 1 : 0) > 0 ? 1 : 0));
 
         vscode.window.setStatusBarMessage(
-          `Corner: manifest synced (${result.old_hash?.slice(0, 8)} → ${result.new_hash?.slice(0, 8)})`,
+          `left_pocket: manifest synced (${result.old_hash?.slice(0, 8)} → ${result.new_hash?.slice(0, 8)})`,
           5000
         );
         break;
       }
 
       case "error":
-        updateStatusBar("$(warning) Corner", `Error: ${result.message}`);
+        updateStatusBar("$(warning) left_pocket", `Error: ${result.message}`);
         vscode.window.showWarningMessage(
-          `Corner sync failed: ${result.message}`
+          `left_pocket sync failed: ${result.message}`
         );
         break;
     }
   } catch (err) {
-    updateStatusBar("$(error) Corner", "Sync failed");
+    updateStatusBar("$(error) left_pocket", "Sync failed");
   } finally {
     syncInProgress = false;
   }
@@ -457,22 +457,22 @@ async function handleFolderChange(cornerDir: string): Promise<void> {
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   context.subscriptions.push(
-    vscode.commands.registerCommand("corner.openDailyFeature", openDailyFeature),
-    vscode.commands.registerCommand("corner.newDailyFeature", newDailyFeature),
+    vscode.commands.registerCommand("left_pocket.openDailyFeature", openDailyFeature),
+    vscode.commands.registerCommand("left_pocket.newDailyFeature", newDailyFeature),
     vscode.window.onDidChangeActiveTextEditor(() => {
       updateFeatureContext().catch((err) =>
-        console.error("corner updateFeatureContext failed:", err)
+        console.error("left_pocket updateFeatureContext failed:", err)
       );
     })
   );
 
-  const cornerDir = await resolveActiveCornerDir();
+  const left_pocket_dir = await resolveActiveLeftPocketDir();
 
-  if (!cornerDir) {
+  if (!left_pocket_dir) {
     return;
   }
 
-  activeCornerDir = cornerDir;
+  active_left_pocket_dir = left_pocket_dir;
 
   await updateFeatureContext();
 
@@ -480,20 +480,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.StatusBarAlignment.Right,
     100
   );
-  statusBarItem.text = "$(check) Corner";
-  statusBarItem.tooltip = `Corner: ${path.basename(cornerDir)}`;
+  statusBarItem.text = "$(check) left_pocket";
+  statusBarItem.tooltip = `left_pocket: ${path.basename(left_pocket_dir)}`;
   statusBarItem.show();
   context.subscriptions.push(statusBarItem);
 
   const disposable = vscode.workspace.onDidChangeWorkspaceFolders(() => {
-    handleFolderChange(cornerDir);
+    handleFolderChange(left_pocket_dir);
   });
   context.subscriptions.push(disposable);
 
-  handleFolderChange(cornerDir);
+  handleFolderChange(left_pocket_dir);
 
-  runMergeCommand("runtime-merge-start", cornerDir).catch((err) =>
-    console.error("corner runtime-merge-start failed:", err)
+  runMergeCommand("runtime-merge-start", left_pocket_dir).catch((err) =>
+    console.error("left_pocket runtime-merge-start failed:", err)
   );
 }
 
@@ -501,7 +501,7 @@ export function deactivate(): Thenable<void> | void {
   statusBarItem?.dispose();
   statusBarItem = undefined;
 
-  if (activeCornerDir) {
-    return runMergeCommand("runtime-merge-stop", activeCornerDir);
+  if (active_left_pocket_dir) {
+    return runMergeCommand("runtime-merge-stop", active_left_pocket_dir);
   }
 }

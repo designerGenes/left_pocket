@@ -1,5 +1,5 @@
-#CORNER_TEMPLATE_DESTINATION: {{CORNER_ROOT}}/.github/copilot-instructions.md
-#CORNER_MERGE_AT_RUNTIME
+#LEFT_POCKET_TEMPLATE_DESTINATION: {{LEFT_POCKET_ROOT}}/.github/copilot-instructions.md
+#LEFT_POCKET_MERGE_AT_RUNTIME
 
 # Feature tags
 
@@ -12,7 +12,7 @@ A user may include an arbitrary number of "feature tags" inside a feature file. 
 #SPOCKET_MUST_NOT_ADD_DOCUMENTATION
 #SPOCKET_MUST_UPDATE_DOCUMENTATION
 
-Or the user can create their own custom feature tags which may be placed in $HOME/.config/corner/feature_tags.yaml. If that file does not exist yet, Corner may still be using the legacy safe_pocket config roots. If you encounter a tag beginning with #SPOCKET that you do not recognize, you should check the feature_tags.yaml file to see if it is defined there. Each tag applies a rule to the associated scope.  
+Or the user can create their own custom feature tags which may be placed in $HOME/.config/left_pocket/feature_tags.yaml. If that file does not exist yet, left_pocket may still be using the legacy safe_pocket config roots. If you encounter a tag beginning with #SPOCKET that you do not recognize, you should check the feature_tags.yaml file to see if it is defined there. Each tag applies a rule to the associated scope.  
 
 For example, if 
 
@@ -69,7 +69,7 @@ The "type" field determines when the rule is applied.
 - "start hook / start": the rule is applied at the start of working on the feature, and you should use it to inform your initial approach to the feature, as well as choices you intend to make relating to this feature.
 
 ---
-A tag definition may also set `place_automatically: true`. When a tag is marked this way, that tag (with its leading `#`) is automatically written at the very top of any new feature file that Corner creates (for example, the daily feature files opened via the VS Code hotkey).  For example:
+A tag definition may also set `place_automatically: true`. When a tag is marked this way, that tag (with its leading `#`) is automatically written at the very top of any new feature file that left_pocket creates (for example, the daily feature files opened via the VS Code hotkey).  For example:
 
 ```yaml
 SPOCKET_MUST_TALK_LIKE_A_CAT:

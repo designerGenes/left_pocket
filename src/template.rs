@@ -14,75 +14,75 @@ use std::path::{Path, PathBuf};
 //
 // On first run each embedded file is materialised into the user's config
 // directory (never overwriting an existing file):
-// - Files whose `#SPOCKET_TEMPLATE_DESTINATION` targets `{{SPOCKET_CONFIG_ROOT}}`
+// - Files whose `#LEFT_POCKET_TEMPLATE_DESTINATION` targets `{{SPOCKET_CONFIG_ROOT}}`
 //   or `{{SPOCKET_REGISTRY_ROOT}}` are *interpreted* now — the directive is
 //   stripped, the two install-known roots are expanded, and the result is
 //   written to the resolved path (e.g. `directory_structure.md` →
 //   `$HOME/.config/safe_pocket/directory_structure.yaml`).
 // - All other files are *staged verbatim* under
 //   `$HOME/.config/safe_pocket/templates/<relative_path>` so the runtime
-//   template loader can parse and apply them to individual corners.
+//   template loader can parse and apply them to individual left_pockets.
 include!(concat!(env!("OUT_DIR"), "/embedded_templates.rs"));
 
 // ── Template variables ───────────────────────────────────────────────────────
 
 /// Context needed to expand template variables.
 pub struct TemplateContext {
-    /// Absolute path to the corner root (e.g. `~/.safe_pocket/19930adf3aaa`).
+    /// Absolute path to the left_pocket root (e.g. `~/.safe_pocket/19930adf3aaa`).
     pub spocket_root: PathBuf,
     /// Absolute path to the primary project directory.
     pub project_root: PathBuf,
-    /// Short name of the corner (the directory basename / hash).
+    /// Short name of the left_pocket (the directory basename / hash).
     pub spocket_name: String,
     /// Absolute path to the global observations directory (`~/.safe_pocket/observations`).
     pub global_observations_path: PathBuf,
-    /// Absolute path to the corner config directory (`$HOME/.config/safe_pocket`).
+    /// Absolute path to the left_pocket config directory (`$HOME/.config/safe_pocket`).
     pub config_root: PathBuf,
 }
 
 /// Legacy markers for the old Beads integration block. Retained only so that
-/// corners created before the built-in task tracker can have the stale block
+/// left_pockets created before the built-in task tracker can have the stale block
 /// stripped out on their next runtime merge. Nothing new is ever written with
 /// these markers.
 const LEGACY_BEADS_BEGIN_MARKER: &str = "<!-- BEGIN BEADS INTEGRATION -->";
 const LEGACY_BEADS_END_MARKER: &str = "<!-- END BEADS INTEGRATION -->";
 
 /// Agent-facing guidance injected into AGENTS.md at runtime, describing
-/// Corner's built-in task tracker (`corner task`).
-const TASK_RUNTIME_BLOCK: &str = r#"<!-- BEGIN CORNER TASK INTEGRATION -->
-## Issue Tracking with `corner task`
+/// left_pocket's built-in task tracker (`left_pocket task`).
+const TASK_RUNTIME_BLOCK: &str = r#"<!-- BEGIN LEFT_POCKET TASK INTEGRATION -->
+## Issue Tracking with `left_pocket task`
 
-**IMPORTANT**: This project tracks all work in Corner's built-in task
+**IMPORTANT**: This project tracks all work in left_pocket's built-in task
 tracker. Do NOT use markdown TODO lists or external issue trackers — use
-`corner task` so every agent shares one source of truth.
+`left_pocket task` so every agent shares one source of truth.
 
-### Why `corner task`?
+### Why `left_pocket task`?
 
 - Fast: backed by a local SQLite database, no network or daemon required.
-- Shared: every agent on this corner sees the same task list.
+- Shared: every agent on this left_pocket sees the same task list.
 - Scoped: tasks are grouped per project by a prefix derived automatically from
-  the corner — just run the commands from inside the project directory.
+  the left_pocket — just run the commands from inside the project directory.
 
 ### Quick reference
 
 ```bash
 # What work is open (lowest priority number = highest urgency)?
-corner task list
-corner task list --priority 1      # only P0 and P1
-corner task list --raw             # JSON, for programmatic use
+left_pocket task list
+left_pocket task list --priority 1      # only P0 and P1
+left_pocket task list --raw             # JSON, for programmatic use
 
 # Create work
-corner task create --named "Implement feature X" \
+left_pocket task create --named "Implement feature X" \
   --description "Why this matters and what to do" --priority 1
 
 # Drive a task through its lifecycle (ID may be the full id or the suffix)
-corner task <ID> assign --agent "Builder"
-corner task <ID> start  --notes "Starting now"
-corner task <ID> log    --notes "Progress / findings"
-corner task <ID> close  --notes "Done and verified"
-corner task <ID> discard
-corner task <ID> describe          # full details + history
-corner task <ID> describe --raw    # JSON
+left_pocket task <ID> assign --agent "Builder"
+left_pocket task <ID> start  --notes "Starting now"
+left_pocket task <ID> log    --notes "Progress / findings"
+left_pocket task <ID> close  --notes "Done and verified"
+left_pocket task <ID> discard
+left_pocket task <ID> describe          # full details + history
+left_pocket task <ID> describe --raw    # JSON
 ```
 
 ### Priorities
@@ -95,91 +95,100 @@ corner task <ID> describe --raw    # JSON
 
 ### Workflow for AI Agents
 
-1. **Check open work**: `corner task list` before asking what to do.
-2. **Claim it**: `corner task <ID> assign --agent "<you>"` then
-   `corner task <ID> start`.
-3. **Record progress**: `corner task <ID> log --notes "…"` as you go.
-4. **Discover new work?** `corner task create --named "…" --description "…"`.
-5. **Finish**: `corner task <ID> close --notes "…"`.
+1. **Check open work**: `left_pocket task list` before asking what to do.
+2. **Claim it**: `left_pocket task <ID> assign --agent "<you>"` then
+   `left_pocket task <ID> start`.
+3. **Record progress**: `left_pocket task <ID> log --notes "…"` as you go.
+4. **Discover new work?** `left_pocket task create --named "…" --description "…"`.
+5. **Finish**: `left_pocket task <ID> close --notes "…"`.
 
 ### Rules
 
-- ✅ Use `corner task` for ALL task tracking.
+- ✅ Use `left_pocket task` for ALL task tracking.
 - ✅ Use `--raw` when you need structured (JSON) output.
 - ❌ Do NOT create markdown TODO lists.
 - ❌ Do NOT use external issue trackers.
-<!-- END CORNER TASK INTEGRATION -->
+<!-- END LEFT_POCKET TASK INTEGRATION -->
 "#;
 
-/// Replace `{{CORNER_ROOT}}`/`{{SPOCKET_ROOT}}`, `{{PROJECT_ROOT}}`,
-/// `{{CORNER_NAME}}`/`{{SPOCKET_NAME}}`, `{{GLOBAL_OBSERVATIONS_PATH}}`,
-/// `{{CORNER_CONFIG_ROOT}}`/`{{SPOCKET_CONFIG_ROOT}}`, and
-/// `{{CORNER_REGISTRY_ROOT}}`/`{{SPOCKET_REGISTRY_ROOT}}` in `text`.
+/// Replace `{{LEFT_POCKET_ROOT}}`/`{{CORNER_ROOT}}`/`{{SPOCKET_ROOT}}`,
+/// `{{PROJECT_ROOT}}`, `{{LEFT_POCKET_NAME}}`/`{{CORNER_NAME}}`/`{{SPOCKET_NAME}}`,
+/// `{{GLOBAL_OBSERVATIONS_PATH}}`,
+/// `{{LEFT_POCKET_CONFIG_ROOT}}`/`{{CORNER_CONFIG_ROOT}}`/`{{SPOCKET_CONFIG_ROOT}}`,
+/// and `{{LEFT_POCKET_REGISTRY_ROOT}}`/`{{CORNER_REGISTRY_ROOT}}`/`{{SPOCKET_REGISTRY_ROOT}}`
+/// in `text`.
 pub fn expand_variables(text: &str, ctx: &TemplateContext) -> String {
     let registry_root = crate::registry::registry_root()
         .map(|p| p.to_string_lossy().into_owned())
-        .unwrap_or_else(|_| "{{CORNER_REGISTRY_ROOT}}".to_string());
-    text.replace("{{CORNER_ROOT}}", &ctx.spocket_root.to_string_lossy())
+        .unwrap_or_else(|_| "{{LEFT_POCKET_REGISTRY_ROOT}}".to_string());
+    text.replace("{{LEFT_POCKET_ROOT}}", &ctx.spocket_root.to_string_lossy())
+        .replace("{{CORNER_ROOT}}", &ctx.spocket_root.to_string_lossy())
         .replace("{{SPOCKET_ROOT}}", &ctx.spocket_root.to_string_lossy())
         .replace("{{PROJECT_ROOT}}", &ctx.project_root.to_string_lossy())
+        .replace("{{LEFT_POCKET_NAME}}", &ctx.spocket_name)
         .replace("{{CORNER_NAME}}", &ctx.spocket_name)
         .replace("{{SPOCKET_NAME}}", &ctx.spocket_name)
         .replace(
             "{{GLOBAL_OBSERVATIONS_PATH}}",
             &ctx.global_observations_path.to_string_lossy(),
         )
+        .replace("{{LEFT_POCKET_CONFIG_ROOT}}", &ctx.config_root.to_string_lossy())
         .replace("{{CORNER_CONFIG_ROOT}}", &ctx.config_root.to_string_lossy())
         .replace(
             "{{SPOCKET_CONFIG_ROOT}}",
             &ctx.config_root.to_string_lossy(),
         )
+        .replace("{{LEFT_POCKET_REGISTRY_ROOT}}", &registry_root)
         .replace("{{CORNER_REGISTRY_ROOT}}", &registry_root)
         .replace("{{SPOCKET_REGISTRY_ROOT}}", &registry_root)
 }
 
 /// Token marking a destination/content as resolvable at install time (before any
-/// corner exists), using only the two install-known roots.
+/// left_pocket exists), using only the two install-known roots.
 const CONFIG_ROOT_TOKEN: &str = "{{SPOCKET_CONFIG_ROOT}}";
-const CORNER_CONFIG_ROOT_TOKEN: &str = "{{CORNER_CONFIG_ROOT}}";
+const LEFT_POCKET_CONFIG_ROOT_TOKEN: &str = "{{LEFT_POCKET_CONFIG_ROOT}}";
 const REGISTRY_ROOT_TOKEN: &str = "{{SPOCKET_REGISTRY_ROOT}}";
-const CORNER_REGISTRY_ROOT_TOKEN: &str = "{{CORNER_REGISTRY_ROOT}}";
+const LEFT_POCKET_REGISTRY_ROOT_TOKEN: &str = "{{LEFT_POCKET_REGISTRY_ROOT}}";
 
 // ── Directive prefixes ───────────────────────────────────────────────────────
 //
-// Corner writes `#CORNER_*` directives and runtime markers. The legacy
-// `#SPOCKET_*` forms are still recognised when *reading* templates and placed
-// files so that corners created before the rename keep working without a
-// manual upgrade. New content is always emitted with the `#CORNER_` prefix.
+// left_pocket writes `#LEFT_POCKET_*` directives and runtime markers. The legacy
+// `#CORNER_*` and `#SPOCKET_*` forms are still recognised when *reading*
+// templates and placed files so that left_pockets created before the renames keep
+// working without a manual upgrade. New content is always emitted with the
+// `#LEFT_POCKET_` prefix.
 
-const CORNER_DIRECTIVE_PREFIX: &str = "#CORNER_";
-const SPOCKET_DIRECTIVE_PREFIX: &str = "#SPOCKET_";
+const LEFT_POCKET_DIRECTIVE_PREFIX: &str = "#LEFT_POCKET_";
+const LEGACY_DIRECTIVE_PREFIXES: &[&str] = &["#CORNER_", "#SPOCKET_"];
 
-/// Return the directive suffix (the part after `#CORNER_` / `#SPOCKET_`) if
-/// `line` begins with either prefix, else `None`.
+/// Return the directive suffix (the part after `#LEFT_POCKET_` / `#CORNER_` /
+/// `#SPOCKET_`) if `line` begins with any recognised prefix, else `None`.
 fn directive_suffix(line: &str) -> Option<&str> {
     let trimmed = line.trim_start();
-    if let Some(rest) = trimmed.strip_prefix(CORNER_DIRECTIVE_PREFIX) {
+    if let Some(rest) = trimmed.strip_prefix(LEFT_POCKET_DIRECTIVE_PREFIX) {
         return Some(rest);
     }
-    if let Some(rest) = trimmed.strip_prefix(SPOCKET_DIRECTIVE_PREFIX) {
-        return Some(rest);
+    for prefix in LEGACY_DIRECTIVE_PREFIXES {
+        if let Some(rest) = trimmed.strip_prefix(*prefix) {
+            return Some(rest);
+        }
     }
     None
 }
 
-/// True if `line` is any recognised directive line (`#CORNER_*` or `#SPOCKET_*`).
+/// True if `line` is any recognised directive line (`#LEFT_POCKET_*` or `#SPOCKET_*`).
 fn is_directive_line(line: &str) -> bool {
     directive_suffix(line).is_some()
 }
 
 /// Expand only the two install-known roots (`{{SPOCKET_CONFIG_ROOT}}` and
-/// `{{SPOCKET_REGISTRY_ROOT}}`). Corner-level variables such as
+/// `{{SPOCKET_REGISTRY_ROOT}}`). left_pocket-level variables such as
 /// `{{SPOCKET_ROOT}}` are intentionally left untouched so that literal examples
 /// embedded in interpreted files (e.g. feature-tag descriptions) survive.
 fn expand_install_roots(text: &str, config_root: &Path, registry_root: &Path) -> String {
-    text.replace(CORNER_CONFIG_ROOT_TOKEN, &config_root.to_string_lossy())
+    text.replace(LEFT_POCKET_CONFIG_ROOT_TOKEN, &config_root.to_string_lossy())
         .replace(CONFIG_ROOT_TOKEN, &config_root.to_string_lossy())
-        .replace(CORNER_REGISTRY_ROOT_TOKEN, &registry_root.to_string_lossy())
+        .replace(LEFT_POCKET_REGISTRY_ROOT_TOKEN, &registry_root.to_string_lossy())
         .replace(REGISTRY_ROOT_TOKEN, &registry_root.to_string_lossy())
 }
 
@@ -209,7 +218,7 @@ fn runtime_content_for_template(tmpl: &Template, ctx: &TemplateContext) -> Strin
     }
 
     if tmpl.destination == "{{SPOCKET_ROOT}}/AGENTS.md"
-        || tmpl.destination == "{{CORNER_ROOT}}/AGENTS.md"
+        || tmpl.destination == "{{LEFT_POCKET_ROOT}}/AGENTS.md"
     {
         sections.push(TASK_RUNTIME_BLOCK.trim().to_string());
     }
@@ -226,7 +235,7 @@ fn expand_template_content(content: &str, ctx: &TemplateContext) -> String {
 /// A single parsed template file.
 #[derive(Debug, Clone)]
 pub struct Template {
-    /// Relative destination path inside the corner (after variable expansion).
+    /// Relative destination path inside the left_pocket (after variable expansion).
     pub destination: String,
     /// File content (everything after the metadata lines, with `#SPOCKET` lines stripped).
     pub content: String,
@@ -234,7 +243,7 @@ pub struct Template {
     pub quiet_merge: bool,
     /// If true, an empty destination file is placed at creation and content is
     /// injected at runtime (VS Code open/close)
-    /// wrapped in `#SPOCKET_RUNTIME_CONTENT_START` / `#SPOCKET_RUNTIME_CONTENT_END` markers.
+    /// wrapped in `#LEFT_POCKET_RUNTIME_CONTENT_START` / `#LEFT_POCKET_RUNTIME_CONTENT_END` markers.
     pub merge_at_runtime: bool,
     /// Original source file path (for diagnostics).
     #[allow(dead_code)]
@@ -243,17 +252,17 @@ pub struct Template {
 
 /// Parse a template file into one or more [`Template`] blocks.
 ///
-/// The first non-empty line **must** start with `#SPOCKET_TEMPLATE_DESTINATION`
+/// The first non-empty line **must** start with `#LEFT_POCKET_TEMPLATE_DESTINATION`
 /// followed by a colon (optional) and the destination path. A file may contain
-/// **multiple** `#SPOCKET_TEMPLATE_DESTINATION` directives: each one begins a new
+/// **multiple** `#LEFT_POCKET_TEMPLATE_DESTINATION` directives: each one begins a new
 /// block, and all content beneath it applies to that destination until the next
-/// `#SPOCKET_TEMPLATE_DESTINATION` directive (or end of file). Blocks that target
+/// `#LEFT_POCKET_TEMPLATE_DESTINATION` directive (or end of file). Blocks that target
 /// the same destination are concatenated.
 ///
 /// All other lines that start with `#SPOCKET` are treated as metadata and
 /// stripped. Recognised per-block metadata directives:
-/// - `#SPOCKET_QUIET_MERGE` — merge with existing file instead of overwriting.
-/// - `#SPOCKET_MERGE_AT_RUNTIME` — inject content at runtime.
+/// - `#LEFT_POCKET_QUIET_MERGE` — merge with existing file instead of overwriting.
+/// - `#LEFT_POCKET_MERGE_AT_RUNTIME` — inject content at runtime.
 pub fn parse_template(path: &Path) -> Result<Vec<Template>> {
     let raw = fs::read_to_string(path)
         .with_context(|| format!("Failed to read template file: {}", path.display()))?;
@@ -297,14 +306,14 @@ pub fn parse_template_content(raw: &str, source: &Path) -> Result<Vec<Template>>
                 continue;
             }
             // Tolerate other directive lines (e.g. a stray
-            // `#CORNER_INSTALL_DESTINATION`) that may precede the first
+            // `#LEFT_POCKET_INSTALL_DESTINATION`) that may precede the first
             // template block — they are install-time metadata and are simply
             // stripped here.
             if is_directive_line(line) {
                 continue;
             }
             return Err(anyhow!(
-                "Template file '{}' is missing #CORNER_TEMPLATE_DESTINATION before its content.\n\
+                "Template file '{}' is missing #LEFT_POCKET_TEMPLATE_DESTINATION before its content.\n\
                      Found: {}",
                 path.display(),
                 line
@@ -312,12 +321,12 @@ pub fn parse_template_content(raw: &str, source: &Path) -> Result<Vec<Template>>
         };
 
         let trimmed = line.trim();
-        if trimmed == "#CORNER_QUIET_MERGE" || trimmed == "#SPOCKET_QUIET_MERGE" {
+        if trimmed == "#LEFT_POCKET_QUIET_MERGE" || trimmed == "#LEFT_POCKET_QUIET_MERGE" {
             current.quiet_merge = true;
-        } else if trimmed == "#CORNER_MERGE_AT_RUNTIME" || trimmed == "#SPOCKET_MERGE_AT_RUNTIME" {
+        } else if trimmed == "#LEFT_POCKET_MERGE_AT_RUNTIME" || trimmed == "#LEFT_POCKET_MERGE_AT_RUNTIME" {
             current.merge_at_runtime = true;
         } else if is_directive_line(line) {
-            // Strip unrecognised metadata directives (both #CORNER_* and
+            // Strip unrecognised metadata directives (both #LEFT_POCKET_* and
             // #SPOCKET_*).
         } else {
             current.lines.push(line.to_string());
@@ -326,7 +335,7 @@ pub fn parse_template_content(raw: &str, source: &Path) -> Result<Vec<Template>>
 
     if blocks.is_empty() {
         return Err(anyhow!(
-            "Template file '{}' is missing #CORNER_TEMPLATE_DESTINATION.",
+            "Template file '{}' is missing #LEFT_POCKET_TEMPLATE_DESTINATION.",
             path.display()
         ));
     }
@@ -370,9 +379,9 @@ pub fn parse_template_content(raw: &str, source: &Path) -> Result<Vec<Template>>
     Ok(templates)
 }
 
-/// Parse a `#CORNER_TEMPLATE_DESTINATION` (or legacy `#SPOCKET_TEMPLATE_DESTINATION`)
-/// directive from a line. Accepts both `#CORNER_TEMPLATE_DESTINATION: path` and
-/// `#CORNER_TEMPLATE_DESTINATION path` (with or without colon).
+/// Parse a `#LEFT_POCKET_TEMPLATE_DESTINATION` (or legacy `#LEFT_POCKET_TEMPLATE_DESTINATION`)
+/// directive from a line. Accepts both `#LEFT_POCKET_TEMPLATE_DESTINATION: path` and
+/// `#LEFT_POCKET_TEMPLATE_DESTINATION path` (with or without colon).
 fn parse_destination_directive(line: &str) -> Option<String> {
     let line = line.trim();
     let suffix = directive_suffix(line)?;
@@ -476,7 +485,7 @@ pub fn config_path(relative: &str) -> Result<PathBuf> {
     crate::branding::resolve_config_relative_path(Path::new(relative))
 }
 
-/// Returns the path to the templates directory, preferring Corner's config root
+/// Returns the path to the templates directory, preferring left_pocket's config root
 /// but falling back to legacy config directories when that specific directory is
 /// still only present there.
 pub fn templates_dir() -> Result<PathBuf> {
@@ -503,16 +512,16 @@ pub fn ensure_default_assets() -> Result<()> {
     install_embedded_templates(&config_dir, &registry_root)
 }
 
-/// Install default assets into Corner's canonical roots regardless of whether
+/// Install default assets into left_pocket's canonical roots regardless of whether
 /// legacy safe_pocket directories already exist. This is used by the install
-/// script so installation always seeds `~/.config/corner` and `~/.corner`.
+/// script so installation always seeds `~/.config/left_pocket` and `~/.left_pocket`.
 pub fn install_default_assets_to_current_roots() -> Result<()> {
     install_default_assets_to_current_roots_with_mode(false)
 }
 
-/// Force-install default assets into Corner's canonical roots, overwriting any
+/// Force-install default assets into left_pocket's canonical roots, overwriting any
 /// existing templates and config assets. Used by
-/// `corner install-default-assets --replace` and the install script's "replace"
+/// `left_pocket install-default-assets --replace` and the install script's "replace"
 /// path. Legacy-named template files (e.g. `safe_pocket.env.md`) are removed
 /// because the `templates/` directory is cleared first.
 pub fn install_default_assets_to_current_roots_replacing() -> Result<()> {
@@ -551,7 +560,7 @@ fn install_default_assets_to_current_roots_with_mode(force: bool) -> Result<()> 
 ///
 /// Placement is driven entirely by directives inside each file (no hard-coded
 /// file names):
-/// - `#SPOCKET_INSTALL_DESTINATION` / `#CORNER_INSTALL_DESTINATION` places the
+/// - `#LEFT_POCKET_INSTALL_DESTINATION` / `#LEFT_POCKET_INSTALL_DESTINATION` places the
 ///   file at `<path>` (one or more) at install time. These directives are
 ///   **stripped** from the placed file. Used for assets that live directly in
 ///   the config root, e.g. `directory_structure.yaml`, `feature_tags.yaml`,
@@ -559,21 +568,21 @@ fn install_default_assets_to_current_roots_with_mode(force: bool) -> Result<()> 
 /// - When a file has **no** install destination, it is mirrored to
 ///   `<config_dir>/templates/<relative_path>` so the runtime loader can find it.
 ///
-/// `#SPOCKET_TEMPLATE_DESTINATION` / `#CORNER_TEMPLATE_DESTINATION` directives
+/// `#LEFT_POCKET_TEMPLATE_DESTINATION` / `#LEFT_POCKET_TEMPLATE_DESTINATION` directives
 /// are always **left intact** in the placed file — they are consumed later, at
-/// runtime, when a new corner is created.
+/// runtime, when a new left_pocket is created.
 pub fn install_embedded_templates(config_dir: &Path, registry_root: &Path) -> Result<()> {
     install_embedded_templates_with_mode(config_dir, registry_root, false)
 }
 
 /// Force-install every embedded template, overwriting existing files and
 /// clearing the `templates/` directory first so legacy-named files (e.g. a
-/// `safe_pocket.env.md` left over after a rename to `corner.env.md`) are
+/// `safe_pocket.env.md` left over after a rename to `left_pocket.env.md`) are
 /// removed. Config-root assets (`directory_structure.yaml`, `feature_tags.yaml`,
 /// …) are overwritten in place.
 ///
 /// This is the destructive "replace" path invoked by
-/// `corner install-default-assets --replace`. User customisations inside
+/// `left_pocket install-default-assets --replace`. User customisations inside
 /// `templates/` are lost; the user is expected to re-apply them or skip the
 /// replace step.
 pub fn install_embedded_templates_replacing(config_dir: &Path, registry_root: &Path) -> Result<()> {
@@ -605,8 +614,8 @@ fn install_one_embedded(
     force: bool,
 ) -> Result<()> {
     // Collect any explicit install destinations and produce the placed body
-    // (the same content with every `#SPOCKET_INSTALL_DESTINATION` /
-    // `#CORNER_INSTALL_DESTINATION` line removed).
+    // (the same content with every `#LEFT_POCKET_INSTALL_DESTINATION` /
+    // `#LEFT_POCKET_INSTALL_DESTINATION` line removed).
     let install_dirs: Vec<String> = content
         .lines()
         .filter_map(parse_install_destination_directive)
@@ -628,9 +637,9 @@ fn install_one_embedded(
     Ok(())
 }
 
-/// Remove every `#SPOCKET_INSTALL_DESTINATION` line from `content`. If any were
+/// Remove every `#LEFT_POCKET_INSTALL_DESTINATION` line from `content`. If any were
 /// removed, a leading run of blank lines is trimmed so the placed file starts at
-/// its real content. `#SPOCKET_TEMPLATE_DESTINATION` and all other lines are
+/// its real content. `#LEFT_POCKET_TEMPLATE_DESTINATION` and all other lines are
 /// preserved verbatim.
 fn strip_install_directives(content: &str) -> String {
     let mut kept: Vec<&str> = Vec::new();
@@ -655,9 +664,9 @@ fn strip_install_directives(content: &str) -> String {
     body
 }
 
-/// Parse a `#CORNER_INSTALL_DESTINATION` (or legacy `#SPOCKET_INSTALL_DESTINATION`)
-/// directive from a line. Accepts both `#CORNER_INSTALL_DESTINATION: path` and
-/// `#CORNER_INSTALL_DESTINATION path`.
+/// Parse a `#LEFT_POCKET_INSTALL_DESTINATION` (or legacy `#LEFT_POCKET_INSTALL_DESTINATION`)
+/// directive from a line. Accepts both `#LEFT_POCKET_INSTALL_DESTINATION: path` and
+/// `#LEFT_POCKET_INSTALL_DESTINATION path`.
 fn parse_install_destination_directive(line: &str) -> Option<String> {
     let line = line.trim();
     let suffix = directive_suffix(line)?;
@@ -714,7 +723,7 @@ pub fn load_templates() -> Result<Vec<Template>> {
 
             if path.is_dir() {
                 // The `agents/` subdirectory holds unified agent definitions
-                // (synced via `spocket sync agents`), not corner templates.
+                // (synced via `spocket sync agents`), not left_pocket templates.
                 if path.file_name().map_or(false, |n| n == "agents") {
                     continue;
                 }
@@ -830,15 +839,21 @@ pub fn load_directory_structure(project_dir: Option<&Path>) -> Result<Vec<PathBu
 
 // ── Runtime merge ────────────────────────────────────────────────────────────
 
-pub const RUNTIME_START_MARKER: &str = "#CORNER_RUNTIME_CONTENT_START";
-pub const RUNTIME_END_MARKER: &str = "#CORNER_RUNTIME_CONTENT_END";
+pub const RUNTIME_START_MARKER: &str = "#LEFT_POCKET_RUNTIME_CONTENT_START";
+pub const RUNTIME_END_MARKER: &str = "#LEFT_POCKET_RUNTIME_CONTENT_END";
 
-/// Legacy runtime markers from the Spocket era. New content is always written
-/// with the `#CORNER_*` markers above, but we still recognise (and strip) the
-/// old ones so corners created before the rename get cleaned up on the next
-/// runtime merge.
-const LEGACY_RUNTIME_START_MARKER: &str = "#SPOCKET_RUNTIME_CONTENT_START";
-const LEGACY_RUNTIME_END_MARKER: &str = "#SPOCKET_RUNTIME_CONTENT_END";
+/// Legacy runtime markers from the Corner and Spocket eras. New content is
+/// always written with the `#LEFT_POCKET_*` markers above, but we still recognise
+/// (and strip) the old ones so left_pockets created before the renames get cleaned
+/// up on the next runtime merge.
+const LEGACY_RUNTIME_START_MARKERS: &[&str] = &[
+    "#LEFT_POCKET_RUNTIME_CONTENT_START",
+    "#LEFT_POCKET_RUNTIME_CONTENT_START",
+];
+const LEGACY_RUNTIME_END_MARKERS: &[&str] = &[
+    "#LEFT_POCKET_RUNTIME_CONTENT_END",
+    "#LEFT_POCKET_RUNTIME_CONTENT_END",
+];
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum TemplateApplyMode {
@@ -847,15 +862,14 @@ enum TemplateApplyMode {
 }
 
 fn strip_markers(content: &str) -> String {
-    // Strip both the current `#CORNER_RUNTIME_CONTENT_*` markers and the
-    // legacy `#SPOCKET_RUNTIME_CONTENT_*` markers so old runtime blocks are
-    // removed alongside new ones.
-    let after_primary = strip_managed_block(content, RUNTIME_START_MARKER, RUNTIME_END_MARKER);
-    strip_managed_block(
-        &after_primary,
-        LEGACY_RUNTIME_START_MARKER,
-        LEGACY_RUNTIME_END_MARKER,
-    )
+    // Strip the current `#LEFT_POCKET_RUNTIME_CONTENT_*` markers and the legacy
+    // `#CORNER_*`/`#SPOCKET_*` markers so old runtime blocks are removed
+    // alongside new ones.
+    let mut out = strip_managed_block(content, RUNTIME_START_MARKER, RUNTIME_END_MARKER);
+    for (start, end) in LEGACY_RUNTIME_START_MARKERS.iter().zip(LEGACY_RUNTIME_END_MARKERS) {
+        out = strip_managed_block(&out, start, end);
+    }
+    out
 }
 
 fn strip_managed_block(content: &str, start_marker: &str, end_marker: &str) -> String {
@@ -970,7 +984,9 @@ pub fn strip_runtime_content(dest_path: &Path) -> Result<bool> {
         .with_context(|| format!("Failed to read: {}", dest_path.display()))?;
 
     if !existing.contains(RUNTIME_START_MARKER)
-        && !existing.contains(LEGACY_RUNTIME_START_MARKER)
+        && !LEGACY_RUNTIME_START_MARKERS
+            .iter()
+            .any(|marker| existing.contains(marker))
     {
         return Ok(false);
     }
@@ -987,13 +1003,13 @@ pub fn strip_runtime_content(dest_path: &Path) -> Result<bool> {
     Ok(true)
 }
 
-pub fn apply_merge_at_runtime(corner_dir: &Path, ctx: &TemplateContext) -> Result<usize> {
+pub fn apply_merge_at_runtime(left_pocket_dir: &Path, ctx: &TemplateContext) -> Result<usize> {
     let templates = load_templates()?;
     let mut count = 0;
 
     for tmpl in &templates {
         let dest_rel = expand_variables(&tmpl.destination, ctx);
-        let dest_path = resolve_template_destination(&dest_rel, corner_dir, ctx);
+        let dest_path = resolve_template_destination(&dest_rel, left_pocket_dir, ctx);
 
         match expand_runtime_variables_in_file(&dest_path, ctx) {
             Ok(true) => {
@@ -1020,7 +1036,7 @@ pub fn apply_merge_at_runtime(corner_dir: &Path, ctx: &TemplateContext) -> Resul
     for tmpl in templates.iter().filter(|t| t.merge_at_runtime) {
         let dest_rel = expand_variables(&tmpl.destination, ctx);
         let content = runtime_content_for_template(tmpl, ctx);
-        let dest_path = resolve_template_destination(&dest_rel, corner_dir, ctx);
+        let dest_path = resolve_template_destination(&dest_rel, left_pocket_dir, ctx);
 
         match inject_runtime_content(&dest_path, &content) {
             Ok(true) => {
@@ -1048,13 +1064,13 @@ pub fn apply_merge_at_runtime(corner_dir: &Path, ctx: &TemplateContext) -> Resul
     Ok(count)
 }
 
-pub fn strip_merge_at_runtime(corner_dir: &Path, ctx: &TemplateContext) -> Result<usize> {
+pub fn strip_merge_at_runtime(left_pocket_dir: &Path, ctx: &TemplateContext) -> Result<usize> {
     let templates = load_templates()?;
     let mut count = 0;
 
     for tmpl in templates.iter().filter(|t| t.merge_at_runtime) {
         let dest_rel = expand_variables(&tmpl.destination, ctx);
-        let dest_path = resolve_template_destination(&dest_rel, corner_dir, ctx);
+        let dest_path = resolve_template_destination(&dest_rel, left_pocket_dir, ctx);
 
         match strip_runtime_content(&dest_path) {
             Ok(true) => {
@@ -1082,7 +1098,7 @@ pub fn strip_merge_at_runtime(corner_dir: &Path, ctx: &TemplateContext) -> Resul
     Ok(count)
 }
 
-/// Apply all quiet-merge templates to the corner, creating or updating each
+/// Apply all quiet-merge templates to the left_pocket, creating or updating each
 /// destination file.  Unlike the initial `apply_templates` call (Create mode),
 /// this function is safe to run on every workspace open because:
 ///
@@ -1091,27 +1107,27 @@ pub fn strip_merge_at_runtime(corner_dir: &Path, ctx: &TemplateContext) -> Resul
 /// 2. **Non-destructive** — existing content is always preserved; only missing
 ///    keys are inserted.
 ///
-/// This is used to catch templates that were added (or updated) after a corner
+/// This is used to catch templates that were added (or updated) after a left_pocket
 /// was first created so that the project `.env` and other managed files are
 /// kept up to date without requiring users to manually upgrade or recreate
-/// their corners.
-pub fn apply_quiet_merge_templates(corner_dir: &Path, ctx: &TemplateContext) -> Result<usize> {
+/// their left_pockets.
+pub fn apply_quiet_merge_templates(left_pocket_dir: &Path, ctx: &TemplateContext) -> Result<usize> {
     let templates = load_templates()?;
-    apply_quiet_merge_template_set(&templates, corner_dir, ctx)
+    apply_quiet_merge_template_set(&templates, left_pocket_dir, ctx)
 }
 
 /// Inner implementation of quiet-merge, factored out so tests can supply their
 /// own template list without touching the filesystem config directories.
 fn apply_quiet_merge_template_set(
     templates: &[Template],
-    corner_dir: &Path,
+    left_pocket_dir: &Path,
     ctx: &TemplateContext,
 ) -> Result<usize> {
     let mut count = 0;
 
     for tmpl in templates.iter().filter(|t| t.quiet_merge) {
         let dest_rel = expand_variables(&tmpl.destination, ctx);
-        let dest_path = resolve_template_destination(&dest_rel, corner_dir, ctx);
+        let dest_path = resolve_template_destination(&dest_rel, left_pocket_dir, ctx);
         let content =
             expand_template_content(&filter_template_content(&tmpl.content, ctx), ctx);
 
@@ -1166,7 +1182,7 @@ fn apply_quiet_merge_template_set(
     Ok(count)
 }
 
-// ── Apply templates to a corner ──────────────────────────────────────────────
+// ── Apply templates to a left_pocket ──────────────────────────────────────────────
 
 /// Merge template content into existing file content.
 ///
@@ -1214,7 +1230,7 @@ pub fn merge_content(existing: &str, new_content: &str) -> String {
     result
 }
 
-/// Apply all loaded templates to a corner directory.
+/// Apply all loaded templates to a left_pocket directory.
 ///
 /// - Creates directories from the directory structure.
 /// - Expands template variables and writes files.
@@ -1223,13 +1239,13 @@ pub fn merge_content(existing: &str, new_content: &str) -> String {
 ///
 /// Returns the number of files written.
 pub fn apply_templates(
-    corner_dir: &Path,
+    left_pocket_dir: &Path,
     ctx: &TemplateContext,
     project_dir: Option<&Path>,
     interactive: bool,
 ) -> Result<usize> {
     apply_templates_with_mode(
-        corner_dir,
+        left_pocket_dir,
         ctx,
         project_dir,
         interactive,
@@ -1238,7 +1254,7 @@ pub fn apply_templates(
 }
 
 fn apply_templates_with_mode(
-    corner_dir: &Path,
+    left_pocket_dir: &Path,
     ctx: &TemplateContext,
     project_dir: Option<&Path>,
     interactive: bool,
@@ -1251,7 +1267,7 @@ fn apply_templates_with_mode(
     // 1. Load directory structure and create directories
     let dirs = load_directory_structure(project_dir)?;
     for dir in &dirs {
-        let full_path = corner_dir.join(dir);
+        let full_path = left_pocket_dir.join(dir);
         fs::create_dir_all(&full_path)
             .with_context(|| format!("Failed to create directory: {}", full_path.display()))?;
     }
@@ -1259,12 +1275,12 @@ fn apply_templates_with_mode(
     // 2. Load and apply templates
     let templates = load_templates()?;
 
-    apply_template_set(&templates, corner_dir, ctx, interactive, mode)
+    apply_template_set(&templates, left_pocket_dir, ctx, interactive, mode)
 }
 
 fn apply_template_set(
     templates: &[Template],
-    corner_dir: &Path,
+    left_pocket_dir: &Path,
     ctx: &TemplateContext,
     interactive: bool,
     mode: TemplateApplyMode,
@@ -1275,7 +1291,7 @@ fn apply_template_set(
         // Expand variables in the destination path
         let dest_rel = expand_variables(&tmpl.destination, ctx);
         // Runtime-merge templates place an empty file; normal templates keep
-        // content variables for replacement when the corner is opened.
+        // content variables for replacement when the left_pocket is opened.
         let content = if tmpl.merge_at_runtime {
             String::new()
         } else {
@@ -1283,8 +1299,8 @@ fn apply_template_set(
         };
 
         // Resolve the destination: if it starts with the spocket_root, make it
-        // relative to the corner dir. Otherwise treat it as relative to corner dir.
-        let dest_path = resolve_template_destination(&dest_rel, corner_dir, ctx);
+        // relative to the left_pocket dir. Otherwise treat it as relative to left_pocket dir.
+        let dest_path = resolve_template_destination(&dest_rel, left_pocket_dir, ctx);
 
         // Ensure parent directory exists
         if let Some(parent) = dest_path.parent() {
@@ -1306,8 +1322,8 @@ fn apply_template_set(
             let existing = fs::read_to_string(&dest_path).unwrap_or_default();
 
             // Quiet-merge templates ALWAYS merge, in both Create and Upgrade
-            // mode. This is the whole point of `#CORNER_QUIET_MERGE`: the
-            // destination is a file Corner shares with the user and other tools
+            // mode. This is the whole point of `#LEFT_POCKET_QUIET_MERGE`: the
+            // destination is a file left_pocket shares with the user and other tools
             // (`.env`, `.gitignore`), so existing content must be preserved and
             // only genuinely new lines/keys appended. Overwriting here would
             // silently destroy user content — e.g. flattening a project's
@@ -1354,7 +1370,7 @@ fn apply_template_set(
         }
 
         if mode == TemplateApplyMode::Upgrade && dest_path.exists() {
-            move_existing_to_unhoused(corner_dir, &dest_path, "template upgrade")?;
+            move_existing_to_unhoused(left_pocket_dir, &dest_path, "template upgrade")?;
         }
 
         fs::write(&dest_path, &content)
@@ -1371,14 +1387,14 @@ fn apply_template_set(
     Ok(files_written)
 }
 
-fn move_existing_to_unhoused(corner_dir: &Path, path: &Path, operation: &str) -> Result<()> {
-    if !path.starts_with(corner_dir) || !path.exists() {
+fn move_existing_to_unhoused(left_pocket_dir: &Path, path: &Path, operation: &str) -> Result<()> {
+    if !path.starts_with(left_pocket_dir) || !path.exists() {
         return Ok(());
     }
 
-    let relative = path.strip_prefix(corner_dir).unwrap_or(path);
+    let relative = path.strip_prefix(left_pocket_dir).unwrap_or(path);
     let timestamp = chrono::Utc::now().format("%Y%m%dT%H%M%SZ").to_string();
-    let mut target = corner_dir.join("unhoused").join(&timestamp).join(relative);
+    let mut target = left_pocket_dir.join("unhoused").join(&timestamp).join(relative);
     let mut suffix = 1;
 
     while target.exists() {
@@ -1399,13 +1415,13 @@ fn move_existing_to_unhoused(corner_dir: &Path, path: &Path, operation: &str) ->
 
     fs::rename(path, &target).with_context(|| {
         format!(
-            "Failed to move existing corner content to unhoused: {} -> {}",
+            "Failed to move existing left_pocket content to unhoused: {} -> {}",
             path.display(),
             target.display()
         )
     })?;
 
-    let log_path = corner_dir.join("unhoused.log");
+    let log_path = left_pocket_dir.join("unhoused.log");
     let entry = format!(
         "{}\t{}\t{}\t{}\n",
         chrono::Utc::now().to_rfc3339(),
@@ -1421,8 +1437,8 @@ fn move_existing_to_unhoused(corner_dir: &Path, path: &Path, operation: &str) ->
     use std::io::Write as IoWrite;
     log.write_all(entry.as_bytes())
         .with_context(|| format!("Failed to write unhoused log: {}", log_path.display()))?;
-    let _ = crate::event::append_corner_event(
-        corner_dir,
+    let _ = crate::event::append_left_pocket_event(
+        left_pocket_dir,
         "content.unhoused",
         serde_json::json!({
             "operation": operation,
@@ -1437,14 +1453,14 @@ fn move_existing_to_unhoused(corner_dir: &Path, path: &Path, operation: &str) ->
 /// Resolve a template destination path to an absolute path.
 ///
 /// After variable expansion, the destination might be:
-/// - An absolute path (e.g. `/Users/.../corner/AGENTS.md`) → use as-is
-/// - A relative path (e.g. `.github/copilot-instructions.md`) → relative to corner_dir
-fn resolve_template_destination(dest: &str, corner_dir: &Path, _ctx: &TemplateContext) -> PathBuf {
+/// - An absolute path (e.g. `/Users/.../left_pocket/AGENTS.md`) → use as-is
+/// - A relative path (e.g. `.github/copilot-instructions.md`) → relative to left_pocket_dir
+fn resolve_template_destination(dest: &str, left_pocket_dir: &Path, _ctx: &TemplateContext) -> PathBuf {
     let path = PathBuf::from(dest);
     if path.is_absolute() {
         path
     } else {
-        corner_dir.join(path)
+        left_pocket_dir.join(path)
     }
 }
 
@@ -1531,33 +1547,33 @@ pub fn display_diff(old: &str, new: &str) {
 
 // ── Upgrade ──────────────────────────────────────────────────────────────────
 
-/// Upgrade an existing corner to match the current templates.
+/// Upgrade an existing left_pocket to match the current templates.
 ///
 /// This is called by `spocket -u <path>`. It does NOT open the workspace;
 /// it resets non-runtime template destinations to match the templates while
 /// preserving merge-at-runtime destinations for runtime injection.
-pub fn upgrade_corner(corner_dir: &Path) -> Result<()> {
-    // Validate the corner directory exists and has a manifest
-    if !corner_dir.exists() {
+pub fn upgrade_left_pocket(left_pocket_dir: &Path) -> Result<()> {
+    // Validate the left_pocket directory exists and has a manifest
+    if !left_pocket_dir.exists() {
         return Err(anyhow!(
-            "Corner directory does not exist: {}",
-            corner_dir.display()
+            "left_pocket directory does not exist: {}",
+            left_pocket_dir.display()
         ));
     }
 
-    let manifest_path = corner_dir.join("manifest.json");
+    let manifest_path = left_pocket_dir.join("manifest.json");
     if !manifest_path.exists() {
         return Err(anyhow!(
-            "No manifest.json found in {}. Is this a valid corner?",
-            corner_dir.display()
+            "No manifest.json found in {}. Is this a valid left_pocket?",
+            left_pocket_dir.display()
         ));
     }
 
     // Load manifest to get core_paths
-    let manifest = crate::manifest::Manifest::load(corner_dir)?
-        .ok_or_else(|| anyhow!("Failed to load manifest from {}", corner_dir.display()))?;
+    let manifest = crate::manifest::Manifest::load(left_pocket_dir)?
+        .ok_or_else(|| anyhow!("Failed to load manifest from {}", left_pocket_dir.display()))?;
 
-    let spocket_name = corner_dir
+    let spocket_name = left_pocket_dir
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("")
@@ -1583,7 +1599,7 @@ pub fn upgrade_corner(corner_dir: &Path) -> Result<()> {
     });
 
     let ctx = TemplateContext {
-        spocket_root: corner_dir.to_path_buf(),
+        spocket_root: left_pocket_dir.to_path_buf(),
         project_root: project_root.clone(),
         spocket_name,
         global_observations_path: global_obs,
@@ -1592,27 +1608,27 @@ pub fn upgrade_corner(corner_dir: &Path) -> Result<()> {
 
     println!(
         "{} {}",
-        "Upgrading corner:".bright_white().bold(),
-        corner_dir.display().to_string().bright_yellow()
+        "Upgrading left_pocket:".bright_white().bold(),
+        left_pocket_dir.display().to_string().bright_yellow()
     );
 
     // Upgrade force-resets non-runtime templates while preserving user-authored
     // content in merge-at-runtime destinations.
     let files_written = apply_templates_with_mode(
-        corner_dir,
+        left_pocket_dir,
         &ctx,
         Some(&project_root),
         false,
         TemplateApplyMode::Upgrade,
     )?;
 
-    let runtime_updated = apply_merge_at_runtime(corner_dir, &ctx)?;
+    let runtime_updated = apply_merge_at_runtime(left_pocket_dir, &ctx)?;
     let total_updated = files_written + runtime_updated;
 
     if total_updated == 0 {
         println!(
             "{}",
-            "Corner is already up to date with templates.".bright_green()
+            "left_pocket is already up to date with templates.".bright_green()
         );
     } else {
         println!(
@@ -1639,7 +1655,7 @@ mod tests {
     #[test]
     fn test_parse_destination_with_colon() {
         let result = parse_destination_directive(
-            "#SPOCKET_TEMPLATE_DESTINATION: .github/copilot-instructions.md",
+            "#LEFT_POCKET_TEMPLATE_DESTINATION: .github/copilot-instructions.md",
         );
         assert_eq!(result, Some(".github/copilot-instructions.md".to_string()));
     }
@@ -1647,7 +1663,7 @@ mod tests {
     #[test]
     fn test_parse_destination_without_colon() {
         let result = parse_destination_directive(
-            "#SPOCKET_TEMPLATE_DESTINATION .github/prompts/talkLikeACat.md",
+            "#LEFT_POCKET_TEMPLATE_DESTINATION .github/prompts/talkLikeACat.md",
         );
         assert_eq!(result, Some(".github/prompts/talkLikeACat.md".to_string()));
     }
@@ -1655,14 +1671,14 @@ mod tests {
     #[test]
     fn test_parse_destination_with_template_variable() {
         let result = parse_destination_directive(
-            "#SPOCKET_TEMPLATE_DESTINATION: {{SPOCKET_ROOT}}/AGENTS.md",
+            "#LEFT_POCKET_TEMPLATE_DESTINATION: {{SPOCKET_ROOT}}/AGENTS.md",
         );
         assert_eq!(result, Some("{{SPOCKET_ROOT}}/AGENTS.md".to_string()));
     }
 
     #[test]
     fn test_parse_destination_empty_returns_none() {
-        let result = parse_destination_directive("#SPOCKET_TEMPLATE_DESTINATION:");
+        let result = parse_destination_directive("#LEFT_POCKET_TEMPLATE_DESTINATION:");
         assert_eq!(result, None);
     }
 
@@ -1702,15 +1718,15 @@ mod tests {
     }
 
     #[test]
-    fn test_expand_variables_supports_corner_aliases() {
-        let ctx = make_ctx("/home/user/.corner/abc123", "/home/user/project", "abc123");
-        let input = "Root: {{CORNER_ROOT}}\nName: {{CORNER_NAME}}\nCfg: {{CORNER_CONFIG_ROOT}}";
+    fn test_expand_variables_supports_left_pocket_aliases() {
+        let ctx = make_ctx("/home/user/.left_pocket/abc123", "/home/user/project", "abc123");
+        let input = "Root: {{LEFT_POCKET_ROOT}}\nName: {{LEFT_POCKET_NAME}}\nCfg: {{LEFT_POCKET_CONFIG_ROOT}}";
 
         let output = expand_variables(input, &ctx);
 
         assert_eq!(
             output,
-            "Root: /home/user/.corner/abc123\nName: abc123\nCfg: /home/user/.config/safe_pocket"
+            "Root: /home/user/.left_pocket/abc123\nName: abc123\nCfg: /home/user/.config/safe_pocket"
         );
     }
 
@@ -1788,7 +1804,7 @@ mod tests {
         let file = dir.join("test.md");
         fs::write(
             &file,
-            "#SPOCKET_TEMPLATE_DESTINATION: .github/test.md\nHello world\nSecond line\n",
+            "#LEFT_POCKET_TEMPLATE_DESTINATION: .github/test.md\nHello world\nSecond line\n",
         )
         .unwrap();
 
@@ -1808,7 +1824,7 @@ mod tests {
         let file = dir.join("test.md");
         fs::write(
             &file,
-            "#SPOCKET_TEMPLATE_DESTINATION: test.md\n\
+            "#LEFT_POCKET_TEMPLATE_DESTINATION: test.md\n\
              #SPOCKET_SOME_OTHER_DIRECTIVE: value\n\
              Content line 1\n\
              Content line 2\n",
@@ -1859,15 +1875,15 @@ mod tests {
         let file = dir.join("multi.md");
         fs::write(
             &file,
-            "#SPOCKET_TEMPLATE_DESTINATION file1.md\n\
+            "#LEFT_POCKET_TEMPLATE_DESTINATION file1.md\n\
              bow wow wow\n\
              \n\
              more stuff\n\
              \n\
-             #SPOCKET_TEMPLATE_DESTINATION file2.md\n\
+             #LEFT_POCKET_TEMPLATE_DESTINATION file2.md\n\
              meow meow meow\n\
              \n\
-             #SPOCKET_TEMPLATE_DESTINATION file1.md\n\
+             #LEFT_POCKET_TEMPLATE_DESTINATION file1.md\n\
              oh wow this is more!\n",
         )
         .unwrap();
@@ -1902,10 +1918,10 @@ mod tests {
         let file = dir.join("flags.md");
         fs::write(
             &file,
-            "#SPOCKET_TEMPLATE_DESTINATION a.md\n\
-             #SPOCKET_QUIET_MERGE\n\
+            "#LEFT_POCKET_TEMPLATE_DESTINATION a.md\n\
+             #LEFT_POCKET_QUIET_MERGE\n\
              alpha\n\
-             #SPOCKET_TEMPLATE_DESTINATION b.md\n\
+             #LEFT_POCKET_TEMPLATE_DESTINATION b.md\n\
              beta\n",
         )
         .unwrap();
@@ -1987,20 +2003,20 @@ mod tests {
 
     #[test]
     fn test_resolve_destination_relative() {
-        let ctx = make_ctx("/corner", "/project", "hash");
-        let corner = PathBuf::from("/corner");
+        let ctx = make_ctx("/left_pocket", "/project", "hash");
+        let left_pocket = PathBuf::from("/left_pocket");
 
-        let result = resolve_template_destination(".github/test.md", &corner, &ctx);
-        assert_eq!(result, PathBuf::from("/corner/.github/test.md"));
+        let result = resolve_template_destination(".github/test.md", &left_pocket, &ctx);
+        assert_eq!(result, PathBuf::from("/left_pocket/.github/test.md"));
     }
 
     #[test]
     fn test_resolve_destination_absolute() {
-        let ctx = make_ctx("/corner", "/project", "hash");
-        let corner = PathBuf::from("/corner");
+        let ctx = make_ctx("/left_pocket", "/project", "hash");
+        let left_pocket = PathBuf::from("/left_pocket");
 
-        let result = resolve_template_destination("/corner/AGENTS.md", &corner, &ctx);
-        assert_eq!(result, PathBuf::from("/corner/AGENTS.md"));
+        let result = resolve_template_destination("/left_pocket/AGENTS.md", &left_pocket, &ctx);
+        assert_eq!(result, PathBuf::from("/left_pocket/AGENTS.md"));
     }
 
     // ── apply_templates (integration) ───────────────────────────────────
@@ -2012,16 +2028,16 @@ mod tests {
         let base = std::env::temp_dir().join("spocket_test_apply");
         let _ = fs::remove_dir_all(&base);
 
-        let corner_dir = base.join("corner");
+        let left_pocket_dir = base.join("left_pocket");
         let config_dir = base.join("config");
         let tmpl_dir = config_dir.join("templates");
         fs::create_dir_all(&tmpl_dir).unwrap();
-        fs::create_dir_all(&corner_dir).unwrap();
+        fs::create_dir_all(&left_pocket_dir).unwrap();
 
         // Write a template
         fs::write(
             tmpl_dir.join("test.md"),
-            "#SPOCKET_TEMPLATE_DESTINATION: subdir/test.md\nHello {{SPOCKET_NAME}}\n",
+            "#LEFT_POCKET_TEMPLATE_DESTINATION: subdir/test.md\nHello {{SPOCKET_NAME}}\n",
         )
         .unwrap();
 
@@ -2029,7 +2045,7 @@ mod tests {
         fs::write(config_dir.join("directory_structure.md"), "subdir\nother\n").unwrap();
 
         let ctx = make_ctx(
-            &corner_dir.to_string_lossy(),
+            &left_pocket_dir.to_string_lossy(),
             &base.join("project").to_string_lossy(),
             "testhash",
         );
@@ -2097,7 +2113,7 @@ mod tests {
         assert_eq!(name, "deep");
     }
 
-    // ── #SPOCKET_QUIET_MERGE ────────────────────────────────────────────
+    // ── #LEFT_POCKET_QUIET_MERGE ────────────────────────────────────────────
 
     #[test]
     fn test_parse_template_quiet_merge_flag() {
@@ -2108,7 +2124,7 @@ mod tests {
         let file = dir.join("env.md");
         fs::write(
             &file,
-            "#SPOCKET_TEMPLATE_DESTINATION: .env\n#SPOCKET_QUIET_MERGE\n\nMY_KEY=value\n",
+            "#LEFT_POCKET_TEMPLATE_DESTINATION: .env\n#LEFT_POCKET_QUIET_MERGE\n\nMY_KEY=value\n",
         )
         .unwrap();
 
@@ -2128,7 +2144,7 @@ mod tests {
         let file = dir.join("regular.md");
         fs::write(
             &file,
-            "#SPOCKET_TEMPLATE_DESTINATION: regular.txt\nSome content\n",
+            "#LEFT_POCKET_TEMPLATE_DESTINATION: regular.txt\nSome content\n",
         )
         .unwrap();
 
@@ -2147,8 +2163,8 @@ mod tests {
         let file = dir.join("agents.md");
         fs::write(
             &file,
-            "#SPOCKET_TEMPLATE_DESTINATION: AGENTS.md\n\
-             #SPOCKET_MERGE_AT_RUNTIME\n\nRuntime content\n",
+            "#LEFT_POCKET_TEMPLATE_DESTINATION: AGENTS.md\n\
+             #LEFT_POCKET_MERGE_AT_RUNTIME\n\nRuntime content\n",
         )
         .unwrap();
 
@@ -2173,7 +2189,7 @@ mod tests {
         assert!(inject_runtime_content(&file, "Bark like a dog\n").unwrap());
         assert_eq!(
             fs::read_to_string(&file).unwrap(),
-            "Meow like a cat\n#CORNER_RUNTIME_CONTENT_START\nBark like a dog\n#CORNER_RUNTIME_CONTENT_END\n"
+            "Meow like a cat\n#LEFT_POCKET_RUNTIME_CONTENT_START\nBark like a dog\n#LEFT_POCKET_RUNTIME_CONTENT_END\n"
         );
 
         assert!(strip_runtime_content(&file).unwrap());
@@ -2184,55 +2200,55 @@ mod tests {
 
     #[test]
     fn test_runtime_variable_expansion_skips_spocket_directives() {
-        let ctx = make_ctx("/corner", "/project", "hash");
+        let ctx = make_ctx("/left_pocket", "/project", "hash");
         let input = "Path: {{SPOCKET_ROOT}}\n#SPOCKET_NOTE: {{SPOCKET_ROOT}}\n";
 
         assert_eq!(
             expand_runtime_variables_in_content(input, &ctx),
-            "Path: /corner\n#SPOCKET_NOTE: {{SPOCKET_ROOT}}\n"
+            "Path: /left_pocket\n#SPOCKET_NOTE: {{SPOCKET_ROOT}}\n"
         );
     }
 
     #[test]
-    fn test_runtime_variable_expansion_skips_corner_directives() {
-        let ctx = make_ctx("/corner", "/project", "hash");
-        let input = "Path: {{CORNER_ROOT}}\n#CORNER_NOTE: {{CORNER_ROOT}}\n";
+    fn test_runtime_variable_expansion_skips_left_pocket_directives() {
+        let ctx = make_ctx("/left_pocket", "/project", "hash");
+        let input = "Path: {{LEFT_POCKET_ROOT}}\n#LEFT_POCKET_NOTE: {{LEFT_POCKET_ROOT}}\n";
 
         assert_eq!(
             expand_runtime_variables_in_content(input, &ctx),
-            "Path: /corner\n#CORNER_NOTE: {{CORNER_ROOT}}\n"
+            "Path: /left_pocket\n#LEFT_POCKET_NOTE: {{LEFT_POCKET_ROOT}}\n"
         );
     }
 
     #[test]
-    fn test_parse_destination_recognises_corner_prefix() {
+    fn test_parse_destination_recognises_left_pocket_prefix() {
         assert_eq!(
             parse_destination_directive(
-                "#CORNER_TEMPLATE_DESTINATION: .github/copilot-instructions.md",
+                "#LEFT_POCKET_TEMPLATE_DESTINATION: .github/copilot-instructions.md",
             ),
             Some(".github/copilot-instructions.md".to_string())
         );
         assert_eq!(
-            parse_destination_directive("#CORNER_TEMPLATE_DESTINATION {{CORNER_ROOT}}/AGENTS.md"),
-            Some("{{CORNER_ROOT}}/AGENTS.md".to_string())
+            parse_destination_directive("#LEFT_POCKET_TEMPLATE_DESTINATION {{LEFT_POCKET_ROOT}}/AGENTS.md"),
+            Some("{{LEFT_POCKET_ROOT}}/AGENTS.md".to_string())
         );
         // Legacy SPOCKET form is still recognised.
         assert_eq!(
-            parse_destination_directive("#SPOCKET_TEMPLATE_DESTINATION: legacy.md"),
+            parse_destination_directive("#LEFT_POCKET_TEMPLATE_DESTINATION: legacy.md"),
             Some("legacy.md".to_string())
         );
     }
 
     #[test]
-    fn test_parse_template_recognises_corner_directives() {
-        let dir = std::env::temp_dir().join("corner_test_parse_corner_directives");
+    fn test_parse_template_recognises_left_pocket_directives() {
+        let dir = std::env::temp_dir().join("left_pocket_test_parse_left_pocket_directives");
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
 
         let file = dir.join("test.md");
         fs::write(
             &file,
-            "#CORNER_TEMPLATE_DESTINATION: .env\n#CORNER_QUIET_MERGE\n\nMY_KEY=value\n",
+            "#LEFT_POCKET_TEMPLATE_DESTINATION: .env\n#LEFT_POCKET_QUIET_MERGE\n\nMY_KEY=value\n",
         )
         .unwrap();
 
@@ -2246,7 +2262,7 @@ mod tests {
 
     #[test]
     fn test_strip_markers_removes_legacy_spocket_runtime_block() {
-        let existing = "User content\n#SPOCKET_RUNTIME_CONTENT_START\nold runtime\n#SPOCKET_RUNTIME_CONTENT_END\nmore user\n";
+        let existing = "User content\n#LEFT_POCKET_RUNTIME_CONTENT_START\nold runtime\n#LEFT_POCKET_RUNTIME_CONTENT_END\nmore user\n";
         assert_eq!(
             strip_markers(existing),
             "User content\nmore user\n"
@@ -2254,28 +2270,45 @@ mod tests {
     }
 
     #[test]
-    fn test_strip_markers_removes_both_corner_and_spocket_runtime_blocks() {
-        let existing = "a\n#CORNER_RUNTIME_CONTENT_START\nc1\n#CORNER_RUNTIME_CONTENT_END\nb\n#SPOCKET_RUNTIME_CONTENT_START\ns1\n#SPOCKET_RUNTIME_CONTENT_END\nc\n";
+    fn test_strip_markers_removes_both_left_pocket_and_spocket_runtime_blocks() {
+        let existing = "a\n#LEFT_POCKET_RUNTIME_CONTENT_START\nc1\n#LEFT_POCKET_RUNTIME_CONTENT_END\nb\n#LEFT_POCKET_RUNTIME_CONTENT_START\ns1\n#LEFT_POCKET_RUNTIME_CONTENT_END\nc\n";
         assert_eq!(strip_markers(existing), "a\nb\nc\n");
     }
 
     #[test]
-    fn test_inject_runtime_replaces_legacy_spocket_block_with_corner() {
-        let dir = std::env::temp_dir().join("corner_test_inject_replaces_legacy");
+    fn test_strip_markers_removes_corner_runtime_block() {
+        let existing =
+            "a\n#LEFT_POCKET_RUNTIME_CONTENT_START\nc1\n#LEFT_POCKET_RUNTIME_CONTENT_END\nb\n";
+        assert_eq!(strip_markers(existing), "a\nb\n");
+    }
+
+    #[test]
+    fn test_directive_suffix_recognises_corner_prefix() {
+        assert_eq!(
+            directive_suffix("#LEFT_POCKET_TEMPLATE_DESTINATION: x.md"),
+            Some("TEMPLATE_DESTINATION: x.md")
+        );
+        assert_eq!(directive_suffix("#LEFT_POCKET_QUIET_MERGE"), Some("QUIET_MERGE"));
+        assert!(is_directive_line("  #LEFT_POCKET_MERGE_AT_RUNTIME"));
+    }
+
+    #[test]
+    fn test_inject_runtime_replaces_legacy_spocket_block_with_left_pocket() {
+        let dir = std::env::temp_dir().join("left_pocket_test_inject_replaces_legacy");
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
 
         let file = dir.join("AGENTS.md");
         fs::write(
             &file,
-            "keep\n#SPOCKET_RUNTIME_CONTENT_START\nold\n#SPOCKET_RUNTIME_CONTENT_END\n",
+            "keep\n#LEFT_POCKET_RUNTIME_CONTENT_START\nold\n#LEFT_POCKET_RUNTIME_CONTENT_END\n",
         )
         .unwrap();
 
         assert!(inject_runtime_content(&file, "new runtime\n").unwrap());
         let after = fs::read_to_string(&file).unwrap();
         assert!(!after.contains("#SPOCKET_RUNTIME_CONTENT"));
-        assert!(after.contains("#CORNER_RUNTIME_CONTENT_START"));
+        assert!(after.contains("#LEFT_POCKET_RUNTIME_CONTENT_START"));
         assert!(after.contains("new runtime"));
         assert!(after.contains("keep"));
 
@@ -2284,7 +2317,7 @@ mod tests {
 
     #[test]
     fn test_filter_template_content_removes_beads_dir() {
-        let ctx = make_ctx("/corner", "/project", "hash");
+        let ctx = make_ctx("/left_pocket", "/project", "hash");
         let content = "SPOCKET_ROOT={{SPOCKET_ROOT}}\nBEADS_DIR={{SPOCKET_ROOT}}/.beads\n";
 
         assert_eq!(
@@ -2295,7 +2328,7 @@ mod tests {
 
     #[test]
     fn test_runtime_content_for_agents_includes_task_block() {
-        let ctx = make_ctx("/corner", "/project", "hash");
+        let ctx = make_ctx("/left_pocket", "/project", "hash");
         let tmpl = Template {
             destination: "{{SPOCKET_ROOT}}/AGENTS.md".to_string(),
             content: "Base runtime\n".to_string(),
@@ -2306,16 +2339,16 @@ mod tests {
 
         let content = runtime_content_for_template(&tmpl, &ctx);
         assert!(content.contains("Base runtime"));
-        assert!(content.contains("<!-- BEGIN CORNER TASK INTEGRATION -->"));
-        assert!(content.contains("corner task"));
+        assert!(content.contains("<!-- BEGIN LEFT_POCKET TASK INTEGRATION -->"));
+        assert!(content.contains("left_pocket task"));
     }
 
     #[test]
     fn test_create_mode_places_empty_merge_at_runtime_destination() {
         let dir = std::env::temp_dir().join("spocket_test_create_places_empty_runtime");
         let _ = fs::remove_dir_all(&dir);
-        let corner_dir = dir.join("corner");
-        fs::create_dir_all(&corner_dir).unwrap();
+        let left_pocket_dir = dir.join("left_pocket");
+        fs::create_dir_all(&left_pocket_dir).unwrap();
 
         let templates = vec![Template {
             destination: "AGENTS.md".to_string(),
@@ -2324,11 +2357,11 @@ mod tests {
             merge_at_runtime: true,
             source_path: dir.join("template.md"),
         }];
-        let ctx = make_ctx(&corner_dir.to_string_lossy(), "/project", "hash");
+        let ctx = make_ctx(&left_pocket_dir.to_string_lossy(), "/project", "hash");
 
         let written = apply_template_set(
             &templates,
-            &corner_dir,
+            &left_pocket_dir,
             &ctx,
             false,
             TemplateApplyMode::Create,
@@ -2337,7 +2370,7 @@ mod tests {
 
         assert_eq!(written, 1);
         assert_eq!(
-            fs::read_to_string(corner_dir.join("AGENTS.md")).unwrap(),
+            fs::read_to_string(left_pocket_dir.join("AGENTS.md")).unwrap(),
             ""
         );
 
@@ -2348,9 +2381,9 @@ mod tests {
     fn test_create_mode_does_not_overwrite_existing_runtime_destination() {
         let dir = std::env::temp_dir().join("spocket_test_create_keeps_runtime_destination");
         let _ = fs::remove_dir_all(&dir);
-        let corner_dir = dir.join("corner");
-        fs::create_dir_all(&corner_dir).unwrap();
-        fs::write(corner_dir.join("AGENTS.md"), "User content\n").unwrap();
+        let left_pocket_dir = dir.join("left_pocket");
+        fs::create_dir_all(&left_pocket_dir).unwrap();
+        fs::write(left_pocket_dir.join("AGENTS.md"), "User content\n").unwrap();
 
         let templates = vec![Template {
             destination: "AGENTS.md".to_string(),
@@ -2359,11 +2392,11 @@ mod tests {
             merge_at_runtime: true,
             source_path: dir.join("template.md"),
         }];
-        let ctx = make_ctx(&corner_dir.to_string_lossy(), "/project", "hash");
+        let ctx = make_ctx(&left_pocket_dir.to_string_lossy(), "/project", "hash");
 
         let written = apply_template_set(
             &templates,
-            &corner_dir,
+            &left_pocket_dir,
             &ctx,
             false,
             TemplateApplyMode::Create,
@@ -2372,7 +2405,7 @@ mod tests {
 
         assert_eq!(written, 0);
         assert_eq!(
-            fs::read_to_string(corner_dir.join("AGENTS.md")).unwrap(),
+            fs::read_to_string(left_pocket_dir.join("AGENTS.md")).unwrap(),
             "User content\n"
         );
 
@@ -2383,10 +2416,10 @@ mod tests {
     fn test_upgrade_mode_overwrites_non_runtime_and_preserves_runtime() {
         let dir = std::env::temp_dir().join("spocket_test_upgrade_template_rules");
         let _ = fs::remove_dir_all(&dir);
-        let corner_dir = dir.join("corner");
-        fs::create_dir_all(&corner_dir).unwrap();
-        fs::write(corner_dir.join("normal.md"), "User edit\n").unwrap();
-        fs::write(corner_dir.join("AGENTS.md"), "User instructions\n").unwrap();
+        let left_pocket_dir = dir.join("left_pocket");
+        fs::create_dir_all(&left_pocket_dir).unwrap();
+        fs::write(left_pocket_dir.join("normal.md"), "User edit\n").unwrap();
+        fs::write(left_pocket_dir.join("AGENTS.md"), "User instructions\n").unwrap();
 
         let templates = vec![
             Template {
@@ -2404,11 +2437,11 @@ mod tests {
                 source_path: dir.join("agents-template.md"),
             },
         ];
-        let ctx = make_ctx(&corner_dir.to_string_lossy(), "/project", "hash");
+        let ctx = make_ctx(&left_pocket_dir.to_string_lossy(), "/project", "hash");
 
         let written = apply_template_set(
             &templates,
-            &corner_dir,
+            &left_pocket_dir,
             &ctx,
             false,
             TemplateApplyMode::Upgrade,
@@ -2417,11 +2450,11 @@ mod tests {
 
         assert_eq!(written, 1);
         assert_eq!(
-            fs::read_to_string(corner_dir.join("normal.md")).unwrap(),
+            fs::read_to_string(left_pocket_dir.join("normal.md")).unwrap(),
             "Template reset\n"
         );
         assert_eq!(
-            fs::read_to_string(corner_dir.join("AGENTS.md")).unwrap(),
+            fs::read_to_string(left_pocket_dir.join("AGENTS.md")).unwrap(),
             "User instructions\n"
         );
 
@@ -2430,14 +2463,14 @@ mod tests {
 
     #[test]
     fn test_upgrade_mode_merges_quiet_merge_template_preserving_user_content() {
-        // Per the "Quiet merging" contract: on `corner -u`, a #CORNER_QUIET_MERGE
+        // Per the "Quiet merging" contract: on `left_pocket -u`, a #LEFT_POCKET_QUIET_MERGE
         // template must PRESERVE existing user content and only add genuinely new
         // lines. It must never overwrite the destination.
-        let dir = std::env::temp_dir().join("corner_test_upgrade_merges_quiet_merge");
+        let dir = std::env::temp_dir().join("left_pocket_test_upgrade_merges_quiet_merge");
         let _ = fs::remove_dir_all(&dir);
-        let corner_dir = dir.join("corner");
-        fs::create_dir_all(&corner_dir).unwrap();
-        fs::write(corner_dir.join(".env"), "USER_KEY=custom\n").unwrap();
+        let left_pocket_dir = dir.join("left_pocket");
+        fs::create_dir_all(&left_pocket_dir).unwrap();
+        fs::write(left_pocket_dir.join(".env"), "USER_KEY=custom\n").unwrap();
 
         let templates = vec![Template {
             destination: ".env".to_string(),
@@ -2446,18 +2479,18 @@ mod tests {
             merge_at_runtime: false,
             source_path: dir.join("env-template.md"),
         }];
-        let ctx = make_ctx(&corner_dir.to_string_lossy(), "/project", "hash");
+        let ctx = make_ctx(&left_pocket_dir.to_string_lossy(), "/project", "hash");
 
         apply_template_set(
             &templates,
-            &corner_dir,
+            &left_pocket_dir,
             &ctx,
             false,
             TemplateApplyMode::Upgrade,
         )
         .unwrap();
 
-        let result = fs::read_to_string(corner_dir.join(".env")).unwrap();
+        let result = fs::read_to_string(left_pocket_dir.join(".env")).unwrap();
         assert!(
             result.contains("USER_KEY=custom"),
             "upgrade must preserve the user's existing key, got: {result}"
@@ -2472,15 +2505,15 @@ mod tests {
 
     #[test]
     fn test_upgrade_mode_quiet_merge_does_not_truncate_gitignore() {
-        // Regression test for the bug where `corner -u` flattened a project's
+        // Regression test for the bug where `left_pocket -u` flattened a project's
         // multi-line .gitignore down to the template's single `.env` line.
-        let dir = std::env::temp_dir().join("corner_test_upgrade_gitignore_preserved");
+        let dir = std::env::temp_dir().join("left_pocket_test_upgrade_gitignore_preserved");
         let _ = fs::remove_dir_all(&dir);
-        let corner_dir = dir.join("corner");
-        fs::create_dir_all(&corner_dir).unwrap();
+        let left_pocket_dir = dir.join("left_pocket");
+        fs::create_dir_all(&left_pocket_dir).unwrap();
 
         let user_gitignore = ".env\ntarget/**/*\nnode_modules/\n*.log\n.DS_Store\n";
-        fs::write(corner_dir.join(".gitignore"), user_gitignore).unwrap();
+        fs::write(left_pocket_dir.join(".gitignore"), user_gitignore).unwrap();
 
         let templates = vec![Template {
             destination: ".gitignore".to_string(),
@@ -2489,18 +2522,18 @@ mod tests {
             merge_at_runtime: false,
             source_path: dir.join("gitignore-template.md"),
         }];
-        let ctx = make_ctx(&corner_dir.to_string_lossy(), "/project", "hash");
+        let ctx = make_ctx(&left_pocket_dir.to_string_lossy(), "/project", "hash");
 
         apply_template_set(
             &templates,
-            &corner_dir,
+            &left_pocket_dir,
             &ctx,
             false,
             TemplateApplyMode::Upgrade,
         )
         .unwrap();
 
-        let result = fs::read_to_string(corner_dir.join(".gitignore")).unwrap();
+        let result = fs::read_to_string(left_pocket_dir.join(".gitignore")).unwrap();
         assert_eq!(
             result, user_gitignore,
             "the template adds nothing new, so the .gitignore must be untouched"
@@ -2519,22 +2552,22 @@ mod tests {
     fn test_create_mode_filters_beads_dir_from_env() {
         let dir = std::env::temp_dir().join("spocket_test_create_filters_beads_env");
         let _ = fs::remove_dir_all(&dir);
-        let corner_dir = dir.join("corner");
-        fs::create_dir_all(&corner_dir).unwrap();
+        let left_pocket_dir = dir.join("left_pocket");
+        fs::create_dir_all(&left_pocket_dir).unwrap();
 
         let templates = vec![Template {
             destination: ".env".to_string(),
-            content: "CORNER_ROOT={{CORNER_ROOT}}\nSPOCKET_ROOT={{CORNER_ROOT}}\nBEADS_DIR={{CORNER_ROOT}}/.beads\n"
+            content: "LEFT_POCKET_ROOT={{LEFT_POCKET_ROOT}}\nSPOCKET_ROOT={{LEFT_POCKET_ROOT}}\nBEADS_DIR={{LEFT_POCKET_ROOT}}/.beads\n"
                 .to_string(),
             quiet_merge: true,
             merge_at_runtime: false,
             source_path: dir.join("env-template.md"),
         }];
-        let ctx = make_ctx(&corner_dir.to_string_lossy(), "/project", "hash");
+        let ctx = make_ctx(&left_pocket_dir.to_string_lossy(), "/project", "hash");
 
         apply_template_set(
             &templates,
-            &corner_dir,
+            &left_pocket_dir,
             &ctx,
             false,
             TemplateApplyMode::Create,
@@ -2542,11 +2575,11 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            fs::read_to_string(corner_dir.join(".env")).unwrap(),
+            fs::read_to_string(left_pocket_dir.join(".env")).unwrap(),
             format!(
-                "CORNER_ROOT={}\nSPOCKET_ROOT={}\n",
-                corner_dir.display(),
-                corner_dir.display()
+                "LEFT_POCKET_ROOT={}\nSPOCKET_ROOT={}\n",
+                left_pocket_dir.display(),
+                left_pocket_dir.display()
             )
         );
 
@@ -2557,15 +2590,15 @@ mod tests {
     fn test_upgrade_mode_expands_template_variables_in_env_files() {
         let dir = std::env::temp_dir().join("spocket_test_upgrade_expands_env_values");
         let _ = fs::remove_dir_all(&dir);
-        let corner_dir = dir.join("corner");
+        let left_pocket_dir = dir.join("left_pocket");
         let project_dir = dir.join("project");
-        fs::create_dir_all(&corner_dir).unwrap();
+        fs::create_dir_all(&left_pocket_dir).unwrap();
         fs::create_dir_all(&project_dir).unwrap();
 
         let templates = vec![
             Template {
                 destination: "{{PROJECT_ROOT}}/.env".to_string(),
-                content: "CORNER_ROOT={{CORNER_ROOT}}\nSPOCKET_ROOT={{CORNER_ROOT}}\n"
+                content: "LEFT_POCKET_ROOT={{LEFT_POCKET_ROOT}}\nSPOCKET_ROOT={{LEFT_POCKET_ROOT}}\n"
                     .to_string(),
                 quiet_merge: true,
                 merge_at_runtime: false,
@@ -2573,7 +2606,7 @@ mod tests {
             },
             Template {
                 destination: "{{SPOCKET_ROOT}}/.env".to_string(),
-                content: "PROJECT_ROOT={{PROJECT_ROOT}}\nCORNER_ROOT={{CORNER_ROOT}}\nSPOCKET_ROOT={{CORNER_ROOT}}\n"
+                content: "PROJECT_ROOT={{PROJECT_ROOT}}\nLEFT_POCKET_ROOT={{LEFT_POCKET_ROOT}}\nSPOCKET_ROOT={{LEFT_POCKET_ROOT}}\n"
                     .to_string(),
                 quiet_merge: true,
                 merge_at_runtime: false,
@@ -2581,14 +2614,14 @@ mod tests {
             },
         ];
         let ctx = make_ctx(
-            &corner_dir.to_string_lossy(),
+            &left_pocket_dir.to_string_lossy(),
             &project_dir.to_string_lossy(),
             "hash",
         );
 
         apply_template_set(
             &templates,
-            &corner_dir,
+            &left_pocket_dir,
             &ctx,
             false,
             TemplateApplyMode::Upgrade,
@@ -2598,18 +2631,18 @@ mod tests {
         assert_eq!(
             fs::read_to_string(project_dir.join(".env")).unwrap(),
             format!(
-                "CORNER_ROOT={}\nSPOCKET_ROOT={}\n",
-                corner_dir.display(),
-                corner_dir.display()
+                "LEFT_POCKET_ROOT={}\nSPOCKET_ROOT={}\n",
+                left_pocket_dir.display(),
+                left_pocket_dir.display()
             )
         );
         assert_eq!(
-            fs::read_to_string(corner_dir.join(".env")).unwrap(),
+            fs::read_to_string(left_pocket_dir.join(".env")).unwrap(),
             format!(
-                "PROJECT_ROOT={}\nCORNER_ROOT={}\nSPOCKET_ROOT={}\n",
+                "PROJECT_ROOT={}\nLEFT_POCKET_ROOT={}\nSPOCKET_ROOT={}\n",
                 project_dir.display(),
-                corner_dir.display(),
-                corner_dir.display()
+                left_pocket_dir.display(),
+                left_pocket_dir.display()
             )
         );
 
@@ -2620,10 +2653,10 @@ mod tests {
     fn test_upgrade_runtime_strips_legacy_beads_and_injects_task_block() {
         let dir = std::env::temp_dir().join("spocket_test_upgrade_runtime_strips_legacy_beads");
         let _ = fs::remove_dir_all(&dir);
-        let corner_dir = dir.join("corner");
-        fs::create_dir_all(&corner_dir).unwrap();
+        let left_pocket_dir = dir.join("left_pocket");
+        fs::create_dir_all(&left_pocket_dir).unwrap();
 
-        let file = corner_dir.join("AGENTS.md");
+        let file = left_pocket_dir.join("AGENTS.md");
         fs::write(
             &file,
             format!(
@@ -2644,7 +2677,7 @@ mod tests {
             merge_at_runtime: true,
             source_path: dir.join("agents-template.md"),
         };
-        let ctx = make_ctx(&corner_dir.to_string_lossy(), "/project", "hash");
+        let ctx = make_ctx(&left_pocket_dir.to_string_lossy(), "/project", "hash");
 
         let content = runtime_content_for_template(&tmpl, &ctx);
         inject_runtime_content(&file, &content).unwrap();
@@ -2655,14 +2688,14 @@ mod tests {
         // The new task block lives inside the runtime markers.
         let start_idx = updated.find(RUNTIME_START_MARKER).unwrap();
         let runtime_block = &updated[start_idx..];
-        assert!(runtime_block.contains("<!-- BEGIN CORNER TASK INTEGRATION -->"));
+        assert!(runtime_block.contains("<!-- BEGIN LEFT_POCKET TASK INTEGRATION -->"));
 
         let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_install_replacing_overwrites_and_clears_legacy_files() {
-        let base = std::env::temp_dir().join("corner_test_install_replacing");
+        let base = std::env::temp_dir().join("left_pocket_test_install_replacing");
         let _ = fs::remove_dir_all(&base);
         let config_dir = base.join("config");
         let registry_root = base.join("registry");
@@ -2684,10 +2717,10 @@ mod tests {
         );
         // AGENTS.md must be overwritten with the embedded content.
         let agents = fs::read_to_string(tmpl_dir.join("AGENTS.md")).unwrap();
-        assert!(agents.contains("#CORNER_TEMPLATE_DESTINATION"));
+        assert!(agents.contains("#LEFT_POCKET_TEMPLATE_DESTINATION"));
         assert!(!agents.contains("USER CUSTOM"));
-        // The new corner.env.md must be present.
-        assert!(tmpl_dir.join("corner.env.md").exists());
+        // The new left_pocket.env.md must be present.
+        assert!(tmpl_dir.join("left_pocket.env.md").exists());
 
         let _ = fs::remove_dir_all(&base);
     }
@@ -2756,7 +2789,7 @@ mod tests {
     }
 
     #[test]
-    fn test_install_interprets_config_and_stages_corner_templates() {
+    fn test_install_interprets_config_and_stages_left_pocket_templates() {
         let base = std::env::temp_dir().join("spocket_test_install_embedded");
         let _ = fs::remove_dir_all(&base);
         let config_dir = base.join("config");
@@ -2776,7 +2809,7 @@ mod tests {
         );
         let ds = fs::read_to_string(&dir_struct).unwrap();
         assert!(
-            !ds.contains("#CORNER_INSTALL_DESTINATION"),
+            !ds.contains("#LEFT_POCKET_INSTALL_DESTINATION"),
             "INSTALL directive must be stripped from the placed file"
         );
         assert!(
@@ -2811,7 +2844,7 @@ mod tests {
         assert!(
             fs::read_to_string(&staged_agents)
                 .unwrap()
-                .contains("#CORNER_TEMPLATE_DESTINATION"),
+                .contains("#LEFT_POCKET_TEMPLATE_DESTINATION"),
             "mirrored template must keep its TEMPLATE_DESTINATION directive"
         );
 
@@ -2852,33 +2885,33 @@ mod tests {
     }
 
     #[test]
-    fn test_expand_install_roots_leaves_corner_vars_literal() {
+    fn test_expand_install_roots_leaves_left_pocket_vars_literal() {
         let out = expand_install_roots(
-            "cfg={{CORNER_CONFIG_ROOT}} reg={{CORNER_REGISTRY_ROOT}} pkt={{CORNER_ROOT}}",
+            "cfg={{LEFT_POCKET_CONFIG_ROOT}} reg={{LEFT_POCKET_REGISTRY_ROOT}} pkt={{LEFT_POCKET_ROOT}}",
             Path::new("/cfg"),
             Path::new("/reg"),
         );
-        assert_eq!(out, "cfg=/cfg reg=/reg pkt={{CORNER_ROOT}}");
+        assert_eq!(out, "cfg=/cfg reg=/reg pkt={{LEFT_POCKET_ROOT}}");
     }
 
     #[test]
     fn test_parse_install_destination_directive() {
         assert_eq!(
-            parse_install_destination_directive("#CORNER_INSTALL_DESTINATION: /a/b.yaml"),
+            parse_install_destination_directive("#LEFT_POCKET_INSTALL_DESTINATION: /a/b.yaml"),
             Some("/a/b.yaml".to_string())
         );
         assert_eq!(
-            parse_install_destination_directive("#CORNER_INSTALL_DESTINATION /a/b.yaml"),
+            parse_install_destination_directive("#LEFT_POCKET_INSTALL_DESTINATION /a/b.yaml"),
             Some("/a/b.yaml".to_string())
         );
         // Legacy SPOCKET form is still recognised.
         assert_eq!(
-            parse_install_destination_directive("#SPOCKET_INSTALL_DESTINATION: /a/b.yaml"),
+            parse_install_destination_directive("#LEFT_POCKET_INSTALL_DESTINATION: /a/b.yaml"),
             Some("/a/b.yaml".to_string())
         );
         // Must not match the runtime directive or arbitrary lines.
         assert_eq!(
-            parse_install_destination_directive("#SPOCKET_TEMPLATE_DESTINATION: /x"),
+            parse_install_destination_directive("#LEFT_POCKET_TEMPLATE_DESTINATION: /x"),
             None
         );
         assert_eq!(parse_install_destination_directive("plain text"), None);
@@ -2886,16 +2919,16 @@ mod tests {
 
     #[test]
     fn test_strip_install_directives_keeps_template_directive() {
-        let content = "#SPOCKET_INSTALL_DESTINATION: {{SPOCKET_CONFIG_ROOT}}/templates/x.md\n\
-                       #SPOCKET_TEMPLATE_DESTINATION: {{SPOCKET_ROOT}}/.github/x.md\n\
+        let content = "#LEFT_POCKET_INSTALL_DESTINATION: {{SPOCKET_CONFIG_ROOT}}/templates/x.md\n\
+                       #LEFT_POCKET_TEMPLATE_DESTINATION: {{SPOCKET_ROOT}}/.github/x.md\n\
                        body line\n";
         let out = strip_install_directives(content);
         assert!(
-            !out.contains("#SPOCKET_INSTALL_DESTINATION"),
+            !out.contains("#LEFT_POCKET_INSTALL_DESTINATION"),
             "INSTALL directive must be removed"
         );
         assert!(
-            out.contains("#SPOCKET_TEMPLATE_DESTINATION"),
+            out.contains("#LEFT_POCKET_TEMPLATE_DESTINATION"),
             "TEMPLATE directive must be preserved"
         );
         assert!(out.contains("body line"));
@@ -2903,7 +2936,7 @@ mod tests {
 
     #[test]
     fn test_strip_install_directives_trims_leading_blank() {
-        let content = "#SPOCKET_INSTALL_DESTINATION: /a.yaml\n\nreal content\n";
+        let content = "#LEFT_POCKET_INSTALL_DESTINATION: /a.yaml\n\nreal content\n";
         let out = strip_install_directives(content);
         assert_eq!(out, "real content\n");
     }
@@ -2924,28 +2957,28 @@ mod tests {
 
     #[test]
     fn test_quiet_merge_creates_missing_project_env() {
-        // Simulates the "challenges" scenario: a corner that was created before
+        // Simulates the "challenges" scenario: a left_pocket that was created before
         // project.env.md existed.  The project directory exists but has no .env.
-        let dir = std::env::temp_dir().join("corner_test_quiet_merge_creates_project_env");
+        let dir = std::env::temp_dir().join("left_pocket_test_quiet_merge_creates_project_env");
         let _ = fs::remove_dir_all(&dir);
 
-        let corner_dir = dir.join("corner");
+        let left_pocket_dir = dir.join("left_pocket");
         let project_dir = dir.join("project");
-        fs::create_dir_all(&corner_dir).unwrap();
+        fs::create_dir_all(&left_pocket_dir).unwrap();
         fs::create_dir_all(&project_dir).unwrap();
 
         let project_str = project_dir.to_string_lossy().into_owned();
-        let corner_str = corner_dir.to_string_lossy().into_owned();
+        let left_pocket_str = left_pocket_dir.to_string_lossy().into_owned();
 
-        let ctx = make_ctx(&corner_str, &project_str, "testhash");
+        let ctx = make_ctx(&left_pocket_str, &project_str, "testhash");
 
         // Template targets PROJECT_ROOT/.env — mimics project.env.md
         let templates = vec![qm_template(
             &format!("{}/.env", project_str),
-            "PROJECT_ROOT={{PROJECT_ROOT}}\nCORNER_ROOT={{CORNER_ROOT}}\n",
+            "PROJECT_ROOT={{PROJECT_ROOT}}\nLEFT_POCKET_ROOT={{LEFT_POCKET_ROOT}}\n",
         )];
 
-        let count = apply_quiet_merge_template_set(&templates, &corner_dir, &ctx).unwrap();
+        let count = apply_quiet_merge_template_set(&templates, &left_pocket_dir, &ctx).unwrap();
 
         assert_eq!(count, 1, "should have written 1 file");
 
@@ -2955,8 +2988,8 @@ mod tests {
             "project .env must contain PROJECT_ROOT, got: {env_content}"
         );
         assert!(
-            env_content.contains(&format!("CORNER_ROOT={}", corner_str)),
-            "project .env must contain CORNER_ROOT, got: {env_content}"
+            env_content.contains(&format!("LEFT_POCKET_ROOT={}", left_pocket_str)),
+            "project .env must contain LEFT_POCKET_ROOT, got: {env_content}"
         );
 
         let _ = fs::remove_dir_all(&dir);
@@ -2964,31 +2997,31 @@ mod tests {
 
     #[test]
     fn test_quiet_merge_adds_missing_key_to_existing_env() {
-        // Corner .env exists but is missing PROJECT_ROOT (e.g. written by the
-        // old sync_root_env_file which only wrote CORNER_ROOT).
-        let dir = std::env::temp_dir().join("corner_test_quiet_merge_adds_missing_key");
+        // left_pocket .env exists but is missing PROJECT_ROOT (e.g. written by the
+        // old sync_root_env_file which only wrote LEFT_POCKET_ROOT).
+        let dir = std::env::temp_dir().join("left_pocket_test_quiet_merge_adds_missing_key");
         let _ = fs::remove_dir_all(&dir);
 
-        let corner_dir = dir.join("corner");
+        let left_pocket_dir = dir.join("left_pocket");
         let project_dir = dir.join("project");
-        fs::create_dir_all(&corner_dir).unwrap();
+        fs::create_dir_all(&left_pocket_dir).unwrap();
         fs::create_dir_all(&project_dir).unwrap();
 
         let project_str = project_dir.to_string_lossy().into_owned();
-        let corner_str = corner_dir.to_string_lossy().into_owned();
+        let left_pocket_str = left_pocket_dir.to_string_lossy().into_owned();
 
-        // Pre-populate with only CORNER_ROOT (simulates migrate_post_install_root_state output)
-        let existing_env = format!("CORNER_ROOT={}\n", corner_str);
+        // Pre-populate with only LEFT_POCKET_ROOT (simulates migrate_post_install_root_state output)
+        let existing_env = format!("LEFT_POCKET_ROOT={}\n", left_pocket_str);
         fs::write(project_dir.join(".env"), &existing_env).unwrap();
 
-        let ctx = make_ctx(&corner_str, &project_str, "testhash");
+        let ctx = make_ctx(&left_pocket_str, &project_str, "testhash");
 
         let templates = vec![qm_template(
             &format!("{}/.env", project_str),
-            "PROJECT_ROOT={{PROJECT_ROOT}}\nCORNER_ROOT={{CORNER_ROOT}}\n",
+            "PROJECT_ROOT={{PROJECT_ROOT}}\nLEFT_POCKET_ROOT={{LEFT_POCKET_ROOT}}\n",
         )];
 
-        let count = apply_quiet_merge_template_set(&templates, &corner_dir, &ctx).unwrap();
+        let count = apply_quiet_merge_template_set(&templates, &left_pocket_dir, &ctx).unwrap();
 
         assert_eq!(count, 1, "should have written 1 file (added PROJECT_ROOT)");
 
@@ -2998,8 +3031,8 @@ mod tests {
             "PROJECT_ROOT must have been added, got: {env_content}"
         );
         assert!(
-            env_content.contains(&format!("CORNER_ROOT={}", corner_str)),
-            "existing CORNER_ROOT must be preserved, got: {env_content}"
+            env_content.contains(&format!("LEFT_POCKET_ROOT={}", left_pocket_str)),
+            "existing LEFT_POCKET_ROOT must be preserved, got: {env_content}"
         );
 
         let _ = fs::remove_dir_all(&dir);
@@ -3009,32 +3042,32 @@ mod tests {
     fn test_quiet_merge_is_idempotent_when_file_complete() {
         // Calling apply_quiet_merge_template_set twice on a fully-populated file
         // must be a no-op on the second call.
-        let dir = std::env::temp_dir().join("corner_test_quiet_merge_idempotent");
+        let dir = std::env::temp_dir().join("left_pocket_test_quiet_merge_idempotent");
         let _ = fs::remove_dir_all(&dir);
 
-        let corner_dir = dir.join("corner");
+        let left_pocket_dir = dir.join("left_pocket");
         let project_dir = dir.join("project");
-        fs::create_dir_all(&corner_dir).unwrap();
+        fs::create_dir_all(&left_pocket_dir).unwrap();
         fs::create_dir_all(&project_dir).unwrap();
 
         let project_str = project_dir.to_string_lossy().into_owned();
-        let corner_str = corner_dir.to_string_lossy().into_owned();
+        let left_pocket_str = left_pocket_dir.to_string_lossy().into_owned();
 
-        let ctx = make_ctx(&corner_str, &project_str, "testhash");
+        let ctx = make_ctx(&left_pocket_str, &project_str, "testhash");
 
         let templates = vec![qm_template(
             &format!("{}/.env", project_str),
-            "PROJECT_ROOT={{PROJECT_ROOT}}\nCORNER_ROOT={{CORNER_ROOT}}\n",
+            "PROJECT_ROOT={{PROJECT_ROOT}}\nLEFT_POCKET_ROOT={{LEFT_POCKET_ROOT}}\n",
         )];
 
         // First call — creates the file
-        apply_quiet_merge_template_set(&templates, &corner_dir, &ctx).unwrap();
+        apply_quiet_merge_template_set(&templates, &left_pocket_dir, &ctx).unwrap();
 
         let after_first = fs::read_to_string(project_dir.join(".env")).unwrap();
 
         // Second call — must be a no-op
         let count =
-            apply_quiet_merge_template_set(&templates, &corner_dir, &ctx).unwrap();
+            apply_quiet_merge_template_set(&templates, &left_pocket_dir, &ctx).unwrap();
 
         assert_eq!(count, 0, "second call must be a no-op");
 
@@ -3050,29 +3083,29 @@ mod tests {
     #[test]
     fn test_quiet_merge_preserves_existing_user_content() {
         // User has custom keys in their .env — they must not be removed.
-        let dir = std::env::temp_dir().join("corner_test_quiet_merge_preserves_user_content");
+        let dir = std::env::temp_dir().join("left_pocket_test_quiet_merge_preserves_user_content");
         let _ = fs::remove_dir_all(&dir);
 
-        let corner_dir = dir.join("corner");
+        let left_pocket_dir = dir.join("left_pocket");
         let project_dir = dir.join("project");
-        fs::create_dir_all(&corner_dir).unwrap();
+        fs::create_dir_all(&left_pocket_dir).unwrap();
         fs::create_dir_all(&project_dir).unwrap();
 
         let project_str = project_dir.to_string_lossy().into_owned();
-        let corner_str = corner_dir.to_string_lossy().into_owned();
+        let left_pocket_str = left_pocket_dir.to_string_lossy().into_owned();
 
-        // Existing file has user content AND the corner keys are missing
+        // Existing file has user content AND the left_pocket keys are missing
         let existing_env = "DATABASE_URL=postgres://localhost/mydb\nSECRET_KEY=supersecret\n";
         fs::write(project_dir.join(".env"), existing_env).unwrap();
 
-        let ctx = make_ctx(&corner_str, &project_str, "testhash");
+        let ctx = make_ctx(&left_pocket_str, &project_str, "testhash");
 
         let templates = vec![qm_template(
             &format!("{}/.env", project_str),
-            "PROJECT_ROOT={{PROJECT_ROOT}}\nCORNER_ROOT={{CORNER_ROOT}}\n",
+            "PROJECT_ROOT={{PROJECT_ROOT}}\nLEFT_POCKET_ROOT={{LEFT_POCKET_ROOT}}\n",
         )];
 
-        apply_quiet_merge_template_set(&templates, &corner_dir, &ctx).unwrap();
+        apply_quiet_merge_template_set(&templates, &left_pocket_dir, &ctx).unwrap();
 
         let env_content = fs::read_to_string(project_dir.join(".env")).unwrap();
         assert!(
@@ -3094,13 +3127,13 @@ mod tests {
     #[test]
     fn test_quiet_merge_skips_non_quiet_templates() {
         // Templates without quiet_merge must not be touched by apply_quiet_merge_template_set.
-        let dir = std::env::temp_dir().join("corner_test_quiet_merge_skips_non_quiet");
+        let dir = std::env::temp_dir().join("left_pocket_test_quiet_merge_skips_non_quiet");
         let _ = fs::remove_dir_all(&dir);
 
-        let corner_dir = dir.join("corner");
-        fs::create_dir_all(&corner_dir).unwrap();
+        let left_pocket_dir = dir.join("left_pocket");
+        fs::create_dir_all(&left_pocket_dir).unwrap();
 
-        let ctx = make_ctx(&corner_dir.to_string_lossy(), "/project", "testhash");
+        let ctx = make_ctx(&left_pocket_dir.to_string_lossy(), "/project", "testhash");
 
         let templates = vec![Template {
             destination: "should_not_be_created.txt".to_string(),
@@ -3110,10 +3143,10 @@ mod tests {
             source_path: PathBuf::from("test.md"),
         }];
 
-        let count = apply_quiet_merge_template_set(&templates, &corner_dir, &ctx).unwrap();
+        let count = apply_quiet_merge_template_set(&templates, &left_pocket_dir, &ctx).unwrap();
         assert_eq!(count, 0, "non-quiet template must be skipped");
         assert!(
-            !corner_dir.join("should_not_be_created.txt").exists(),
+            !left_pocket_dir.join("should_not_be_created.txt").exists(),
             "file must not be created for non-quiet template"
         );
 

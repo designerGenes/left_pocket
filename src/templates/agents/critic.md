@@ -45,4 +45,4 @@ submits the feature markdown file and the git diff to you.
   to work on that **precisely defined** deficiency. Be specific.
 - If and only if **every** element of the feature file has been implemented as
   defined: pass the work on to the sub-agents (Reporter, Documenter, Installer,
-  safe_pocketer).
+  left_pocketer).

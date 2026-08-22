@@ -56,8 +56,8 @@ pub const DEFAULT_AGENTS: &[(&str, &str)] = &[
         include_str!("templates/agents/installer.md"),
     ),
     (
-        "safe_pocketer.md",
-        include_str!("templates/agents/safe_pocketer.md"),
+        "left_pocketer.md",
+        include_str!("templates/agents/left_pocketer.md"),
     ),
 ];
 
@@ -432,18 +432,18 @@ pub fn agents_template_dir() -> Result<PathBuf> {
 /// Path to the OpenCode agent directory (`$HOME/.config/opencode/agent`).
 ///
 /// This is the *global* location safe_pocket used to write into. Agents are now
-/// installed per-project (see [`corner_agent_dir`]); this remains only so the
+/// installed per-project (see [`left_pocket_agent_dir`]); this remains only so the
 /// legacy global files can be located, backed up, and removed.
 pub fn opencode_agent_dir() -> Result<PathBuf> {
     let home = dirs::home_dir().context("Failed to get home directory")?;
     Ok(home.join(".config").join("opencode").join("agent"))
 }
 
-/// Path to a corner's project-local OpenCode agent directory
-/// (`<corner>/.opencode/agent`). OpenCode discovers agents here when the corner
+/// Path to a left_pocket's project-local OpenCode agent directory
+/// (`<left_pocket>/.opencode/agent`). OpenCode discovers agents here when the left_pocket
 /// is opened as a workspace, so no global installation is required.
-pub fn corner_agent_dir(corner_dir: &Path) -> PathBuf {
-    corner_dir.join(".opencode").join("agent")
+pub fn left_pocket_agent_dir(left_pocket_dir: &Path) -> PathBuf {
+    left_pocket_dir.join(".opencode").join("agent")
 }
 
 /// Load all unified agent definitions from the templates directory.
@@ -511,11 +511,11 @@ impl SyncReport {
     }
 }
 
-/// Synchronize the unified agents into a corner's project-local OpenCode agent
-/// directory (`<corner>/.opencode/agent`). This is the per-project replacement
+/// Synchronize the unified agents into a left_pocket's project-local OpenCode agent
+/// directory (`<left_pocket>/.opencode/agent`). This is the per-project replacement
 /// for the old global sync.
-pub fn sync_agents_into_corner(corner_dir: &Path) -> Result<SyncReport> {
-    sync_agents_into(&corner_agent_dir(corner_dir))
+pub fn sync_agents_into_left_pocket(left_pocket_dir: &Path) -> Result<SyncReport> {
+    sync_agents_into(&left_pocket_agent_dir(left_pocket_dir))
 }
 
 /// Synchronize the unified agents into `target_dir`, rendering each into the
@@ -776,10 +776,10 @@ mod tests {
     }
 
     #[test]
-    fn test_corner_agent_dir_is_project_local() {
-        let corner = Path::new("/home/user/.safe_pocket/abc123");
+    fn test_left_pocket_agent_dir_is_project_local() {
+        let left_pocket = Path::new("/home/user/.safe_pocket/abc123");
         assert_eq!(
-            corner_agent_dir(corner),
+            left_pocket_agent_dir(left_pocket),
             Path::new("/home/user/.safe_pocket/abc123/.opencode/agent")
         );
     }

@@ -31,7 +31,7 @@ that is ready for scrutiny.
   duplicate functionality or structure that already exists.
 - Write unit tests and all compilation / benchmarking / performance / integration
   tests required by the feature.
-- Consult `$HOME/.config/corner/feature_tags.yaml` first, then fall back to legacy CORNER config roots, for feature tags that
+- Consult `$HOME/.config/left_pocket/feature_tags.yaml` first, then fall back to legacy LOCKET config roots, for feature tags that
   determine how and when you write tests.
 - Execute the tests as part of the build. **All tests must pass** before the
   build is considered complete.

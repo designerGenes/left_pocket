@@ -1,11 +1,11 @@
 {
-  "name": "corner",
-  "displayName": "Corner",
-  "description": "Real-time sync between VS Code workspace folders and Corner manifests",
+  "name": "left-pocket",
+  "displayName": "left Pocket (left_pocket)",
+  "description": "Real-time sync between VS Code workspace folders and left_pocket manifests",
   "version": "2.1.1",
   "publisher": "jadennation",
   "repository": {
-    "url": "https://github.com/designerGenes/corner"
+    "url": "https://github.com/designerGenes/left_pocket"
   },
   "license": "MIT",
   "engines": {
@@ -16,20 +16,20 @@
   ],
   "activationEvents": [
     "onStartupFinished",
-    "onCommand:corner.openDailyFeature",
-    "onCommand:corner.newDailyFeature"
+    "onCommand:left_pocket.openDailyFeature",
+    "onCommand:left_pocket.newDailyFeature"
   ],
   "main": "./out/extension.js",
   "contributes": {
     "configuration": {
-      "title": "Corner",
+      "title": "left_pocket",
       "properties": {
-        "corner.binaryPath": {
+        "left_pocket.binaryPath": {
           "type": "string",
-          "default": "corner",
-          "description": "Path to the Corner binary"
+          "default": "left_pocket",
+          "description": "Path to the left_pocket binary"
         },
-        "corner.dailyFeatureSubpath": {
+        "left_pocket.dailyFeatureSubpath": {
           "type": "string",
           "default": "dailies",
           "description": "Subfolder under FEATURES where new daily feature files are created"
@@ -38,26 +38,26 @@
     },
     "commands": [
       {
-        "command": "corner.openDailyFeature",
-        "title": "Corner: Open Daily Feature"
+        "command": "left_pocket.openDailyFeature",
+        "title": "left_pocket: Open Daily Feature"
       },
       {
-        "command": "corner.newDailyFeature",
-        "title": "Corner: New Daily Feature File"
+        "command": "left_pocket.newDailyFeature",
+        "title": "left_pocket: New Daily Feature File"
       }
     ],
     "keybindings": [
       {
-        "command": "corner.openDailyFeature",
+        "command": "left_pocket.openDailyFeature",
         "key": "ctrl+alt+t",
         "mac": "ctrl+alt+t",
         "when": "workspaceFolderCount > 0"
       },
       {
-        "command": "corner.newDailyFeature",
+        "command": "left_pocket.newDailyFeature",
         "key": "ctrl+shift+alt+t",
         "mac": "ctrl+shift+alt+t",
-        "when": "workspaceFolderCount > 0 && corner.inTodaysFeature"
+        "when": "workspaceFolderCount > 0 && left_pocket.inTodaysFeature"
       }
     ]
   },

@@ -1,21 +1,23 @@
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 
-pub const PRODUCT_NAME: &str = "Corner";
-pub const PRIMARY_BINARY_NAME: &str = "corner";
+pub const PRODUCT_NAME: &str = "left_pocket";
 #[allow(dead_code)]
-pub const LEGACY_BINARY_NAMES: &[&str] = &["safe_pocket", "spocket"];
-pub const REPOSITORY_URL: &str = "https://github.com/designerGenes/corner";
+pub const CLI_ALIAS_NAME: &str = "locket";
+pub const PRIMARY_BINARY_NAME: &str = "left_pocket";
+#[allow(dead_code)]
+pub const LEGACY_BINARY_NAMES: &[&str] = &["locket", "corner", "safe_pocket", "spocket"];
+pub const REPOSITORY_URL: &str = "https://github.com/designerGenes/left_pocket";
 
 /// ASCII-art logo shown before `--help` and `-v` output.
 ///
 /// The outer rectangle is 10 columns wide (right edge at column 9). A smaller
 /// inset rectangle (columns 6-9) houses the filled `▓▓` block on line 4, and
-/// the product name `corner` sits on line 3 after three spaces.
+/// the product name `left_pocket` sits on line 3 after three spaces.
 pub const LOGO: &str = "\
 ╭────────╮
 │        │
-│     ╭──┤   corner
+│     ╭──┤   left_pocket
 │     │▓▓│
 ╰─────┴──╯";
 
@@ -25,18 +27,21 @@ pub fn print_logo() {
     println!();
 }
 
-pub const PRIMARY_ROOT_ENV_KEY: &str = "CORNER_ROOT";
-pub const LEGACY_ROOT_ENV_KEYS: &[&str] = &["SPOCKET_ROOT"];
+pub const PRIMARY_ROOT_ENV_KEY: &str = "LEFT_POCKET_ROOT";
+pub const LEGACY_ROOT_ENV_KEYS: &[&str] = &["LOCKET_ROOT", "CORNER_ROOT", "SPOCKET_ROOT"];
 
-pub const PRIMARY_REGISTRY_DIRNAME: &str = ".corner";
-pub const LEGACY_REGISTRY_DIRNAMES: &[&str] = &[".safe_pocket", ".spocket"];
+pub const PRIMARY_REGISTRY_DIRNAME: &str = ".left_pocket";
+pub const LEGACY_REGISTRY_DIRNAMES: &[&str] = &[".corner", ".safe_pocket", ".spocket"];
 
-pub const PRIMARY_CONFIG_DIRNAME: &str = "corner";
-pub const LEGACY_CONFIG_DIRNAMES: &[&str] = &["safe_pocket", "spocket"];
+pub const PRIMARY_CONFIG_DIRNAME: &str = "left_pocket";
+pub const LEGACY_CONFIG_DIRNAMES: &[&str] = &["corner", "safe_pocket", "spocket"];
 
-pub const PRIMARY_BACKUP_REPO_DIRNAME: &str = ".corner_backup_repo";
-pub const LEGACY_BACKUP_REPO_DIRNAMES: &[&str] =
-    &[".safe_pocket_backup_repo", ".spocket_backup_repo"];
+pub const PRIMARY_BACKUP_REPO_DIRNAME: &str = ".left_pocket_backup_repo";
+pub const LEGACY_BACKUP_REPO_DIRNAMES: &[&str] = &[
+    ".corner_backup_repo",
+    ".safe_pocket_backup_repo",
+    ".spocket_backup_repo",
+];
 
 fn home_dir() -> Result<PathBuf> {
     dirs::home_dir().context("Failed to get home directory")

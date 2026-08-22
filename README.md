@@ -1,22 +1,22 @@
 ```
 ╭────────╮
 │        │
-│     ╭──┤   corner
+│     ╭──┤   left_pocket
 │     │▓▓│
 ╰─────┴──╯
 ```
 
-# Corner
+# left_pocket
 
-**corner** (compatibility aliases: `safe_pocket`, `spocket`) — ad hoc VS Code workspace manager with AI copilot support.
+**left_pocket** (compatibility aliases: `safe_pocket`, `spocket`) — ad hoc VS Code workspace manager with AI copilot support.
 
-Keep "meta" files (copilot instructions, prompts, observations, feature notes) in a dedicated corner directory (`~/.corner/<hash>/`) so they never pollute your project repo, yet VS Code opens them together with your project as a single multi-root workspace.
+Keep "meta" files (copilot instructions, prompts, observations, feature notes) in a dedicated left_pocket directory (`~/.left_pocket/<hash>/`) so they never pollute your project repo, yet VS Code opens them together with your project as a single multi-root workspace.
 
-Corner prefers the new roots `~/.corner/` and `~/.config/corner/`, but it falls back to legacy `~/.safe_pocket/`, `~/.spocket/`, `~/.config/safe_pocket/`, and `~/.config/spocket/` locations when the matching files or directories only exist there.
+left_pocket prefers the new roots `~/.left_pocket/` and `~/.config/left_pocket/`, but it falls back to legacy `~/.safe_pocket/`, `~/.spocket/`, `~/.config/safe_pocket/`, and `~/.config/spocket/` locations when the matching files or directories only exist there.
 
 ---
 
-To understand Corner, read the [documentation](documentation/Concepts.md) or run `corner --help` for a quick overview of commands and flags.
+To understand left_pocket, read the [documentation](documentation/Concepts.md) or run `left_pocket --help` for a quick overview of commands and flags.
 
 Reading the documentation is highly recommended.
 
@@ -26,19 +26,19 @@ Reading the documentation is highly recommended.
 
 ```bash
 # Create or open a workspace for the current directory
-corner -i .
+left_pocket -i .
 
 # Create a workspace spanning two projects
-corner -i ~/dev/frontend -i ~/dev/backend
+left_pocket -i ~/dev/frontend -i ~/dev/backend
 
-# Upgrade corner templates to match latest config
-corner -u ~/dev/myproject
+# Upgrade left_pocket templates to match latest config
+left_pocket -u ~/dev/myproject
 
-# Check which corner a project belongs to
-corner locate --path ~/dev/myproject
+# Check which left_pocket a project belongs to
+left_pocket locate --path ~/dev/myproject
 
 # Generate shell completions (zsh)
-corner completions zsh > ~/.zsh/completions/_corner
+left_pocket completions zsh > ~/.zsh/completions/_left_pocket
 ```
 
 ---
@@ -46,17 +46,17 @@ corner completions zsh > ~/.zsh/completions/_corner
 ## Command Hierarchy
 
 ```
-corner
+left_pocket
 │
 ├─ GLOBAL FLAGS (always available)
 │  ├─ -i, --include PATH      Add directory to workspace (repeatable)
 │  ├─ -s, --sidecar PATH      Add temporary sidecar (session only)
 │  ├─ --with TOOL             Add tool for this session only
 │  ├─ --add TOOL              Install tool for future sessions
-│  ├─ -u, --upgrade PATH      Upgrade corner templates
-│  ├─ --clone-from PATH       Clone corner from another project
-│  ├─ --temporary             Use ~/.corner/temporary
-│  ├─ --force-new             Create new corner even if one exists
+│  ├─ -u, --upgrade PATH      Upgrade left_pocket templates
+│  ├─ --clone-from PATH       Clone left_pocket from another project
+│  ├─ --temporary             Use ~/.left_pocket/temporary
+│  ├─ --force-new             Create new left_pocket even if one exists
 │  ├─ --no-readme             Skip README generation
 │  ├─ --simulate-runtime      Inject runtime content without launching VS Code
 │  ├─ --silent                Setup workspace without opening VS Code
@@ -66,7 +66,7 @@ corner
 ├─ register NAME="PATH"        Register directory alias
 ├─ unregister NAME             Remove directory alias
 ├─ list-aliases                List all aliases
-├─ list-workspaces             List all known corners
+├─ list-workspaces             List all known left_pockets
 │
 ├─ sync [TARGET]               Sync assets or manifest
 │  └─ TARGET: agents | all
@@ -76,28 +76,28 @@ corner
 │  ├─ --remove PATH            Remove directory
 │  └─ --no-open                Don't open VS Code
 │
-├─ mark MARK CORNER            Mark corner with metadata
+├─ mark MARK LEFT_POCKET            Mark left_pocket with metadata
 │  └─ MARK: temporary
 │
-├─ clean [SCOPE]               Clean corners in bulk
+├─ clean [SCOPE]               Clean left_pockets in bulk
 │  ├─ SCOPE: temporary
-│  ├─ --older-than AGE         Clean corners older than AGE
-│  ├─ --all                    Clean all corners
+│  ├─ --older-than AGE         Clean left_pockets older than AGE
+│  ├─ --all                    Clean all left_pockets
 │  ├─ --hard                   Delete directories (not just registry)
 │  └─ -y, --yes                Skip confirmation
 │
-├─ heal                         Reconnect project to existing corner
+├─ heal                         Reconnect project to existing left_pocket
 │  ├─ --project PATH           Project directory
 │  ├─ --alias ALIAS            Alias name (instead of path)
-│  └─ --corner CORNER          Corner directory
+│  └─ --left_pocket LEFT_POCKET          left_pocket directory
 │
-├─ locate                       Find corner for a path
+├─ locate                       Find left_pocket for a path
 │  ├─ --path PATH              Project path (default: .)
 │  └─ --read-only              Resolve without writing config/registry caches
 │
-├─ sync-registry-git            Refresh git snapshot of all corners
+├─ sync-registry-git            Refresh git snapshot of all left_pockets
 │
-├─ upgrade-installation         Rewrite legacy #SPOCKET_* tokens to #CORNER_*
+├─ upgrade-installation         Rewrite legacy #SPOCKET_* tokens to #LOCKET_*
 │  ├─ --dry-run                Preview rewrites without changing files
 │  ├─ -y, --yes                Apply without prompting
 │  ├─ --root PATH              Extra root to scan (repeatable)
@@ -120,11 +120,11 @@ corner
 ├─ completion-spec              Machine-readable completion model
 │
 ├─ daily-feature                Manage daily feature notes
-│  ├─ --corner PATH            Corner directory
+│  ├─ --left_pocket PATH            left_pocket directory
 │  ├─ --new                    Always create new file
 │  └─ --subpath PATH           Subfolder for daily files
 │
-├─ worktree ACTION              Manage git worktrees sharing this corner
+├─ worktree ACTION              Manage git worktrees sharing this left_pocket
 │  ├─ add [PATH]               Register worktree
 │  ├─ remove PATH              Unregister worktree
 │  └─ list                     List all worktrees
@@ -165,14 +165,14 @@ corner
 Add a directory to the workspace. Can be used multiple times to create multi-root workspaces.
 
 ```bash
-corner -i ~/dev/frontend -i ~/dev/backend
+left_pocket -i ~/dev/frontend -i ~/dev/backend
 ```
 
 #### `-s`, `--sidecar PATH` (repeatable)
 Add a temporary sidecar directory (not saved to workspace file). Injected for this session only and removed next time the workspace opens normally. Useful for pulling in dependencies or reference repositories.
 
 ```bash
-corner -i . -s ~/external/lib
+left_pocket -i . -s ~/external/lib
 ```
 
 #### `--with TOOL` (repeatable)
@@ -181,77 +181,77 @@ Add a tool for this session only. Tools are exposed as managed sidecar folders w
 Supported tools: `gitleaks`, `graphify`, `memgraph`
 
 ```bash
-corner -i . --with gitleaks --with graphify
+left_pocket -i . --with gitleaks --with graphify
 ```
 
 #### `--add TOOL` (repeatable)
-Install a tool into the project and corner for future sessions. If already installed, this is a no-op.
+Install a tool into the project and left_pocket for future sessions. If already installed, this is a no-op.
 
 Supported tools: `gitleaks`, `graphify`, `memgraph`
 
 ```bash
-corner -i . --add graphify
+left_pocket -i . --add graphify
 ```
 
 #### `--clone-from PATH`
-Clone the corner from the workspace containing this path. Copies all meta files (copilot instructions, prompts, observations, etc.) from the source corner into the new one, then tracks lineage in both manifests. Useful when starting a new project that should inherit AI configuration from a related one.
+Clone the left_pocket from the workspace containing this path. Copies all meta files (copilot instructions, prompts, observations, etc.) from the source left_pocket into the new one, then tracks lineage in both manifests. Useful when starting a new project that should inherit AI configuration from a related one.
 
 ```bash
-corner -i ~/dev/new-project --clone-from ~/dev/existing-project
+left_pocket -i ~/dev/new-project --clone-from ~/dev/existing-project
 ```
 
 #### `-u`, `--upgrade PATH`
-Upgrade an existing corner to match current templates (does not open VS Code). Reads every template from the preferred config root, starting with `~/.config/corner/templates/` and falling back to legacy config roots when needed, then expands variables and writes the result to the corner. If a file already exists with different content, you are shown a diff and asked to confirm.
+Upgrade an existing left_pocket to match current templates (does not open VS Code). Reads every template from the preferred config root, starting with `~/.config/left_pocket/templates/` and falling back to legacy config roots when needed, then expands variables and writes the result to the left_pocket. If a file already exists with different content, you are shown a diff and asked to confirm.
 
-PATH may be either the corner directory itself or any project directory whose corner you want to upgrade.
+PATH may be either the left_pocket directory itself or any project directory whose left_pocket you want to upgrade.
 
 ```bash
-corner -u ~/dev/myproject
-corner -u ~/.corner/abc123
+left_pocket -u ~/dev/myproject
+left_pocket -u ~/.left_pocket/abc123
 ```
 
 #### `--new`
-Force creation of a new workspace even if one already exists. By default, if a project already belongs to an existing corner, that corner is opened instead of creating a duplicate.
+Force creation of a new workspace even if one already exists. By default, if a project already belongs to an existing left_pocket, that left_pocket is opened instead of creating a duplicate.
 
 ```bash
-corner -i . --new
+left_pocket -i . --new
 ```
 
 #### `--temporary`
-Create or reuse the corner under `~/.corner/temporary/`. Temporary corners are tracked separately so test suites and other short-lived workflows can be cleaned up without touching normal corners.
+Create or reuse the left_pocket under `~/.left_pocket/temporary/`. Temporary left_pockets are tracked separately so test suites and other short-lived workflows can be cleaned up without touching normal left_pockets.
 
 ```bash
-corner -i . --temporary
+left_pocket -i . --temporary
 ```
 
 #### `--no-readme`
-Skip creating README files in empty directories. By default Corner writes helpful README.md files into new empty directories (observations/, .github/prompts/, etc.).
+Skip creating README files in empty directories. By default left_pocket writes helpful README.md files into new empty directories (observations/, .github/prompts/, etc.).
 
 ```bash
-corner -i . --no-readme
+left_pocket -i . --no-readme
 ```
 
 ### Execution Control
 
 #### `--simulate-runtime`
-Inject runtime content into destination files without launching VS Code. Every file that would normally gain inject-at-runtime content (wrapped in `#CORNER_RUNTIME_CONTENT_START` / `#CORNER_RUNTIME_CONTENT_END` markers) gains that content even though VS Code is never started. Implies `--silent`.
+Inject runtime content into destination files without launching VS Code. Every file that would normally gain inject-at-runtime content (wrapped in `#LOCKET_RUNTIME_CONTENT_START` / `#LOCKET_RUNTIME_CONTENT_END` markers) gains that content even though VS Code is never started. Implies `--silent`.
 
 ```bash
-corner -i . --simulate-runtime --temporary
+left_pocket -i . --simulate-runtime --temporary
 ```
 
 #### `--silent`
-Perform every step except opening VS Code at the end. Useful for exercising Corner setup without launching the editor.
+Perform every step except opening VS Code at the end. Useful for exercising left_pocket setup without launching the editor.
 
 ```bash
-corner -i . --silent
+left_pocket -i . --silent
 ```
 
 #### `--verbose`
 Enable verbose output. Shows informational messages that are hidden by default, such as runtime merge notifications, template installation notices, and other non-error details.
 
 ```bash
-corner -i . --verbose
+left_pocket -i . --verbose
 ```
 
 #### `-v`
@@ -264,33 +264,33 @@ Print version and exit.
 ### Alias Management
 
 #### `register NAME="PATH"`
-Register a short alias for a directory path. Aliases let you refer to long directory paths by a short name in any `corner` command that accepts a PATH argument.
+Register a short alias for a directory path. Aliases let you refer to long directory paths by a short name in any `left_pocket` command that accepts a PATH argument.
 
 ```bash
-corner register api="~/dev/my-api-project"
-corner register frontend="~/dev/my-frontend"
-corner -i api -i frontend  # use aliases
+left_pocket register api="~/dev/my-api-project"
+left_pocket register frontend="~/dev/my-frontend"
+left_pocket -i api -i frontend  # use aliases
 ```
 
 #### `unregister NAME`
 Remove a previously registered directory alias.
 
 ```bash
-corner unregister api
+left_pocket unregister api
 ```
 
 #### `list-aliases`
 List all registered directory aliases.
 
 ```bash
-corner list-aliases
+left_pocket list-aliases
 ```
 
 #### `list-workspaces`
-List all known corners with their project paths and status.
+List all known left_pockets with their project paths and status.
 
 ```bash
-corner list-workspaces
+left_pocket list-workspaces
 ```
 
 ---
@@ -300,26 +300,26 @@ corner list-workspaces
 #### `sync [TARGET]`
 Sync system-wide assets or the manifest.
 
-**With a TARGET**, synchronizes system-wide Corner assets that every corner draws from:
+**With a TARGET**, synchronizes system-wide left_pocket assets that every left_pocket draws from:
 
-- `agents` — Write unified agent definitions from `~/.config/corner/templates/agents/` into the places OpenCode looks for agents
+- `agents` — Write unified agent definitions from `~/.config/left_pocket/templates/agents/` into the places OpenCode looks for agents
 - `all` — Run every system-wide sync (currently agents only)
 
-**Without a TARGET** (legacy form used by VS Code extension), updates the corner manifest to reflect the current .code-workspace folders and prints JSON. Requires `--corner`. You rarely need to run this manually.
+**Without a TARGET** (legacy form used by VS Code extension), updates the left_pocket manifest to reflect the current .code-workspace folders and prints JSON. Requires `--left_pocket`. You rarely need to run this manually.
 
 ```bash
-corner sync agents      # Write agent definitions
-corner sync all         # Sync everything
-corner sync --corner ~/.corner/abc123  # Manifest sync (internal)
+left_pocket sync agents      # Write agent definitions
+left_pocket sync all         # Sync everything
+left_pocket sync --left_pocket ~/.left_pocket/abc123  # Manifest sync (internal)
 ```
 
 #### `augment`
-Add or remove project directories from the current workspace in-place. Rewrites the .code-workspace file and manifest without moving the corner directory. Run from inside a corner or project directory that belongs to an existing workspace.
+Add or remove project directories from the current workspace in-place. Rewrites the .code-workspace file and manifest without moving the left_pocket directory. Run from inside a left_pocket or project directory that belongs to an existing workspace.
 
 ```bash
-corner augment --add ~/dev/new-service
-corner augment --remove ~/dev/old-service
-corner augment --add ~/dev/new-service --no-open
+left_pocket augment --add ~/dev/new-service
+left_pocket augment --remove ~/dev/old-service
+left_pocket augment --add ~/dev/new-service --no-open
 ```
 
 **Options:**
@@ -327,22 +327,22 @@ corner augment --add ~/dev/new-service --no-open
 - `--remove PATH` — Project directory to remove from the workspace (repeatable)
 - `--no-open` — Update workspace without opening VS Code afterwards
 
-#### `mark MARK CORNER`
-Mark an existing corner with additional metadata.
+#### `mark MARK LEFT_POCKET`
+Mark an existing left_pocket with additional metadata.
 
 ```bash
-corner mark temporary ~/.corner/abc123
+left_pocket mark temporary ~/.left_pocket/abc123
 ```
 
 **Mark types:**
-- `temporary` — Mark corner as temporary
+- `temporary` — Mark left_pocket as temporary
 
 #### `locate`
-Locate the corner associated with a project or corner path. Outputs JSON for editor integrations.
+Locate the left_pocket associated with a project or left_pocket path. Outputs JSON for editor integrations.
 
 ```bash
-corner locate --path ~/dev/myproject
-corner locate --read-only --path ~/dev/myproject
+left_pocket locate --path ~/dev/myproject
+left_pocket locate --read-only --path ~/dev/myproject
 ```
 
 **Options:**
@@ -353,61 +353,61 @@ corner locate --read-only --path ~/dev/myproject
 Normal `locate` may create or refresh the registry cache as a side effect, which
 is undesirable when auditing an installation you must not disturb. `--read-only`
 guarantees no writes, adds `"read_only": true` to the payload, and reports the
-corner's directory name as `hash` alongside the manifest's own `manifest_hash`
-(these differ for a renamed corner). Both forms resolve the most specific
-matching project, so a corner registered for a parent directory never shadows the
-corner for a nested project. This is the mode `corner tests -i` uses.
+left_pocket's directory name as `hash` alongside the manifest's own `manifest_hash`
+(these differ for a renamed left_pocket). Both forms resolve the most specific
+matching project, so a left_pocket registered for a parent directory never shadows the
+left_pocket for a nested project. This is the mode `left_pocket tests -i` uses.
 
 ---
 
-### Corner Maintenance
+### left_pocket Maintenance
 
 #### `heal`
-Reconnect a project directory to an existing corner. Moves the selected corner's contents into the deterministic corner path for the PROJECT. If that target corner already exists, it is moved aside under `~/.corner/unhoused/`, with fallback to legacy roots before replacement.
+Reconnect a project directory to an existing left_pocket. Moves the selected left_pocket's contents into the deterministic left_pocket path for the PROJECT. If that target left_pocket already exists, it is moved aside under `~/.left_pocket/unhoused/`, with fallback to legacy roots before replacement.
 
 ```bash
-corner heal --project ~/dev/app --corner abc123
-corner heal --project . --corner ~/.corner/oldhash
-corner heal --alias myproject --corner ~/.corner/xyz789
+left_pocket heal --project ~/dev/app --left_pocket abc123
+left_pocket heal --project . --left_pocket ~/.left_pocket/oldhash
+left_pocket heal --alias myproject --left_pocket ~/.left_pocket/xyz789
 ```
 
 **Options:**
 - `--project PATH` — Project directory (conflicts with `--alias`)
 - `--alias ALIAS` — Alias name (conflicts with `--project`)
-- `--corner CORNER` — Corner directory to move
+- `--left_pocket LEFT_POCKET` — left_pocket directory to move
 
 #### `clean [SCOPE]`
-Remove registry entries or corner directories in bulk.
+Remove registry entries or left_pocket directories in bulk.
 
 ```bash
-corner clean temporary              # Remove temporary corners
-corner clean --all --hard           # Delete all corners
-corner clean --older-than "7 days"  # Remove old corners
-corner clean temporary -y           # Skip confirmation
+left_pocket clean temporary              # Remove temporary left_pockets
+left_pocket clean --all --hard           # Delete all left_pockets
+left_pocket clean --older-than "7 days"  # Remove old left_pockets
+left_pocket clean temporary -y           # Skip confirmation
 ```
 
 **Scopes:**
-- `temporary` — Remove temporary corners only
+- `temporary` — Remove temporary left_pockets only
 
 **Options:**
-- `--older-than AGE` — Remove corners older than AGE (e.g., "7 days", "2 weeks")
-- `--all` — Remove all corners
+- `--older-than AGE` — Remove left_pockets older than AGE (e.g., "7 days", "2 weeks")
+- `--all` — Remove all left_pockets
 - `--hard` — Delete directories (not just registry entries)
 - `-y`, `--yes` — Skip confirmation
 
 #### `sync-registry-git`
-Refresh the top-level `~/.corner` git snapshot. Copies every corner into `~/.corner/snapshots` without nested `.git` directories so the registry root repository can version all corner contents together.
+Refresh the top-level `~/.left_pocket` git snapshot. Copies every left_pocket into `~/.left_pocket/snapshots` without nested `.git` directories so the registry root repository can version all left_pocket contents together.
 
 ```bash
-corner sync-registry-git
+left_pocket sync-registry-git
 ```
 
 #### `backup`
-Configure a cron job that backs up `~/.corner` to a git remote. The backup mirror lives at `~/.corner_backup_repo` and is pushed by cron.
+Configure a cron job that backs up `~/.left_pocket` to a git remote. The backup mirror lives at `~/.left_pocket_backup_repo` and is pushed by cron.
 
 ```bash
-corner backup --repo git@github.com:you/corner-backup.git
-corner backup --repo git@github.com:you/corner-backup.git --schedule "0 */6 * * *"  # every 6 hours
+left_pocket backup --repo git@github.com:you/left_pocket-backup.git
+left_pocket backup --repo git@github.com:you/left_pocket-backup.git --schedule "0 */6 * * *"  # every 6 hours
 ```
 
 **Options:**
@@ -420,41 +420,41 @@ corner backup --repo git@github.com:you/corner-backup.git --schedule "0 */6 * * 
 
 #### `tests`
 Run a post-installation, real-world operational suite against the **currently
-running Corner executable**. The harness does not call internal workspace or
+running left_pocket executable**. The harness does not call internal workspace or
 template functions and does not assume a source checkout exists.
 
 ```bash
-corner tests --all
-corner tests --all --verbose
-corner tests --all -i .
+left_pocket tests --all
+left_pocket tests --all --verbose
+left_pocket tests --all -i .
 ```
 
-Without `-i`, Corner creates an isolated temporary `HOME`, config tree, registry,
+Without `-i`, left_pocket creates an isolated temporary `HOME`, config tree, registry,
 projects, and fake `code` executable. It tests:
 
-- creating and locating a normal corner inside the temporary isolated HOME;
+- creating and locating a normal left_pocket inside the temporary isolated HOME;
 - `.env` roots and quiet template merging;
 - repeated/open idempotency and reverse-sync prevention;
 - runtime merge start/stop and preservation outside managed markers;
-- `corner -u` replacement versus quiet-merge preservation;
+- `left_pocket -u` replacement versus quiet-merge preservation;
 - augment add/remove/idempotency;
 - alias lifecycle;
-- healing a corner to a different project;
-- per-corner OpenCode agent placement;
+- healing a left_pocket to a different project;
+- per-left_pocket OpenCode agent placement;
 - unresolved config-root artifacts; and
 - `upgrade-installation` idempotency.
 
 It prints every command and a final PASS/FAIL/SKIP checklist, then removes only
-the harness-owned temporary root. It never invokes `corner clean --all`,
-`corner clean --hard`, remote backup configuration, or a real VS Code process.
+the harness-owned temporary root. It never invokes `left_pocket clean --all`,
+`left_pocket clean --hard`, remote backup configuration, or a real VS Code process.
 
-With `-i PATH`, Corner uses read-only `locate` on the original. If it has a
-Corner, a complete byte-identical backup is retained under
+With `-i PATH`, left_pocket uses read-only `locate` on the original. If it has a
+left_pocket, a complete byte-identical backup is retained under
 `<registry>/real-world-test-backups/`; unregistered projects are supported too.
 The supplied project is copied (excluding generated `.git`, `node_modules`,
 `target`, and `graphify-out` trees) into the isolated HOME, and the operational
 suite runs against that retained copy. Only `.opencode` and artifact reporting
-reads the original corner. The original project/corner is never opened,
+reads the original left_pocket. The original project/left_pocket is never opened,
 upgraded, augmented, healed, restored, or deleted.
 
 **Options:**
@@ -468,19 +468,19 @@ Print a shell completion script to stdout. Generates tab-completion definitions 
 
 ```bash
 # BASH
-corner completions bash > ~/.local/share/bash-completion/completions/corner
+left_pocket completions bash > ~/.local/share/bash-completion/completions/left_pocket
 
 # ZSH (add ~/.zsh/completions to fpath first)
-corner completions zsh > ~/.zsh/completions/_corner
+left_pocket completions zsh > ~/.zsh/completions/_left_pocket
 
 # FISH
-corner completions fish > ~/.config/fish/completions/corner.fish
+left_pocket completions fish > ~/.config/fish/completions/left_pocket.fish
 
 # POWERSHELL
-corner completions powershell >> $PROFILE
+left_pocket completions powershell >> $PROFILE
 
 # ELVISH
-corner completions elvish >> ~/.config/elvish/rc.elv
+left_pocket completions elvish >> ~/.config/elvish/rc.elv
 ```
 
 **Supported shells:**
@@ -494,7 +494,7 @@ corner completions elvish >> ~/.config/elvish/rc.elv
 Print a concise machine-readable completion model. This JSON is intended for editor and shell integrations that want richer nested command data than a single shell script can comfortably expose.
 
 ```bash
-corner completion-spec
+left_pocket completion-spec
 ```
 
 #### `daily-feature`
@@ -503,13 +503,13 @@ Resolve (and create) today's daily feature file for the VS Code hotkey. Outputs 
 Newly created files are seeded with feature tags whose definition in `feature_tags.yaml` sets `place_automatically: true`.
 
 ```bash
-corner daily-feature --corner ~/.corner/abc123
-corner daily-feature --corner ~/.corner/abc123 --new
-corner daily-feature --corner ~/.corner/abc123 --subpath dailies
+left_pocket daily-feature --left_pocket ~/.left_pocket/abc123
+left_pocket daily-feature --left_pocket ~/.left_pocket/abc123 --new
+left_pocket daily-feature --left_pocket ~/.left_pocket/abc123 --subpath dailies
 ```
 
 **Options:**
-- `--corner PATH` — Corner directory containing the FEATURES folder (required)
+- `--left_pocket PATH` — left_pocket directory containing the FEATURES folder (required)
 - `--new` — Always create a new numbered daily feature file
 - `--subpath PATH` — Subfolder under FEATURES where new daily files are created
 
@@ -518,41 +518,41 @@ corner daily-feature --corner ~/.corner/abc123 --subpath dailies
 ### Worktree Management
 
 #### `worktree`
-Manage git worktrees that share this corner. Worktrees are additional project directories (typically git worktrees of the same repo) that share the same corner — meaning the same copilot instructions, FEATURES notes, and observations apply to all of them.
+Manage git worktrees that share this left_pocket. Worktrees are additional project directories (typically git worktrees of the same repo) that share the same left_pocket — meaning the same copilot instructions, FEATURES notes, and observations apply to all of them.
 
 ```bash
-# Register a worktree to share the corner for the current directory
-corner worktree add ~/dev/my-project-feature-x
+# Register a worktree to share the left_pocket for the current directory
+left_pocket worktree add ~/dev/my-project-feature-x
 
 # Remove a previously registered worktree
-corner worktree remove ~/dev/my-project-feature-x
+left_pocket worktree remove ~/dev/my-project-feature-x
 
-# List all worktrees sharing this corner
-corner worktree list
+# List all worktrees sharing this left_pocket
+left_pocket worktree list
 ```
 
 **Subcommands:**
 
 ##### `worktree add [PATH]`
-Register a worktree directory to share this corner. Run from inside the main project directory (or any directory that already belongs to a corner). Corner will also suggest any git worktrees it detects in the same repo if PATH is not provided explicitly.
+Register a worktree directory to share this left_pocket. Run from inside the main project directory (or any directory that already belongs to a left_pocket). left_pocket will also suggest any git worktrees it detects in the same repo if PATH is not provided explicitly.
 
 ```bash
-corner worktree add ~/dev/my-project-feature-x
-corner worktree add  # auto-suggest git worktrees
+left_pocket worktree add ~/dev/my-project-feature-x
+left_pocket worktree add  # auto-suggest git worktrees
 ```
 
 ##### `worktree remove PATH`
-Unregister a worktree directory from this corner.
+Unregister a worktree directory from this left_pocket.
 
 ```bash
-corner worktree remove ~/dev/my-project-feature-x
+left_pocket worktree remove ~/dev/my-project-feature-x
 ```
 
 ##### `worktree list`
-List all worktrees registered to this corner.
+List all worktrees registered to this left_pocket.
 
 ```bash
-corner worktree list
+left_pocket worktree list
 ```
 
 ---
@@ -560,7 +560,7 @@ corner worktree list
 ### Task Tracking
 
 #### `task`
-Built-in issue tracker (replaces Beads). Tasks live in a global SQLite database at `~/.corner/global_data/tasks.db`, with fallback to legacy registry roots when needed. Tasks are grouped per corner by a prefix derived from the corner directory name. When run from inside a registered project, the correct prefix is detected automatically.
+Built-in issue tracker (replaces Beads). Tasks live in a global SQLite database at `~/.left_pocket/global_data/tasks.db`, with fallback to legacy registry roots when needed. Tasks are grouped per left_pocket by a prefix derived from the left_pocket directory name. When run from inside a registered project, the correct prefix is detected automatically.
 
 Task IDs are formatted as `<prefix>-<hash>` (e.g., `27472722730d-AB12CD`).
 
@@ -581,10 +581,10 @@ Task IDs are formatted as `<prefix>-<hash>` (e.g., `27472722730d-AB12CD`).
 List all tasks for the current project (or specified project). Shows open and in-progress tasks by default.
 
 ```bash
-corner task list
-corner task list --priority 1              # only P0 and P1
-corner task list --project ~/dev/api
-corner task list --raw                     # JSON output
+left_pocket task list
+left_pocket task list --priority 1              # only P0 and P1
+left_pocket task list --project ~/dev/api
+left_pocket task list --raw                     # JSON output
 ```
 
 **Options:**
@@ -596,7 +596,7 @@ corner task list --raw                     # JSON output
 Create a new task.
 
 ```bash
-corner task create --named "Implement feature X" \
+left_pocket task create --named "Implement feature X" \
   --description "Why this matters and what to do" --priority 1
 ```
 
@@ -610,7 +610,7 @@ corner task create --named "Implement feature X" \
 Assign a task to an agent.
 
 ```bash
-corner task 27472722730d-AB12CD assign --agent "Builder"
+left_pocket task 27472722730d-AB12CD assign --agent "Builder"
 ```
 
 **Options:**
@@ -620,8 +620,8 @@ corner task 27472722730d-AB12CD assign --agent "Builder"
 Start working on a task (moves to in_progress status).
 
 ```bash
-corner task 27472722730d-AB12CD start
-corner task 27472722730d-AB12CD start --notes "Starting implementation"
+left_pocket task 27472722730d-AB12CD start
+left_pocket task 27472722730d-AB12CD start --notes "Starting implementation"
 ```
 
 **Options:**
@@ -631,7 +631,7 @@ corner task 27472722730d-AB12CD start --notes "Starting implementation"
 Add a progress log entry to a task.
 
 ```bash
-corner task 27472722730d-AB12CD log --notes "Completed API endpoints"
+left_pocket task 27472722730d-AB12CD log --notes "Completed API endpoints"
 ```
 
 **Options:**
@@ -641,8 +641,8 @@ corner task 27472722730d-AB12CD log --notes "Completed API endpoints"
 Close a task (mark as completed).
 
 ```bash
-corner task 27472722730d-AB12CD close
-corner task 27472722730d-AB12CD close --notes "Released in v1.2.0"
+left_pocket task 27472722730d-AB12CD close
+left_pocket task 27472722730d-AB12CD close --notes "Released in v1.2.0"
 ```
 
 **Options:**
@@ -652,25 +652,25 @@ corner task 27472722730d-AB12CD close --notes "Released in v1.2.0"
 Discard a task (mark as cancelled or invalid).
 
 ```bash
-corner task 27472722730d-AB12CD discard
+left_pocket task 27472722730d-AB12CD discard
 ```
 
 ##### `task <ID> describe`
 Show full details for a task.
 
 ```bash
-corner task 27472722730d-AB12CD describe
-corner task 27472722730d-AB12CD describe --raw  # JSON output
+left_pocket task 27472722730d-AB12CD describe
+left_pocket task 27472722730d-AB12CD describe --raw  # JSON output
 ```
 
 **Options:**
 - `--raw` — Machine-readable JSON output
 
 ##### `task reprefix`
-Rename task prefix (when a corner is reorganized or renamed).
+Rename task prefix (when a left_pocket is reorganized or renamed).
 
 ```bash
-corner task reprefix --from 27472722730d --to abc123def456
+left_pocket task reprefix --from 27472722730d --to abc123def456
 ```
 
 **Options:**
@@ -683,82 +683,82 @@ corner task reprefix --from 27472722730d --to abc123def456
 
 ### Aliases
 
-Aliases are stored in the registry root's `aliases` file, preferring `~/.corner/aliases` and falling back to legacy registry roots when needed. Register them via CLI:
+Aliases are stored in the registry root's `aliases` file, preferring `~/.left_pocket/aliases` and falling back to legacy registry roots when needed. Register them via CLI:
 
 ```bash
-corner register api="~/dev/my-api"
-corner register frontend="~/dev/my-frontend"
+left_pocket register api="~/dev/my-api"
+left_pocket register frontend="~/dev/my-frontend"
 ```
 
 Or use the aliases immediately:
 
 ```bash
-corner -i api -i frontend
+left_pocket -i api -i frontend
 ```
 
 ### Templates
 
-Customize files written into every new corner by editing templates in `~/.config/corner/templates/`, with fallback to legacy config roots when those directories already exist. Each template file must begin with:
+Customize files written into every new left_pocket by editing templates in `~/.config/left_pocket/templates/`, with fallback to legacy config roots when those directories already exist. Each template file must begin with:
 
 ```
-#CORNER_TEMPLATE_DESTINATION: <relative-path>
+#LOCKET_TEMPLATE_DESTINATION: <relative-path>
 ```
 
 Supported directives:
 
 | Directive | Meaning |
 | --- | --- |
-| `#CORNER_TEMPLATE_DESTINATION: <path>` | Where the template is Placed inside a corner. A file may contain several, each starting a new block. |
-| `#CORNER_INSTALL_DESTINATION: <path>` | Place this file at an arbitrary path at **install** time only (e.g. `directory_structure.yaml` lands directly in `~/.config/corner`, not under `templates/`). Stripped from the placed file. |
-| `#CORNER_QUIET_MERGE` | Merge into an existing destination file instead of overwriting, de-duplicating `KEY=VALUE` lines. Used for `.env` and `.gitignore`. |
-| `#CORNER_MERGE_AT_RUNTIME` | Inject content when a session opens, wrapped in `#CORNER_RUNTIME_CONTENT_START` / `#CORNER_RUNTIME_CONTENT_END`, and strip it when the session closes. |
+| `#LOCKET_TEMPLATE_DESTINATION: <path>` | Where the template is Placed inside a left_pocket. A file may contain several, each starting a new block. |
+| `#LOCKET_INSTALL_DESTINATION: <path>` | Place this file at an arbitrary path at **install** time only (e.g. `directory_structure.yaml` lands directly in `~/.config/left_pocket`, not under `templates/`). Stripped from the placed file. |
+| `#LOCKET_QUIET_MERGE` | Merge into an existing destination file instead of overwriting, de-duplicating `KEY=VALUE` lines. Used for `.env` and `.gitignore`. |
+| `#LOCKET_MERGE_AT_RUNTIME` | Inject content when a session opens, wrapped in `#LOCKET_RUNTIME_CONTENT_START` / `#LOCKET_RUNTIME_CONTENT_END`, and strip it when the session closes. |
 
 The legacy `#SPOCKET_*` spellings of all of the above are still recognised when
 reading templates and already-placed files. New content is always written with
-the `#CORNER_` prefix. Run [`corner upgrade-installation`](#corner-upgrade-installation)
+the `#LOCKET_` prefix. Run [`left_pocket upgrade-installation`](#left_pocket-upgrade-installation)
 to migrate old files in place.
 
 Supported variables:
-- `{{CORNER_ROOT}}` / `{{SPOCKET_ROOT}}` — Absolute path to the corner directory (`CORNER_*` preferred)
-- `{{CORNER_NAME}}` / `{{SPOCKET_NAME}}` — Hash-based corner identifier (`CORNER_*` preferred)
-- `{{CORNER_CONFIG_ROOT}}` / `{{SPOCKET_CONFIG_ROOT}}` — Preferred config root with fallback support
-- `{{CORNER_REGISTRY_ROOT}}` / `{{SPOCKET_REGISTRY_ROOT}}` — Preferred registry root with fallback support
+- `{{LOCKET_ROOT}}` / `{{SPOCKET_ROOT}}` — Absolute path to the left_pocket directory (`LOCKET_*` preferred)
+- `{{LOCKET_NAME}}` / `{{SPOCKET_NAME}}` — Hash-based left_pocket identifier (`LOCKET_*` preferred)
+- `{{LOCKET_CONFIG_ROOT}}` / `{{SPOCKET_CONFIG_ROOT}}` — Preferred config root with fallback support
+- `{{LOCKET_REGISTRY_ROOT}}` / `{{SPOCKET_REGISTRY_ROOT}}` — Preferred registry root with fallback support
 - `{{PROJECT_ROOT}}` — Absolute path to the first included project
 
-Directory structure is controlled by `~/.config/corner/directory_structure.yaml`.
+Directory structure is controlled by `~/.config/left_pocket/directory_structure.yaml`.
 
 #### Placement
 
-Corner never syncs *from* a project *to* the templates. Templates are **Placed**,
+left_pocket never syncs *from* a project *to* the templates. Templates are **Placed**,
 always one-way, in one of three ways:
 
 1. **Into config**, at install time — `src/templates` is materialised into
-   `~/.config/corner` (honouring `#CORNER_INSTALL_DESTINATION`).
-2. **Into a project**, when a corner is created with `corner -i .` — templates are
-   Placed per their `#CORNER_TEMPLATE_DESTINATION`. Edits you then make to the
+   `~/.config/left_pocket` (honouring `#LOCKET_INSTALL_DESTINATION`).
+2. **Into a project**, when a left_pocket is created with `left_pocket -i .` — templates are
+   Placed per their `#LOCKET_TEMPLATE_DESTINATION`. Edits you then make to the
    *placed* copies never travel back to the templates.
 3. **At runtime into a project**, when a session opens — templates marked
-   `#CORNER_MERGE_AT_RUNTIME` are merged into their destination between the
+   `#LOCKET_MERGE_AT_RUNTIME` are merged into their destination between the
    runtime markers, and removed again when the session closes. Content you write
    above or below the markers is preserved.
 
-`corner -u <path>` re-Places templates over an existing corner. This is
-destructive to the placed copies: local edits inside the corner are replaced with
+`left_pocket -u <path>` re-Places templates over an existing left_pocket. This is
+destructive to the placed copies: local edits inside the left_pocket are replaced with
 the current template content.
 
-#### `corner upgrade-installation`
+#### `left_pocket upgrade-installation`
 
-Rewrites legacy `#SPOCKET_*` directives and runtime markers to `#CORNER_*` in
-place, across every known config root (`~/.config/corner`,
-`~/.config/safe_pocket`, `~/.config/spocket`) and registry root (`~/.corner`,
+Rewrites legacy `#SPOCKET_*` directives and runtime markers to `#LOCKET_*` in
+place, across every known config root (`~/.config/left_pocket`,
+`~/.config/safe_pocket`, `~/.config/spocket`) and registry root (`~/.left_pocket`,
 `~/.safe_pocket`, `~/.spocket`):
 
 ```bash
-corner upgrade-installation --dry-run   # preview, change nothing
-corner upgrade-installation             # prompt, then apply
-corner upgrade-installation --yes       # apply without prompting
-corner upgrade-installation --root ~/some/other/tree
-corner upgrade-installation --clean-literal-root-artifacts  # lists, backs up, prompts
+left_pocket upgrade-installation --dry-run   # preview, change nothing
+left_pocket upgrade-installation             # prompt, then apply
+left_pocket upgrade-installation --yes       # apply without prompting
+left_pocket upgrade-installation --root ~/some/other/tree
+left_pocket upgrade-installation --clean-literal-root-artifacts  # lists, backs up, prompts
 ```
 
 This is a one-way text migration, not a sync — it never copies content from a
@@ -766,13 +766,13 @@ project back into the config templates directory. User-facing feature-tag names
 such as `SPOCKET_MUST_INSTALL` are deliberately left untouched, since they are
 defined in `feature_tags.yaml` and referenced from your feature files.
 
-The command also reports active-corner directories whose literal name is
-`{{SPOCKET_CONFIG_ROOT}}` or `{{CORNER_CONFIG_ROOT}}`. These are artifacts from
+The command also reports active-left_pocket directories whose literal name is
+`{{SPOCKET_CONFIG_ROOT}}` or `{{LOCKET_CONFIG_ROOT}}`. These are artifacts from
 an older install-time template bug. Historical `snapshots/` and `unhoused/`
 archives are intentionally excluded. Artifacts are report-only by default. Cleanup is
 deliberately conservative: `--clean-literal-root-artifacts` accepts only a
 directory containing exactly one regular `feature_tags.yaml`, copies that file
-to `~/.corner/upgrade-backups/`, lists every target, and requires typing
+to `~/.left_pocket/upgrade-backups/`, lists every target, and requires typing
 `REMOVE` (or separately supplying `--yes`). Any unexpected contents cause that
 directory to be skipped.
 
@@ -780,15 +780,15 @@ To replace your installed templates outright with the ones built into the binary
 (clearing stale/legacy filenames):
 
 ```bash
-corner install-default-assets --replace
+left_pocket install-default-assets --replace
 ```
 
 ### Directory Structure
 
-The default corner directory structure is:
+The default left_pocket directory structure is:
 
 ```
-~/.corner/<hash>/
+~/.left_pocket/<hash>/
 ├── .code-workspace       # VS Code workspace file
 ├── .github/
 │  └── copilot-instructions.md
@@ -797,45 +797,45 @@ The default corner directory structure is:
 │  └── dailies/
 ├── observations/        # Session notes
 ├── README.md
-└── manifest.json        # Corner metadata
+└── manifest.json        # left_pocket metadata
 ```
 
-Customize by editing `~/.config/corner/directory_structure.yaml`.
+Customize by editing `~/.config/left_pocket/directory_structure.yaml`.
 
 ---
 
-## Corner Directory Location
+## left_pocket Directory Location
 
-Corners are stored in `~/.corner/<hash>/` where `<hash>` is derived from the project directory path, ensuring deterministic corner association across sessions. If a Corner root does not exist yet, the runtime falls back to legacy `~/.safe_pocket/` and `~/.spocket/` roots.
+left_pockets are stored in `~/.left_pocket/<hash>/` where `<hash>` is derived from the project directory path, ensuring deterministic left_pocket association across sessions. If a left_pocket root does not exist yet, the runtime falls back to legacy `~/.safe_pocket/` and `~/.spocket/` roots.
 
-View all corners:
+View all left_pockets:
 
 ```bash
-corner list-workspaces
+left_pocket list-workspaces
 ```
 
 ### The `.opencode` Directory
 
-Corner renders its managed OpenCode agent definitions into
-`<corner>/.opencode/agent/` whenever a corner is created/opened or
-`corner sync agents` runs. Those Markdown files are generated and small; deleting
-them is safe, but Corner will recreate them.
+left_pocket renders its managed OpenCode agent definitions into
+`<left_pocket>/.opencode/agent/` whenever a left_pocket is created/opened or
+`left_pocket sync agents` runs. Those Markdown files are generated and small; deleting
+them is safe, but left_pocket will recreate them.
 
-Corner does **not** install `.opencode/node_modules`, `package.json`, or
+left_pocket does **not** install `.opencode/node_modules`, `package.json`, or
 `package-lock.json`. If those exist, an OpenCode/plugin/npm setup created them.
 They may be removed if the project does not rely on local OpenCode plugins or
-dependencies, but Corner deliberately does not remove them. Deleting the whole
+dependencies, but left_pocket deliberately does not remove them. Deleting the whole
 `.opencode` directory also removes any hand-authored OpenCode configuration;
-only Corner's managed `agent/` files will come back automatically.
+only left_pocket's managed `agent/` files will come back automatically.
 
 ---
 
 ## Environment Variables
 
-- `CORNER_ROOT` — Preferred path to the corner directory
-- `SPOCKET_ROOT` — Legacy compatibility alias for `CORNER_ROOT`
+- `LOCKET_ROOT` — Preferred path to the left_pocket directory
+- `SPOCKET_ROOT` — Legacy compatibility alias for `LOCKET_ROOT`
 - `PROJECT_ROOT` — (internal) Path to the first included project
-- `CORNER_NAME` / `SPOCKET_NAME` — Internal corner hash identifier (template variables)
+- `LOCKET_NAME` / `SPOCKET_NAME` — Internal left_pocket hash identifier (template variables)
 
 ---
 
@@ -844,37 +844,37 @@ only Corner's managed `agent/` files will come back automatically.
 ### Create a temporary workspace for experimentation
 
 ```bash
-corner -i . --temporary --silent
+left_pocket -i . --temporary --silent
 ```
 
 ### Merge two existing projects into one workspace
 
 ```bash
-corner -i ~/dev/api -i ~/dev/frontend
+left_pocket -i ~/dev/api -i ~/dev/frontend
 ```
 
-### Switch a project to a different corner
+### Switch a project to a different left_pocket
 
 ```bash
-corner heal --project ~/dev/app --corner ~/.corner/new-hash
+left_pocket heal --project ~/dev/app --left_pocket ~/.left_pocket/new-hash
 ```
 
-### Upgrade all corner templates
+### Upgrade all left_pocket templates
 
 ```bash
-corner sync agents
+left_pocket sync agents
 ```
 
-### Clean up old temporary corners
+### Clean up old temporary left_pockets
 
 ```bash
-corner clean temporary --hard -y
+left_pocket clean temporary --hard -y
 ```
 
 ### Generate shell completions (ZSH)
 
 ```bash
-corner completions zsh > ~/.zsh/completions/_corner
+left_pocket completions zsh > ~/.zsh/completions/_left_pocket
 # Then add to ~/.zshrc:
 # fpath=(~/.zsh/completions $fpath)
 # autoload -Uz compinit && compinit
@@ -884,7 +884,7 @@ corner completions zsh > ~/.zsh/completions/_corner
 
 ## See Also
 
-- `~/.corner/aliases` — Preferred alias registry file
-- `~/.corner/snapshots/` — Preferred git snapshot of all corners
-- `~/.corner/global_data/tasks.db` — Preferred global tasks database
-- `~/.config/corner/` — Preferred user configuration and templates
+- `~/.left_pocket/aliases` — Preferred alias registry file
+- `~/.left_pocket/snapshots/` — Preferred git snapshot of all left_pockets
+- `~/.left_pocket/global_data/tasks.db` — Preferred global tasks database
+- `~/.config/left_pocket/` — Preferred user configuration and templates

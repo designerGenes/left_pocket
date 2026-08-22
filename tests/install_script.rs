@@ -12,7 +12,7 @@ fn temp_root(name: &str) -> PathBuf {
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    std::env::temp_dir().join(format!("corner-install-test-{name}-{unique}"))
+    std::env::temp_dir().join(format!("left_pocket-install-test-{name}-{unique}"))
 }
 
 #[test]
@@ -28,7 +28,7 @@ fn install_help_exits_without_building() {
     assert!(stdout.contains("--bump-version"));
     assert!(stdout.contains("--bump-extension-version"));
     assert!(stdout.contains("--set-version"));
-    assert!(!stdout.contains("Building Corner"));
+    assert!(!stdout.contains("Building left_pocket"));
 }
 
 #[test]
@@ -37,12 +37,12 @@ fn version_helper_bumps_app_and_extension_independently() {
     fs::create_dir_all(root.join("vscode-extension")).unwrap();
     fs::write(
         root.join("Cargo.toml"),
-        "[package]\nname = \"corner-test\"\nversion = \"1.2.3\"\n",
+        "[package]\nname = \"left_pocket-test\"\nversion = \"1.2.3\"\n",
     )
     .unwrap();
     fs::write(
         root.join("vscode-extension/package.json"),
-        "{\"name\":\"corner-test\",\"version\":\"4.5.6\"}\n",
+        "{\"name\":\"left_pocket-test\",\"version\":\"4.5.6\"}\n",
     )
     .unwrap();
 
@@ -76,12 +76,12 @@ fn version_helper_accepts_exact_semver() {
     fs::create_dir_all(root.join("vscode-extension")).unwrap();
     fs::write(
         root.join("Cargo.toml"),
-        "[package]\nname = \"corner-test\"\nversion = \"1.2.3\"\n",
+        "[package]\nname = \"left_pocket-test\"\nversion = \"1.2.3\"\n",
     )
     .unwrap();
     fs::write(
         root.join("vscode-extension/package.json"),
-        "{\"name\":\"corner-test\",\"version\":\"4.5.6\"}\n",
+        "{\"name\":\"left_pocket-test\",\"version\":\"4.5.6\"}\n",
     )
     .unwrap();
 
@@ -123,7 +123,7 @@ fn help_after_optional_bump_does_not_mutate_or_build() {
         .output()
         .unwrap();
     assert!(output.status.success());
-    assert!(!String::from_utf8_lossy(&output.stdout).contains("Building Corner"));
+    assert!(!String::from_utf8_lossy(&output.stdout).contains("Building left_pocket"));
     assert_eq!(fs::read_to_string(cargo).unwrap(), before);
 }
 
@@ -133,12 +133,12 @@ fn invalid_extension_request_does_not_partially_update_app() {
     fs::create_dir_all(root.join("vscode-extension")).unwrap();
     fs::write(
         root.join("Cargo.toml"),
-        "[package]\nname = \"corner-test\"\nversion = \"1.2.3\"\n",
+        "[package]\nname = \"left_pocket-test\"\nversion = \"1.2.3\"\n",
     )
     .unwrap();
     fs::write(
         root.join("vscode-extension/package.json"),
-        "{\"name\":\"corner-test\",\"version\":\"4.5.6\"}\n",
+        "{\"name\":\"left_pocket-test\",\"version\":\"4.5.6\"}\n",
     )
     .unwrap();
 
@@ -163,12 +163,12 @@ fn atomic_updates_roll_back_after_injected_second_step_failure() {
     fs::create_dir_all(root.join("vscode-extension")).unwrap();
     fs::write(
         root.join("Cargo.toml"),
-        "[package]\nname = \"corner-test\"\nversion = \"1.2.3\"\n",
+        "[package]\nname = \"left_pocket-test\"\nversion = \"1.2.3\"\n",
     )
     .unwrap();
     fs::write(
         root.join("vscode-extension/package.json"),
-        "{\"name\":\"corner-test\",\"version\":\"4.5.6\"}\n",
+        "{\"name\":\"left_pocket-test\",\"version\":\"4.5.6\"}\n",
     )
     .unwrap();
 
@@ -177,7 +177,7 @@ fn atomic_updates_roll_back_after_injected_second_step_failure() {
         .args(["--root", root.to_string_lossy().as_ref()])
         .args(["--app", "minor"])
         .args(["--extension", "patch"])
-        .env("CORNER_BUMP_FAIL_AFTER", "1")
+        .env("LEFT_POCKET_BUMP_FAIL_AFTER", "1")
         .output()
         .unwrap();
     assert!(!output.status.success());

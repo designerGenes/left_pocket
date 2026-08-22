@@ -1,33 +1,65 @@
 # Changelog
 
-All notable changes to Corner will be documented in this file.
+All notable changes to left_pocket will be documented in this file.
+
+## [3.0.0] - 2026-08-22
+
+### Changed — full rename: Corner → left_pocket ("locket")
+- **The application is now `left_pocket`.** `locket` is a short CLI alias only;
+  all directives, templates, internal identifiers, and documentation use
+  `left_pocket` / `LEFT_POCKET` / `left_pocket_dir` naming.
+- Directives and markers are now `#LEFT_POCKET_TEMPLATE_DESTINATION`,
+  `#LEFT_POCKET_INSTALL_DESTINATION`, `#LEFT_POCKET_QUIET_MERGE`,
+  `#LEFT_POCKET_MERGE_AT_RUNTIME`, and
+  `#LEFT_POCKET_RUNTIME_CONTENT_START` / `#LEFT_POCKET_RUNTIME_CONTENT_END`.
+  Legacy `#CORNER_*` and `#SPOCKET_*` forms are still recognised when reading.
+- Template variables are now `{{LEFT_POCKET_ROOT}}`, `{{LEFT_POCKET_NAME}}`,
+  `{{LEFT_POCKET_CONFIG_ROOT}}`, and `{{LEFT_POCKET_REGISTRY_ROOT}}`; the
+  legacy `{{CORNER_*}}` and `{{SPOCKET_*}}` forms still expand.
+- Storage roots migrated: registry `~/.corner` → `~/.left_pocket`, config
+  `~/.config/corner` → `~/.config/left_pocket`, backup repo
+  `~/.corner_backup_repo` → `~/.left_pocket_backup_repo`, env key
+  `CORNER_ROOT` → `LEFT_POCKET_ROOT` (legacy keys still honoured per-file).
+- Binary renamed to `left_pocket`; compatibility binaries `locket`, `corner`,
+  `safe_pocket`, and `spocket` remain installed as aliases.
+- Workspace folder names are now `[left_pocket] <hash>`.
+- VS Code extension renamed to `left-pocket` (commands `left_pocket.*`).
+
+### Added
+- **`left_pocket -u` now rewrites legacy directives in place.** The upgrade
+  scan covers both the left_pocket directory and its registered project
+  directories, rewriting `#CORNER_*` and `#SPOCKET_*` tokens (including the
+  task-integration markers) to their `#LEFT_POCKET_*` equivalents before
+  templates are re-placed.
+- `left_pocket upgrade-installation` additionally rewrites `#CORNER_*` tokens
+  and `{{CORNER_CONFIG_ROOT}}` literal-root artifacts.
 
 ## [2.3.0] - 2026-08-01
 
 ### Added
-- **Corner-aware terminal prompt index.** Registry cache updates now atomically
-  write a compact `prompt_paths` file containing registered project and Corner
-  paths. The Zsh prompt uses this index without launching `corner` or parsing
-  JSON, so project paths can render cobalt and Corner paths yellow immediately
+- **left_pocket-aware terminal prompt index.** Registry cache updates now atomically
+  write a compact `prompt_paths` file containing registered project and left_pocket
+  paths. The Zsh prompt uses this index without launching `left_pocket` or parsing
+  JSON, so project paths can render cobalt and left_pocket paths yellow immediately
   after a directory change.
 
 ## [2.2.0] - 2026-07-25
 
 ### Added
-- **`corner tests --all` installed-binary operational harness.** Runs the
-  currently executing Corner binary through create/open, locate, environment
+- **`left_pocket tests --all` installed-binary operational harness.** Runs the
+  currently executing left_pocket binary through create/open, locate, environment
   placement, quiet merge, reverse-sync prevention, runtime merge, template
   upgrade, augment, alias, heal, OpenCode-agent, unresolved-variable, and
   migration-idempotency scenarios. Every destructive scenario uses a fully
   isolated temporary HOME/registry/project and a fake VS Code executable. The
   command prints each child command plus a final PASS/FAIL/SKIP checklist.
-- **Safe existing-project mode:** `corner tests --all -i PATH` performs only
+- **Safe existing-project mode:** `left_pocket tests --all -i PATH` performs only
   read-only locate/artifact audits on the original, retains a complete content
   backup (file bytes and symlink targets) under `real-world-test-backups/`, and
   runs the operational suite against a retained isolated project copy. Projects
-  without an existing registered Corner are supported too.
-- `corner upgrade-installation` now reports literal
-  `{{SPOCKET_CONFIG_ROOT}}` / `{{CORNER_CONFIG_ROOT}}` artifact directories.
+  without an existing registered left_pocket are supported too.
+- `left_pocket upgrade-installation` now reports literal
+  `{{SPOCKET_CONFIG_ROOT}}` / `{{LOCKET_CONFIG_ROOT}}` artifact directories.
   `--clean-literal-root-artifacts` can clean only directories containing exactly
   one regular `feature_tags.yaml`; it backs every file up, lists every target,
   and requires explicit confirmation. Unexpected contents are never removed.
@@ -35,41 +67,41 @@ All notable changes to Corner will be documented in this file.
   `--bump-extension-version`, `--set-version`, and
   `--set-extension-version`. Bumps accept major/minor/patch or exact SemVer.
   Legacy bump syntax remains compatible.
-- **`corner locate --read-only`.** Resolves a project's corner by reading
+- **`left_pocket locate --read-only`.** Resolves a project's left_pocket by reading
   manifests directly, without loading/migrating alias config and without
-  creating or rebuilding a registry cache. This is what makes the `corner tests
+  creating or rebuilding a registry cache. This is what makes the `left_pocket tests
   -i` audit genuinely non-mutating.
 
 ### Changed
 - **`SPOCKET_ROOT` is no longer written.** The Spocket/Safe_pocket rename is
-  complete: the project and corner `.env` templates and `sync_root_env_file` now
-  emit only `PROJECT_ROOT` and `CORNER_ROOT`, and a stale `SPOCKET_ROOT` line is
+  complete: the project and left_pocket `.env` templates and `sync_root_env_file` now
+  emit only `PROJECT_ROOT` and `LOCKET_ROOT`, and a stale `SPOCKET_ROOT` line is
   removed on migration rather than carried forward as a second, contradictory
   root. Backwards compatibility is preserved on the **read** side —
-  `branding::LEGACY_ROOT_ENV_KEYS` and `corner task` prefix detection still
+  `branding::LEGACY_ROOT_ENV_KEYS` and `left_pocket task` prefix detection still
   accept a pre-existing `SPOCKET_ROOT`, so a legacy-only `.env` keeps resolving.
 - Installer version editing moved from an inline Python heredoc to the testable
   `scripts/bump_versions.py` helper. `install.sh` can now be invoked from any
   working directory and contains no heredocs.
-- Documented `.opencode` ownership: Corner manages only `.opencode/agent`;
+- Documented `.opencode` ownership: left_pocket manages only `.opencode/agent`;
   project-local npm packages/configuration are external and are never removed.
 
 ### Fixed
 - **`locate --read-only` resolved an ancestor project.** It returned the first
   manifest whose project path was merely a *prefix* of the requested path, so a
-  corner registered for `~/dev/bin` beat the corner for `~/dev/bin/corner`.
-  Because `corner tests -i` uses this to choose what to back up and clone, an
-  audit could operate on the wrong corner entirely. Candidates are now ranked by
+  left_pocket registered for `~/dev/bin` beat the left_pocket for `~/dev/bin/left_pocket`.
+  Because `left_pocket tests -i` uses this to choose what to back up and clone, an
+  audit could operate on the wrong left_pocket entirely. Candidates are now ranked by
   specificity (exact match, then longest matching path), and the reported `hash`
-  is the corner's directory name with the manifest's own hash exposed separately
+  is the left_pocket's directory name with the manifest's own hash exposed separately
   as `manifest_hash`.
-- **A seeded existing corner was never adopted, producing silent false PASSes.**
+- **A seeded existing left_pocket was never adopted, producing silent false PASSes.**
   The isolated clone was keyed to the original project's hash, so
-  `find_workspace_by_manifest_paths` could never match it; `corner -i` created a
-  second blank corner and every "existing state" check ran against empty state
+  `find_workspace_by_manifest_paths` could never match it; `left_pocket -i` created a
+  second blank left_pocket and every "existing state" check ran against empty state
   while still reporting PASS. The clone is now re-keyed
   (`hash_paths`, `manifest.hash`, workspace filename, lineage fields cleared) and
-  a dedicated `Seeded existing corner is adopted, not replaced` case fails loudly
+  a dedicated `Seeded existing left_pocket is adopted, not replaced` case fails loudly
   if adoption does not happen.
 - **`upgrade-installation` rewrote files inside its own backups.** `SKIP_DIRS`
   excluded `snapshots`/`unhoused` but not `upgrade-backups` or
@@ -90,7 +122,7 @@ All notable changes to Corner will be documented in this file.
   deliberately complete.
 
 ### Safety
-- The operational harness never invokes `corner clean --all`, hard cleanup,
+- The operational harness never invokes `left_pocket clean --all`, hard cleanup,
   remote backup configuration, or a real editor process.
 - No existing literal-root artifact directory is automatically removed. Cleanup
   remains an explicit, confirmed operation, and now moves the whole directory
@@ -99,88 +131,88 @@ All notable changes to Corner will be documented in this file.
 
 ## [2.1.0] - 2026-07-25
 
-Completes the Safe_pocket → Corner rename inside the template system, and makes
+Completes the Safe_pocket → left_pocket rename inside the template system, and makes
 the rename repeatable for future renames.
 
 ### Added
-- **`#CORNER_*` template directives.** Corner's template grammar is now spelled
-  with the `CORNER` prefix:
-  `#CORNER_TEMPLATE_DESTINATION`, `#CORNER_INSTALL_DESTINATION`,
-  `#CORNER_QUIET_MERGE`, `#CORNER_MERGE_AT_RUNTIME`, and the runtime markers
-  `#CORNER_RUNTIME_CONTENT_START` / `#CORNER_RUNTIME_CONTENT_END`.
+- **`#LOCKET_*` template directives.** left_pocket's template grammar is now spelled
+  with the `LOCKET` prefix:
+  `#LOCKET_TEMPLATE_DESTINATION`, `#LOCKET_INSTALL_DESTINATION`,
+  `#LOCKET_QUIET_MERGE`, `#LOCKET_MERGE_AT_RUNTIME`, and the runtime markers
+  `#LOCKET_RUNTIME_CONTENT_START` / `#LOCKET_RUNTIME_CONTENT_END`.
   The legacy `#SPOCKET_*` spellings are still **recognised when reading**
   templates and already-placed files, so nothing breaks before you migrate.
-  New content is always written with the `#CORNER_` prefix.
-- **`corner upgrade-installation`.** Rewrites legacy `#SPOCKET_*` directives and
-  runtime markers to their `#CORNER_*` equivalents, in place, across every known
-  config root (`~/.config/corner`, `~/.config/safe_pocket`, `~/.config/spocket`)
-  and registry root (`~/.corner`, `~/.safe_pocket`, `~/.spocket`). Supports
+  New content is always written with the `#LOCKET_` prefix.
+- **`left_pocket upgrade-installation`.** Rewrites legacy `#SPOCKET_*` directives and
+  runtime markers to their `#LOCKET_*` equivalents, in place, across every known
+  config root (`~/.config/left_pocket`, `~/.config/safe_pocket`, `~/.config/spocket`)
+  and registry root (`~/.left_pocket`, `~/.safe_pocket`, `~/.spocket`). Supports
   `--dry-run`, `--yes`, and `--root PATH` (repeatable). This is a one-way text
   migration, never a sync: it never copies content from a project back into the
   config templates directory. User-facing feature-tag names (e.g.
   `SPOCKET_MUST_INSTALL`) are deliberately left intact.
-- **`corner install-default-assets --replace`.** Overwrites existing templates
+- **`left_pocket install-default-assets --replace`.** Overwrites existing templates
   and config assets instead of skipping files that already exist, clearing
   `templates/` first so legacy-named files are removed.
-- `install.sh` now detects an existing `~/.config/corner/templates` directory and
+- `install.sh` now detects an existing `~/.config/left_pocket/templates` directory and
   asks whether to **replace** it with the new built-in templates, **skip** it, or
   run **`upgrade-installation --dry-run`** to preview a token migration instead.
-  After installing it offers to run `corner upgrade-installation` if legacy
+  After installing it offers to run `left_pocket upgrade-installation` if legacy
   references are detected.
 
 ### Fixed
-- **`corner -u` no longer destroys quiet-merge destinations.** `#CORNER_QUIET_MERGE`
-  templates were merged on corner *creation* but **overwritten** on upgrade, so
-  `corner -u <project>` would flatten a project's `.gitignore` down to the
+- **`left_pocket -u` no longer destroys quiet-merge destinations.** `#LOCKET_QUIET_MERGE`
+  templates were merged on left_pocket *creation* but **overwritten** on upgrade, so
+  `left_pocket -u <project>` would flatten a project's `.gitignore` down to the
   template's single `.env` line and replace a populated `.env` with just the
   template keys. Quiet-merge templates now merge in both modes, matching the
   documented contract: existing content is preserved and only genuinely new
   lines/keys are appended. Regression tests cover both `.env` and `.gitignore`.
 - **Templates no longer "backwards-sync" into existence.** Renaming a template in
-  `~/.config/corner/templates` used to see the old filename reappear on the next
-  `corner -i .`, because the old name was still baked into the binary's embedded
+  `~/.config/left_pocket/templates` used to see the old filename reappear on the next
+  `left_pocket -i .`, because the old name was still baked into the binary's embedded
   template set and re-staged on every launch. The shipped templates are now named
-  `corner.env.md` and `corner.gitignore.md` (previously `safe_pocket.env.md` and
+  `left_pocket.env.md` and `left_pocket.gitignore.md` (previously `safe_pocket.env.md` and
   `safe_pocket.gitignore.md`), so the stale names can no longer be resurrected.
-  Use `corner install-default-assets --replace` to clear leftovers.
-- **`.env` files now define every root.** Both the project `.env` and the corner
-  `.env` are seeded with `PROJECT_ROOT`, `CORNER_ROOT`, and the legacy
+  Use `left_pocket install-default-assets --replace` to clear leftovers.
+- **`.env` files now define every root.** Both the project `.env` and the left_pocket
+  `.env` are seeded with `PROJECT_ROOT`, `LOCKET_ROOT`, and the legacy
   `SPOCKET_ROOT` alias, fixing the case where opening a project did not export
-  `CORNER_ROOT` or `PROJECT_ROOT`.
-- **Installation no longer aborts on orphaned corners.** `install-default-assets`
-  (and therefore `install.sh`) used to fail outright when any corner's manifest
+  `LOCKET_ROOT` or `PROJECT_ROOT`.
+- **Installation no longer aborts on orphaned left_pockets.** `install-default-assets`
+  (and therefore `install.sh`) used to fail outright when any left_pocket's manifest
   referenced a project directory that no longer existed — a deleted repo, an
-  unmounted volume, or a stale temp-directory corner left behind by a test run.
+  unmounted volume, or a stale temp-directory left_pocket left behind by a test run.
   Missing project directories are now skipped instead.
-- Removed a duplicated `CORNER_ROOT=` line from the corner `.env` template.
+- Removed a duplicated `LOCKET_ROOT=` line from the left_pocket `.env` template.
 
 ## [2.0.2] - 2026-07-18
 
 ### Fixed
 - Stale registry caches no longer shadow fresh on-disk manifests. When
-  `~/.corner/registry_cache.json` or `~/.safe_pocket/registry_cache.json`
-  claims a `manifest_hash` or `core_paths` that no longer matches the corner's
-  on-disk `manifest.json`, `corner locate` and `corner -i` now verify against
+  `~/.left_pocket/registry_cache.json` or `~/.safe_pocket/registry_cache.json`
+  claims a `manifest_hash` or `core_paths` that no longer matches the left_pocket's
+  on-disk `manifest.json`, `left_pocket locate` and `left_pocket -i` now verify against
   disk before trusting the cache, and fall back to a full disk scan when no
   cached entry survives verification. This resolves the "lost connection"
-  regression that appeared after renaming `safe_pocket` to `corner` and then
-  augmenting the corner's core_paths (e.g. adding `~/.config/corner/templates`).
-- Split-brain registry entries (same corner hash in multiple registry roots)
+  regression that appeared after renaming `safe_pocket` to `left_pocket` and then
+  augmenting the left_pocket's core_paths (e.g. adding `~/.config/left_pocket/templates`).
+- Split-brain registry entries (same left_pocket hash in multiple registry roots)
   now collapse to a single canonical entry during `load_cache_or_rebuild`.
   The survivor is chosen by, in order: the entry whose on-disk `birth_hash`
-  matches the directory name (i.e. the corner that "owns" the hash), the entry
+  matches the directory name (i.e. the left_pocket that "owns" the hash), the entry
   whose cached `manifest_hash` matches the on-disk manifest (fresh cache), the
   entry in the preferred registry root, then the first entry.
-- `corner augment` (and any other path that calls `Manifest::save`) now prunes
+- `left_pocket augment` (and any other path that calls `Manifest::save`) now prunes
   duplicate entries from other registry roots' caches so a future lookup
   cannot resurrect a stale sibling.
 
 ### Added
-- `corner sync-registry` command: rebuilds the registry cache in every known
-  registry root (`~/.corner`, `~/.safe_pocket`, `~/.spocket`) directly from
+- `left_pocket sync-registry` command: rebuilds the registry cache in every known
+  registry root (`~/.left_pocket`, `~/.safe_pocket`, `~/.spocket`) directly from
   on-disk manifests, collapsing split-brain duplicates. Use this after
-  manually editing a manifest, moving corner directories outside corner, or
-  when `corner locate` / `corner -i` resolve to the wrong corner.
+  manually editing a manifest, moving left_pocket directories outside left_pocket, or
+  when `left_pocket locate` / `left_pocket -i` resolve to the wrong left_pocket.
 - `registry::refresh_entry_from_disk`, `registry::scan_all_roots_for_entries`,
   and `registry::rebuild_all_caches` public helpers for cache verification
   and recovery.
@@ -194,24 +226,24 @@ the rename repeatable for future renames.
 ## [2.0.1] - 2026-07-18
 
 ### Added
-- Corner now recognizes both `CORNER_ROOT` and legacy `SPOCKET_ROOT` in project `.env` files, preferring `CORNER_ROOT` when both are present.
-- Template expansion now supports `{{CORNER_ROOT}}`, `{{CORNER_NAME}}`, `{{CORNER_CONFIG_ROOT}}`, and `{{CORNER_REGISTRY_ROOT}}` alongside the legacy `SPOCKET_*` placeholders.
+- left_pocket now recognizes both `LOCKET_ROOT` and legacy `SPOCKET_ROOT` in project `.env` files, preferring `LOCKET_ROOT` when both are present.
+- Template expansion now supports `{{LOCKET_ROOT}}`, `{{LOCKET_NAME}}`, `{{LOCKET_CONFIG_ROOT}}`, and `{{LOCKET_REGISTRY_ROOT}}` alongside the legacy `SPOCKET_*` placeholders.
 
 ### Changed
-- Generated project and pocket `.env` files now write both `CORNER_ROOT` and `SPOCKET_ROOT` for compatibility with older tooling.
-- Repository metadata, workspace README links, VS Code extension metadata, and documentation examples now point at the renamed `designerGenes/corner` repository and the `corner` command.
+- Generated project and pocket `.env` files now write both `LOCKET_ROOT` and `SPOCKET_ROOT` for compatibility with older tooling.
+- Repository metadata, workspace README links, VS Code extension metadata, and documentation examples now point at the renamed `designerGenes/left_pocket` repository and the `left_pocket` command.
 
 ## [2.0.0] - 2026-07-18
 
 ### Changed
-- Renamed the primary CLI and product identity from `safe_pocket` to `corner`.
-- New installs now prefer `~/.corner/` and `~/.config/corner/` for pocket and config storage.
-- Shell completions, generated help text, workspace labels, runtime task guidance, and the VS Code extension now present `corner` as the primary command name.
+- Renamed the primary CLI and product identity from `safe_pocket` to `left_pocket`.
+- New installs now prefer `~/.left_pocket/` and `~/.config/left_pocket/` for pocket and config storage.
+- Shell completions, generated help text, workspace labels, runtime task guidance, and the VS Code extension now present `left_pocket` as the primary command name.
 
 ### Compatibility
 - Existing `safe_pocket` and `spocket` commands continue to work as compatibility aliases.
-- Runtime storage lookup now prefers Corner-named directories and falls back to legacy `~/.safe_pocket/`, `~/.spocket/`, `~/.config/safe_pocket/`, and `~/.config/spocket/` locations when the requested files or directories still live there.
-- Added coverage proving the legacy `safe_pocket` binary still works and that legacy storage roots are reused until a Corner root exists.
+- Runtime storage lookup now prefers left_pocket-named directories and falls back to legacy `~/.safe_pocket/`, `~/.spocket/`, `~/.config/safe_pocket/`, and `~/.config/spocket/` locations when the requested files or directories still live there.
+- Added coverage proving the legacy `safe_pocket` binary still works and that legacy storage roots are reused until a left_pocket root exists.
 
 ## [1.0.0] - 2026-05-31
 
@@ -267,7 +299,7 @@ the rename repeatable for future renames.
 - Agents are now auto-synced whenever a pocket is opened.
 
 ### Changed
-- `#SPOCKET_TEMPLATE_DESTINATION` may now appear **multiple times** in a single
+- `#LEFT_POCKET_TEMPLATE_DESTINATION` may now appear **multiple times** in a single
   template file. Each directive applies to all content beneath it until the next
   directive, letting one template file populate several destination files.
   Blocks targeting the same destination are concatenated.
@@ -276,8 +308,8 @@ the rename repeatable for future renames.
 
 ### Added
 - `--simulate-runtime` flag for `safe_pocket -i`: injects runtime content into
-  destination files (between `#SPOCKET_RUNTIME_CONTENT_START` /
-  `#SPOCKET_RUNTIME_CONTENT_END` markers) exactly as it would appear at VS Code
+  destination files (between `#LEFT_POCKET_RUNTIME_CONTENT_START` /
+  `#LEFT_POCKET_RUNTIME_CONTENT_END` markers) exactly as it would appear at VS Code
   runtime, without launching the editor. Useful for testing inject-at-runtime
   behaviour headlessly.
 - `--silent` flag for `safe_pocket -i`: performs every setup step but does not

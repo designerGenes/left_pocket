@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Update Corner application and VS Code extension versions.
+"""Update left_pocket application and VS Code extension versions.
 
 This helper is intentionally separate from install.sh so the installer contains
 no heredoc and the version editing can be tested without compiling/installing.
@@ -118,7 +118,7 @@ def main() -> int:
             replaced.append((path, original))
             # Test-only failure injection verifies rollback after the first
             # replacement without relying on filesystem permission behavior.
-            if os.environ.get("CORNER_BUMP_FAIL_AFTER") == str(index):
+            if os.environ.get("LEFT_POCKET_BUMP_FAIL_AFTER") == str(index):
                 raise OSError(f"injected failure after update {index}")
             label = "app" if path.name == "Cargo.toml" else "extension"
             print(f"Updated {label} version in {path.name} from {old} to {new}")
@@ -130,7 +130,7 @@ def main() -> int:
 
 
 def atomic_write(path: Path, text: str) -> None:
-    temporary = path.with_name(f".{path.name}.corner-bump-{os.getpid()}")
+    temporary = path.with_name(f".{path.name}.left_pocket-bump-{os.getpid()}")
     try:
         with temporary.open("w", encoding="utf-8") as handle:
             handle.write(text)

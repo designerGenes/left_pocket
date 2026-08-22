@@ -1,25 +1,25 @@
-//! Lightweight, SQLite-backed task tracking — Corner's built-in replacement
+//! Lightweight, SQLite-backed task tracking — left_pocket's built-in replacement
 //! for Beads.
 //!
 //! Tasks are stored in a single global database at
-//! `$HOME/.corner/global_data/tasks.db` (with fallback to legacy roots). Each task
-//! is associated with a corner via a *prefix* derived from the corner directory's
+//! `$HOME/.left_pocket/global_data/tasks.db` (with fallback to legacy roots). Each task
+//! is associated with a left_pocket via a *prefix* derived from the left_pocket directory's
 //! name (the same short id used everywhere else). Task ids look like
 //! `27472722730d-AB12CD`, so they sort and group naturally by project and never
-//! collide across corners.
+//! collide across left_pockets.
 //!
-//! The CLI surface (`corner task …`) is intentionally small and Jira-like:
+//! The CLI surface (`left_pocket task …`) is intentionally small and Jira-like:
 //!
 //! ```text
-//! corner task list [--priority N] [--project PATH] [--raw]
-//! corner task create --named "…" --description "…" --priority N [--project PATH]
-//! corner task <ID> assign --agent "Builder"
-//! corner task <ID> start  [--notes "…"]
-//! corner task <ID> log     --notes "…"
-//! corner task <ID> close  [--notes "…"]
-//! corner task <ID> discard
-//! corner task <ID> describe [--raw]
-//! corner task reprefix --from OLD --to NEW
+//! left_pocket task list [--priority N] [--project PATH] [--raw]
+//! left_pocket task create --named "…" --description "…" --priority N [--project PATH]
+//! left_pocket task <ID> assign --agent "Builder"
+//! left_pocket task <ID> start  [--notes "…"]
+//! left_pocket task <ID> log     --notes "…"
+//! left_pocket task <ID> close  [--notes "…"]
+//! left_pocket task <ID> discard
+//! left_pocket task <ID> describe [--raw]
+//! left_pocket task reprefix --from OLD --to NEW
 //! ```
 
 use anyhow::{anyhow, bail, Context, Result};
@@ -45,7 +45,7 @@ const DEFAULT_PRIORITY: i64 = 2;
 
 // ── Database location ─────────────────────────────────────────────────────────
 
-/// `$HOME/.corner/global_data` — created on demand, with fallback to legacy roots.
+/// `$HOME/.left_pocket/global_data` — created on demand, with fallback to legacy roots.
 pub fn global_data_dir() -> Result<PathBuf> {
     let dir = crate::branding::resolve_registry_relative_path(Path::new("global_data"))?;
     fs::create_dir_all(&dir)
@@ -142,15 +142,15 @@ fn row_to_task(row: &rusqlite::Row) -> rusqlite::Result<Task> {
 
 // ── Prefix derivation ─────────────────────────────────────────────────────────
 
-/// Derive the task prefix (corner directory name) for a starting path.
+/// Derive the task prefix (left_pocket directory name) for a starting path.
 ///
 /// Resolution order:
-/// 1. If `start` lives inside a known corner root such as `~/.corner/<hash>/…`
+/// 1. If `start` lives inside a known left_pocket root such as `~/.left_pocket/<hash>/…`
 ///    (or `.../temporary/<hash>/…`), the `<hash>` is the prefix.
-/// 2. Otherwise ask the workspace registry which corner owns `start`, covering
-///    both project directories and corner directories.
+/// 2. Otherwise ask the workspace registry which left_pocket owns `start`, covering
+///    both project directories and left_pocket directories.
 /// 3. Finally walk up from `start` looking for a `.env` file containing
-///    `CORNER_ROOT=<path>` or legacy `SPOCKET_ROOT=<path>`; the basename of that
+///    `LEFT_POCKET_ROOT=<path>` or legacy `SPOCKET_ROOT=<path>`; the basename of that
 ///    path is the prefix.
 pub fn detect_prefix(start: &Path) -> Result<String> {
     let start = start.canonicalize().unwrap_or_else(|_| start.to_path_buf());
@@ -178,15 +178,15 @@ pub fn detect_prefix(start: &Path) -> Result<String> {
         }
     }
 
-    // 2. Bridge through the registry/cache. This lets `corner task` work the
-    // same from either the project folder or its corner folder.
+    // 2. Bridge through the registry/cache. This lets `left_pocket task` work the
+    // same from either the project folder or its left_pocket folder.
     if let Ok(Some(workspace)) = crate::workspace::Workspace::find_workspace_for_cwd(&start) {
         if !workspace.hash.is_empty() {
             return Ok(workspace.hash);
         }
     }
 
-    // 3. Walk up looking for a project .env with CORNER_ROOT or SPOCKET_ROOT.
+    // 3. Walk up looking for a project .env with LEFT_POCKET_ROOT or SPOCKET_ROOT.
     let mut dir: Option<&Path> = Some(start.as_path());
     while let Some(d) = dir {
         let env = d.join(".env");
@@ -208,9 +208,9 @@ pub fn detect_prefix(start: &Path) -> Result<String> {
     }
 
     bail!(
-        "Could not determine which corner this directory belongs to.\n\
-         Run `corner task …` from inside a registered project (one whose .env\n\
-         contains CORNER_ROOT or SPOCKET_ROOT) or pass --project <path>."
+        "Could not determine which left_pocket this directory belongs to.\n\
+         Run `left_pocket task …` from inside a registered project (one whose .env\n\
+         contains LEFT_POCKET_ROOT or SPOCKET_ROOT) or pass --project <path>."
     )
 }
 
@@ -478,7 +478,7 @@ pub fn log_task(conn: &Connection, id: &str, notes: &str) -> Result<()> {
 
 /// Re-point every task from `old` prefix to `new`, rewriting both the `prefix`
 /// column and the leading `<old>-` of each task id. Returns the number of tasks
-/// updated. Used when a corner's directory name changes.
+/// updated. Used when a left_pocket's directory name changes.
 pub fn reprefix(conn: &Connection, old: &str, new: &str) -> Result<usize> {
     if old == new {
         return Ok(0);
@@ -507,16 +507,16 @@ pub fn reprefix(conn: &Connection, old: &str, new: &str) -> Result<usize> {
     Ok(updated)
 }
 
-/// Reprefix tasks in the global database when a corner's directory name
-/// changes (e.g. after `heal` renames the corner). This is a no-op when the
+/// Reprefix tasks in the global database when a left_pocket's directory name
+/// changes (e.g. after `heal` renames the left_pocket). This is a no-op when the
 /// names match or when no database exists yet, so it is safe to call
-/// unconditionally from corner-mutating commands. Returns the number of tasks
+/// unconditionally from left_pocket-mutating commands. Returns the number of tasks
 /// migrated.
 pub fn reprefix_global(old: &str, new: &str) -> Result<usize> {
     if old == new || old.is_empty() || new.is_empty() {
         return Ok(0);
     }
-    // Don't create the database just to migrate a corner that has no tasks.
+    // Don't create the database just to migrate a left_pocket that has no tasks.
     let path = database_path()?;
     if !path.exists() {
         return Ok(0);
@@ -527,14 +527,14 @@ pub fn reprefix_global(old: &str, new: &str) -> Result<usize> {
 
 // ── CLI entry point ───────────────────────────────────────────────────────────
 
-/// Parse and dispatch the raw trailing args after `corner task`.
+/// Parse and dispatch the raw trailing args after `left_pocket task`.
 pub fn run_cli(args: Vec<String>) -> Result<()> {
     let mut iter = args.into_iter();
     let first = iter.next().ok_or_else(|| {
         anyhow!(
             "Missing task subcommand.\n\
-             Usage: corner task <list|create|ID|reprefix> …\n\
-             Try `corner task list` or `corner task create --named \"…\"`."
+             Usage: left_pocket task <list|create|ID|reprefix> …\n\
+             Try `left_pocket task list` or `left_pocket task create --named \"…\"`."
         )
     })?;
     let rest: Vec<String> = iter.collect();
@@ -549,7 +549,7 @@ pub fn run_cli(args: Vec<String>) -> Result<()> {
             let action = rest_iter.next().ok_or_else(|| {
                 anyhow!(
                     "Missing action for task '{other}'.\n\
-                     Usage: corner task <ID> <assign|start|log|close|discard|describe> …"
+                     Usage: left_pocket task <ID> <assign|start|log|close|discard|describe> …"
                 )
             })?;
             let action_args: Vec<String> = rest_iter.collect();
@@ -1063,7 +1063,7 @@ mod tests {
         fs::create_dir_all(&project).unwrap();
         fs::write(
             project.join(".env"),
-            "CORNER_ROOT=/Users/x/.corner/deadbeef00\nSPOCKET_ROOT=/Users/x/.safe_pocket/oldvalue00\n",
+            "LEFT_POCKET_ROOT=/Users/x/.left_pocket/deadbeef00\nSPOCKET_ROOT=/Users/x/.safe_pocket/oldvalue00\n",
         )
         .unwrap();
 
@@ -1083,12 +1083,12 @@ mod tests {
         assert_eq!(parse_env_value(c, "MISSING"), None);
     }
 
-    /// Backwards compatibility: Corner no longer *writes* `SPOCKET_ROOT`, but a
+    /// Backwards compatibility: left_pocket no longer *writes* `SPOCKET_ROOT`, but a
     /// pre-existing project `.env` that only carries the legacy key must still
-    /// resolve to the right corner.
+    /// resolve to the right left_pocket.
     #[test]
     fn test_detect_prefix_from_legacy_only_env() {
-        let base = std::env::temp_dir().join("corner_task_prefix_legacy_only");
+        let base = std::env::temp_dir().join("left_pocket_task_prefix_legacy_only");
         let _ = fs::remove_dir_all(&base);
         let project = base.join("legacy_project");
         fs::create_dir_all(&project).unwrap();
@@ -1108,8 +1108,8 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_preferred_env_value_prefers_corner_root() {
-        let c = "SPOCKET_ROOT=/old/hash\nCORNER_ROOT=/new/hash\n";
+    fn test_parse_preferred_env_value_prefers_left_pocket_root() {
+        let c = "SPOCKET_ROOT=/old/hash\nLEFT_POCKET_ROOT=/new/hash\n";
         assert_eq!(
             parse_preferred_env_value(c, &crate::branding::root_env_keys()).as_deref(),
             Some("/new/hash")

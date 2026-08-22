@@ -1,4 +1,4 @@
-#CORNER_INSTALL_DESTINATION: {{CORNER_CONFIG_ROOT}}/directory_structure.yaml
+#LEFT_POCKET_INSTALL_DESTINATION: {{LEFT_POCKET_CONFIG_ROOT}}/directory_structure.yaml
 .github
   - prompts
   - skills
