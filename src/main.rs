@@ -54,25 +54,48 @@ fn main() {
     }
 }
 
-/// Parse CLI arguments, injecting `branding::LOGO` as `before_help` on every
-/// command and subcommand so the logo appears above all `--help` output.
+/// Parse CLI arguments, printing `branding::LOGO` (surrounded by blank lines)
+/// above all `--help` output.
 ///
 /// This mirrors what `Cli::parse()` does internally (build command, get
-/// matches, construct struct from matches) but lets us decorate the command
-/// tree first. clap still owns `--help`/`--version`/error handling and exits.
+/// matches, construct struct from matches) but lets us handle help ourselves
+/// first. clap trims leading whitespace from help output, which would destroy
+/// the logo's top-line indent and the blank line before it, so `--help` is
+/// intercepted and rendered manually. clap still owns `--version`/error
+/// handling and exits.
 fn parse_cli_with_logo() -> Cli {
     let mut cmd = Cli::command();
-    set_logo_on_all(&mut cmd);
+    print_help_with_logo(&mut cmd);
     let matches = cmd.get_matches();
     Cli::from_arg_matches(&matches).unwrap_or_else(|e| e.exit())
 }
 
-/// Recursively set `before_help` to the logo on `cmd` and all its subcommands.
-fn set_logo_on_all(cmd: &mut clap::Command) {
-    *cmd = std::mem::take(cmd).before_help(crate::branding::LOGO);
-    for sub in cmd.get_subcommands_mut() {
-        set_logo_on_all(sub);
+/// If `--help`/`-h` was requested, print the logo followed by clap's help for
+/// the deepest subcommand named in the arguments, then exit.
+fn print_help_with_logo(cmd: &mut clap::Command) {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.iter().any(|arg| arg == "--help" || arg == "-h") {
+        print_help_for_deepest_subcommand(cmd, &args);
+        std::process::exit(0);
     }
+}
+
+/// Recursively descend into the first subcommand named by a non-flag argument,
+/// then print the logo followed by that command's help.
+fn print_help_for_deepest_subcommand(cmd: &mut clap::Command, args: &[String]) {
+    for (index, arg) in args.iter().enumerate() {
+        if arg.starts_with('-') {
+            continue;
+        }
+        if let Some(sub) = cmd.find_subcommand_mut(arg.as_str()) {
+            print_help_for_deepest_subcommand(sub, &args[index + 1..]);
+            return;
+        }
+        break;
+    }
+    crate::branding::print_logo();
+    let _ = cmd.print_help();
+    println!();
 }
 
 fn run() -> Result<()> {

@@ -15,9 +15,8 @@ pub const REPOSITORY_URL: &str = "https://github.com/designerGenes/left_pocket";
 /// name, a square body, and rounded lower corners. When left_pocket is invoked
 /// from a project directory, [`logo_with_pocket_id`] renders the same shape
 /// with the current pocket's ID centred inside the body instead.
-pub const LOGO: &str = "\
-+-------------------+
-| left_pocket       |
+pub const LOGO: &str = "   -----------------+
+  left_pocket       |
 +-------------------+
 |                   |
 |                   |
@@ -47,9 +46,8 @@ fn center_in(label: &str, width: usize) -> String {
 pub fn logo_with_pocket_id(pocket_id: &str) -> String {
     let id_line = center_in(pocket_id, LOGO_INTERIOR_WIDTH);
     format!(
-        "\
-+-------------------+
-| left_pocket       |
+        "   -----------------+
+  left_pocket       |
 +-------------------+
 |                   |
 |                   |
@@ -60,16 +58,18 @@ pub fn logo_with_pocket_id(pocket_id: &str) -> String {
     )
 }
 
-/// Print the logo to stdout followed by a blank line.
+/// Print the logo to stdout surrounded by blank lines.
 pub fn print_logo() {
+    println!();
     println!("{LOGO}");
     println!();
 }
 
-/// Print the pocket logo with `pocket_id` centred inside it, followed by a
-/// blank line. Used whenever left_pocket opens a project so the terminal
+/// Print the pocket logo with `pocket_id` centred inside it, surrounded by
+/// blank lines. Used whenever left_pocket opens a project so the terminal
 /// shows exactly which pocket was resolved.
 pub fn print_pocket_logo(pocket_id: &str) {
+    println!();
     println!("{}", logo_with_pocket_id(pocket_id));
     println!();
 }
