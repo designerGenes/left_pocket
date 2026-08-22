@@ -1,9 +1,9 @@
 //! `left_pocket upgrade-installation` — one-way text migration that rewrites legacy
-//! Spocket/Safe_pocket references to their left_pocket equivalents across the known
-//! config and registry roots.
+//! Spocket/Safe_pocket, Corner, and left_pocket-era references to their current
+//! `#POCKET_*` equivalents across the known config and registry roots.
 //!
 //! This is **not** a template sync. It performs in-place text rewrites on files
-//! that already live on disk (placed templates inside left_pockets, config assets,
+//! that already live on disk (placed templates inside pockets, config assets,
 //! AGENTS.md, copilot-instructions.md, etc.). It never copies content from a
 //! project back into the config templates directory — it only rewrites tokens
 //! inside whatever files it visits.
@@ -22,54 +22,81 @@ use std::path::{Path, PathBuf};
 
 /// Token rewrites applied to every visited file. Order matters: longer/more
 /// specific tokens are listed first so they win when one is a prefix of another.
-/// Both the Corner-era (`#CORNER_*`) and Spocket-era (`#SPOCKET_*`) forms are
-/// rewritten to the current left_pocket forms.
+/// The left_pocket-era (`#LEFT_POCKET_*`), Corner-era (`#CORNER_*`), and
+/// Spocket-era (`#SPOCKET_*`) forms are all rewritten to the current `#POCKET_*`
+/// forms.
 const TOKEN_REPLACEMENTS: &[(&str, &str)] = &[
     (
         "#LEFT_POCKET_RUNTIME_CONTENT_START",
-        "#LEFT_POCKET_RUNTIME_CONTENT_START",
-    ),
-    ("#LEFT_POCKET_RUNTIME_CONTENT_END", "#LEFT_POCKET_RUNTIME_CONTENT_END"),
-    (
-        "#LEFT_POCKET_TEMPLATE_DESTINATION",
-        "#LEFT_POCKET_TEMPLATE_DESTINATION",
-    ),
-    ("#LEFT_POCKET_QUIET_MERGE", "#LEFT_POCKET_QUIET_MERGE"),
-    ("#LEFT_POCKET_MERGE_AT_RUNTIME", "#LEFT_POCKET_MERGE_AT_RUNTIME"),
-    ("#LEFT_POCKET_INSTALL_DESTINATION", "#LEFT_POCKET_INSTALL_DESTINATION"),
-    (
-        "<!-- BEGIN LEFT_POCKET TASK INTEGRATION -->",
-        "<!-- BEGIN LEFT_POCKET TASK INTEGRATION -->",
-    ),
-    (
-        "<!-- END LEFT_POCKET TASK INTEGRATION -->",
-        "<!-- END LEFT_POCKET TASK INTEGRATION -->",
-    ),
-    (
-        "#LEFT_POCKET_RUNTIME_CONTENT_START",
-        "#LEFT_POCKET_RUNTIME_CONTENT_START",
+        "#POCKET_RUNTIME_CONTENT_START",
     ),
     (
         "#LEFT_POCKET_RUNTIME_CONTENT_END",
-        "#LEFT_POCKET_RUNTIME_CONTENT_END",
+        "#POCKET_RUNTIME_CONTENT_END",
     ),
     (
         "#LEFT_POCKET_TEMPLATE_DESTINATION",
-        "#LEFT_POCKET_TEMPLATE_DESTINATION",
+        "#POCKET_TEMPLATE_DESTINATION",
     ),
-    ("#LEFT_POCKET_QUIET_MERGE", "#LEFT_POCKET_QUIET_MERGE"),
-    ("#LEFT_POCKET_MERGE_AT_RUNTIME", "#LEFT_POCKET_MERGE_AT_RUNTIME"),
+    ("#LEFT_POCKET_QUIET_MERGE", "#POCKET_QUIET_MERGE"),
+    ("#LEFT_POCKET_MERGE_AT_RUNTIME", "#POCKET_MERGE_AT_RUNTIME"),
     (
         "#LEFT_POCKET_INSTALL_DESTINATION",
-        "#LEFT_POCKET_INSTALL_DESTINATION",
+        "#POCKET_INSTALL_DESTINATION",
     ),
     (
         "<!-- BEGIN LEFT_POCKET TASK INTEGRATION -->",
-        "<!-- BEGIN LEFT_POCKET TASK INTEGRATION -->",
+        "<!-- BEGIN POCKET TASK INTEGRATION -->",
     ),
     (
         "<!-- END LEFT_POCKET TASK INTEGRATION -->",
-        "<!-- END LEFT_POCKET TASK INTEGRATION -->",
+        "<!-- END POCKET TASK INTEGRATION -->",
+    ),
+    (
+        "#CORNER_RUNTIME_CONTENT_START",
+        "#POCKET_RUNTIME_CONTENT_START",
+    ),
+    ("#CORNER_RUNTIME_CONTENT_END", "#POCKET_RUNTIME_CONTENT_END"),
+    (
+        "#CORNER_TEMPLATE_DESTINATION",
+        "#POCKET_TEMPLATE_DESTINATION",
+    ),
+    ("#CORNER_QUIET_MERGE", "#POCKET_QUIET_MERGE"),
+    ("#CORNER_MERGE_AT_RUNTIME", "#POCKET_MERGE_AT_RUNTIME"),
+    ("#CORNER_INSTALL_DESTINATION", "#POCKET_INSTALL_DESTINATION"),
+    (
+        "<!-- BEGIN CORNER TASK INTEGRATION -->",
+        "<!-- BEGIN POCKET TASK INTEGRATION -->",
+    ),
+    (
+        "<!-- END CORNER TASK INTEGRATION -->",
+        "<!-- END POCKET TASK INTEGRATION -->",
+    ),
+    (
+        "#SPOCKET_RUNTIME_CONTENT_START",
+        "#POCKET_RUNTIME_CONTENT_START",
+    ),
+    (
+        "#SPOCKET_RUNTIME_CONTENT_END",
+        "#POCKET_RUNTIME_CONTENT_END",
+    ),
+    (
+        "#SPOCKET_TEMPLATE_DESTINATION",
+        "#POCKET_TEMPLATE_DESTINATION",
+    ),
+    ("#SPOCKET_QUIET_MERGE", "#POCKET_QUIET_MERGE"),
+    ("#SPOCKET_MERGE_AT_RUNTIME", "#POCKET_MERGE_AT_RUNTIME"),
+    (
+        "#SPOCKET_INSTALL_DESTINATION",
+        "#POCKET_INSTALL_DESTINATION",
+    ),
+    (
+        "<!-- BEGIN SPOCKET TASK INTEGRATION -->",
+        "<!-- BEGIN POCKET TASK INTEGRATION -->",
+    ),
+    (
+        "<!-- END SPOCKET TASK INTEGRATION -->",
+        "<!-- END POCKET TASK INTEGRATION -->",
     ),
 ];
 
@@ -126,7 +153,10 @@ pub fn run(options: UpgradeOptions) -> Result<()> {
     roots.dedup();
 
     if roots.is_empty() {
-        println!("{}", "No left_pocket/Safe_pocket roots found to scan.".dimmed());
+        println!(
+            "{}",
+            "No left_pocket/Safe_pocket roots found to scan.".dimmed()
+        );
         return Ok(());
     }
 
@@ -269,6 +299,7 @@ fn collect_literal_root_artifacts(root: &Path, artifacts: &mut Vec<PathBuf>) -> 
             if name == "{{SPOCKET_CONFIG_ROOT}}"
                 || name == "{{CORNER_CONFIG_ROOT}}"
                 || name == "{{LEFT_POCKET_CONFIG_ROOT}}"
+                || name == "{{POCKET_CONFIG_ROOT}}"
             {
                 artifacts.push(path);
                 continue;
@@ -490,13 +521,13 @@ mod tests {
 
     #[test]
     fn test_rewrite_legacy_tokens_in_roots_rewrites_corner_and_spocket_directives() {
-        let base = std::env::temp_dir().join("left_pocket_test_rewrite_roots");
+        let base = std::env::temp_dir().join("pocket_test_rewrite_roots");
         let _ = fs::remove_dir_all(&base);
-        fs::create_dir_all(base.join("left_pocket_dir/.git")).unwrap();
+        fs::create_dir_all(base.join("pocket_dir/.git")).unwrap();
         fs::create_dir_all(base.join("project_dir")).unwrap();
 
         fs::write(
-            base.join("left_pocket_dir/AGENTS.md"),
+            base.join("pocket_dir/AGENTS.md"),
             "#LEFT_POCKET_RUNTIME_CONTENT_START\nold\n#LEFT_POCKET_RUNTIME_CONTENT_END\n",
         )
         .unwrap();
@@ -505,36 +536,44 @@ mod tests {
             "#LEFT_POCKET_TEMPLATE_DESTINATION: x.md\n<!-- BEGIN LEFT_POCKET TASK INTEGRATION -->\n",
         )
         .unwrap();
-        fs::write(base.join("project_dir/legacy.md"), "#LEFT_POCKET_QUIET_MERGE\n").unwrap();
-        // Must be skipped: inside a SKIP_DIRS tree.
-        fs::write(base.join("left_pocket_dir/.git/config.md"), "#LEFT_POCKET_QUIET_MERGE\n").unwrap();
-
-        let applied = rewrite_legacy_tokens_in_roots(&[
-            base.join("left_pocket_dir"),
-            base.join("project_dir"),
-        ])
+        fs::write(
+            base.join("project_dir/legacy.md"),
+            "#LEFT_POCKET_QUIET_MERGE\n",
+        )
         .unwrap();
+        // Must be skipped: inside a SKIP_DIRS tree.
+        fs::write(
+            base.join("pocket_dir/.git/config.md"),
+            "#LEFT_POCKET_QUIET_MERGE\n",
+        )
+        .unwrap();
+
+        let applied =
+            rewrite_legacy_tokens_in_roots(&[base.join("pocket_dir"), base.join("project_dir")])
+                .unwrap();
 
         assert_eq!(applied, 3);
         assert_eq!(
-            fs::read_to_string(base.join("left_pocket_dir/AGENTS.md")).unwrap(),
-            "#LEFT_POCKET_RUNTIME_CONTENT_START\nold\n#LEFT_POCKET_RUNTIME_CONTENT_END\n"
+            fs::read_to_string(base.join("pocket_dir/AGENTS.md")).unwrap(),
+            "#POCKET_RUNTIME_CONTENT_START\nold\n#POCKET_RUNTIME_CONTENT_END\n"
         );
-        assert!(fs::read_to_string(base.join("project_dir/copilot-instructions.md"))
-            .unwrap()
-            .contains("<!-- BEGIN LEFT_POCKET TASK INTEGRATION -->"));
+        assert!(
+            fs::read_to_string(base.join("project_dir/copilot-instructions.md"))
+                .unwrap()
+                .contains("<!-- BEGIN POCKET TASK INTEGRATION -->")
+        );
         assert_eq!(
             fs::read_to_string(base.join("project_dir/legacy.md")).unwrap(),
-            "#LEFT_POCKET_QUIET_MERGE\n"
+            "#POCKET_QUIET_MERGE\n"
         );
         assert_eq!(
-            fs::read_to_string(base.join("left_pocket_dir/.git/config.md")).unwrap(),
+            fs::read_to_string(base.join("pocket_dir/.git/config.md")).unwrap(),
             "#LEFT_POCKET_QUIET_MERGE\n"
         );
 
         // Idempotent: a second pass finds nothing to change.
         assert_eq!(
-            rewrite_legacy_tokens_in_roots(&[base.join("left_pocket_dir"), base.join("project_dir")])
+            rewrite_legacy_tokens_in_roots(&[base.join("pocket_dir"), base.join("project_dir")])
                 .unwrap(),
             0
         );
@@ -553,14 +592,15 @@ mod tests {
                      <!-- END LEFT_POCKET TASK INTEGRATION -->\n";
         let out = apply_replacements(input);
         assert!(!out.contains("SPOCKET"));
-        assert!(out.contains("#LEFT_POCKET_TEMPLATE_DESTINATION"));
-        assert!(out.contains("#LEFT_POCKET_QUIET_MERGE"));
-        assert!(out.contains("#LEFT_POCKET_MERGE_AT_RUNTIME"));
-        assert!(out.contains("#LEFT_POCKET_INSTALL_DESTINATION"));
-        assert!(out.contains("#LEFT_POCKET_RUNTIME_CONTENT_START"));
-        assert!(out.contains("#LEFT_POCKET_RUNTIME_CONTENT_END"));
-        assert!(out.contains("<!-- BEGIN LEFT_POCKET TASK INTEGRATION -->"));
-        assert!(out.contains("<!-- END LEFT_POCKET TASK INTEGRATION -->"));
+        assert!(!out.contains("LEFT_POCKET"));
+        assert!(out.contains("#POCKET_TEMPLATE_DESTINATION"));
+        assert!(out.contains("#POCKET_QUIET_MERGE"));
+        assert!(out.contains("#POCKET_MERGE_AT_RUNTIME"));
+        assert!(out.contains("#POCKET_INSTALL_DESTINATION"));
+        assert!(out.contains("#POCKET_RUNTIME_CONTENT_START"));
+        assert!(out.contains("#POCKET_RUNTIME_CONTENT_END"));
+        assert!(out.contains("<!-- BEGIN POCKET TASK INTEGRATION -->"));
+        assert!(out.contains("<!-- END POCKET TASK INTEGRATION -->"));
     }
 
     #[test]
@@ -572,7 +612,7 @@ mod tests {
 
     #[test]
     fn test_apply_replacements_idempotent() {
-        let input = "#LEFT_POCKET_TEMPLATE_DESTINATION: x.md\n";
+        let input = "#POCKET_TEMPLATE_DESTINATION: x.md\n";
         assert_eq!(apply_replacements(input), input);
     }
 
@@ -584,7 +624,7 @@ mod tests {
 
     #[test]
     fn test_collect_rewrites_skips_skip_dirs_and_binary() {
-        let base = std::env::temp_dir().join("left_pocket_test_upgrade_collect");
+        let base = std::env::temp_dir().join("pocket_test_upgrade_collect");
         let _ = fs::remove_dir_all(&base);
         fs::create_dir_all(base.join(".git")).unwrap();
         fs::create_dir_all(base.join("target")).unwrap();
@@ -613,8 +653,8 @@ mod tests {
     }
 
     #[test]
-    fn literal_artifact_scan_skips_archives_and_finds_active_left_pockets() {
-        let base = std::env::temp_dir().join("left_pocket_test_literal_artifact_scan");
+    fn literal_artifact_scan_skips_archives_and_finds_active_pockets() {
+        let base = std::env::temp_dir().join("pocket_test_literal_artifact_scan");
         let _ = fs::remove_dir_all(&base);
         fs::create_dir_all(base.join("abc123/{{SPOCKET_CONFIG_ROOT}}")).unwrap();
         fs::create_dir_all(base.join("snapshots/abc123/{{SPOCKET_CONFIG_ROOT}}")).unwrap();
@@ -628,7 +668,7 @@ mod tests {
 
     #[test]
     fn literal_artifact_is_safe_only_with_one_feature_tags_file() {
-        let base = std::env::temp_dir().join("left_pocket_test_literal_artifact_safety");
+        let base = std::env::temp_dir().join("pocket_test_literal_artifact_safety");
         let _ = fs::remove_dir_all(&base);
         fs::create_dir_all(&base).unwrap();
         fs::write(base.join("feature_tags.yaml"), "tags: {}\n").unwrap();
@@ -645,8 +685,8 @@ mod tests {
     fn literal_artifact_scan_and_safety_reject_symlinks() {
         use std::os::unix::fs::symlink;
 
-        let base = std::env::temp_dir().join("left_pocket_test_literal_artifact_symlink");
-        let outside = std::env::temp_dir().join("left_pocket_test_literal_artifact_outside");
+        let base = std::env::temp_dir().join("pocket_test_literal_artifact_symlink");
+        let outside = std::env::temp_dir().join("pocket_test_literal_artifact_outside");
         let _ = fs::remove_dir_all(&base);
         let _ = fs::remove_dir_all(&outside);
         fs::create_dir_all(base.join("abc123")).unwrap();

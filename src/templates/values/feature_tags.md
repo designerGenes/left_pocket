@@ -1,4 +1,4 @@
-#LEFT_POCKET_INSTALL_DESTINATION: {{LEFT_POCKET_CONFIG_ROOT}}/feature_tags.yaml
+#POCKET_INSTALL_DESTINATION: {{POCKET_CONFIG_ROOT}}/feature_tags.yaml
 
 SPOCKET_MUST_RUN_INSTALL_COMMAND:
   description: "before this feature is considered complete, the agent must run this specific series of install commands line by line and verify that the full process was successful."

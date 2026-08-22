@@ -7,8 +7,8 @@ mod feature;
 mod hash;
 mod manifest;
 mod migrate;
-mod registry;
 mod real_world_tests;
+mod registry;
 mod task;
 mod template;
 mod workspace;
@@ -99,7 +99,7 @@ fn run() -> Result<()> {
     // the VS Code extension on every editor open/close and must be read-only
     // with respect to the templates directory. Re-seeding missing templates
     // there would silently resurrect template source files the user deleted,
-    // violating the unidirectional templates -> left_pocket flow.
+    // violating the unidirectional templates -> pocket flow.
     let is_merge_cmd = matches!(
         cli.command,
         Some(
@@ -215,7 +215,7 @@ fn handle_command(command: Commands) -> Result<()> {
                 println!(
                     "  {} {}",
                     workspace.hash.bright_yellow(),
-                    format!("({})", workspace.left_pocket_dir.display()).dimmed()
+                    format!("({})", workspace.pocket_dir.display()).dimmed()
                 );
 
                 for path in &workspace.core_paths {
@@ -228,11 +228,11 @@ fn handle_command(command: Commands) -> Result<()> {
             Ok(())
         }
 
-        Commands::Sync { target, left_pocket } => handle_sync(target, left_pocket),
+        Commands::Sync { target, pocket } => handle_sync(target, pocket),
 
-        Commands::RuntimeMergeStart { left_pocket } => handle_merge_start(left_pocket),
+        Commands::RuntimeMergeStart { pocket } => handle_merge_start(pocket),
 
-        Commands::RuntimeMergeStop { left_pocket } => handle_merge_stop(left_pocket),
+        Commands::RuntimeMergeStop { pocket } => handle_merge_stop(pocket),
 
         Commands::InstallDefaultAssets { replace } => handle_install_default_assets(replace),
 
@@ -261,7 +261,7 @@ fn handle_command(command: Commands) -> Result<()> {
             no_open,
         } => handle_augment(add, remove, no_open),
 
-        Commands::Mark { mark, left_pocket } => handle_mark(mark, left_pocket),
+        Commands::Mark { mark, pocket } => handle_mark(mark, pocket),
 
         Commands::Clean {
             scope,
@@ -274,8 +274,8 @@ fn handle_command(command: Commands) -> Result<()> {
         Commands::Heal {
             project,
             alias,
-            left_pocket,
-        } => handle_heal(project, alias, left_pocket),
+            pocket,
+        } => handle_heal(project, alias, pocket),
 
         Commands::Locate { path, read_only } => {
             if read_only {
@@ -308,22 +308,22 @@ fn handle_command(command: Commands) -> Result<()> {
         Commands::Worktree { action } => handle_worktree(action),
 
         Commands::DailyFeature {
-            left_pocket,
+            pocket,
             new,
             subpath,
-        } => handle_daily_feature(left_pocket, new, subpath),
+        } => handle_daily_feature(pocket, new, subpath),
 
         Commands::Task { args } => task::run_cli(args),
     }
 }
 
-fn handle_daily_feature(left_pocket: String, new: bool, subpath: Option<String>) -> Result<()> {
-    let left_pocket_dir = PathBuf::from(&left_pocket);
+fn handle_daily_feature(pocket: String, new: bool, subpath: Option<String>) -> Result<()> {
+    let pocket_dir = PathBuf::from(&pocket);
 
-    if !left_pocket_dir.is_dir() {
+    if !pocket_dir.is_dir() {
         let out = serde_json::json!({
             "status": "error",
-            "message": format!("left_pocket directory does not exist: {}", left_pocket)
+            "message": format!("pocket directory does not exist: {}", pocket)
         });
         println!("{}", serde_json::to_string(&out)?);
         return Ok(());
@@ -341,10 +341,10 @@ fn handle_daily_feature(left_pocket: String, new: bool, subpath: Option<String>)
             .join("feature_tags.yaml")
     });
 
-    match feature::resolve_daily_feature(&left_pocket_dir, &subpath, new, &feature_tags_yaml) {
+    match feature::resolve_daily_feature(&pocket_dir, &subpath, new, &feature_tags_yaml) {
         Ok(outcome) => {
-            let _ = event::append_left_pocket_event(
-                &left_pocket_dir,
+            let _ = event::append_pocket_event(
+                &pocket_dir,
                 if outcome.created {
                     "daily_feature.create"
                 } else {
@@ -411,12 +411,13 @@ fn migrate_post_install_root_state() -> Result<()> {
     let cache = registry::rebuild_current_cache()?;
     let current_root = crate::branding::current_registry_root()?;
 
-    for entry in cache.left_pockets {
+    for entry in cache.pockets {
         if !entry.path.starts_with(&current_root) || !entry.path.is_dir() {
             continue;
         }
 
-        let Some((manifest, core_paths)) = Workspace::load_manifest_or_backfill(&entry.path)? else {
+        let Some((manifest, core_paths)) = Workspace::load_manifest_or_backfill(&entry.path)?
+        else {
             continue;
         };
 
@@ -424,16 +425,16 @@ fn migrate_post_install_root_state() -> Result<()> {
             hash: entry.hash,
             core_paths: core_paths.clone(),
             sidecar_paths: vec![],
-            left_pocket_dir: entry.path.clone(),
+            pocket_dir: entry.path.clone(),
             create_readmes: false,
             temporary: entry.temporary,
         };
         workspace.migrate_storage_references()?;
 
-        sync_root_env_file(&workspace.left_pocket_dir.join(".env"), &workspace.left_pocket_dir)?;
+        sync_root_env_file(&workspace.pocket_dir.join(".env"), &workspace.pocket_dir)?;
         for project_path in core_paths.iter().chain(manifest.worktrees.iter()) {
-            // A left_pocket can outlive its project directory (deleted repos,
-            // temp-dir left_pockets left behind by test runs, unmounted volumes).
+            // A pocket can outlive its project directory (deleted repos,
+            // temp-dir pockets left behind by test runs, unmounted volumes).
             // Writing a `.env` there would recreate the directory tree, and
             // failing would abort the whole installation — so skip it instead.
             if !project_path.is_dir() {
@@ -446,7 +447,7 @@ fn migrate_post_install_root_state() -> Result<()> {
                 }
                 continue;
             }
-            sync_root_env_file(&project_path.join(".env"), &workspace.left_pocket_dir)?;
+            sync_root_env_file(&project_path.join(".env"), &workspace.pocket_dir)?;
         }
     }
 
@@ -457,19 +458,22 @@ fn migrate_post_install_root_state() -> Result<()> {
 
 /// Rewrite the `LEFT_POCKET_ROOT` entry in an `.env` file.
 ///
-/// left_pocket writes only `LEFT_POCKET_ROOT`. The legacy `SPOCKET_ROOT` key is no longer
-/// emitted, and any stale copy is removed here so a renamed left_pocket cannot leave
-/// a contradictory legacy path behind. Backwards compatibility is preserved on
-/// the *read* side instead: `branding::LEGACY_ROOT_ENV_KEYS` and
-/// `task::detect_prefix` still accept `SPOCKET_ROOT` in pre-existing files.
-fn sync_root_env_file(env_path: &Path, left_pocket_dir: &Path) -> Result<()> {
+/// left_pocket writes only `POCKET_ROOT`. Legacy `LEFT_POCKET_ROOT` and
+/// `SPOCKET_ROOT` keys are no longer emitted, and any stale copy is removed here
+/// so a renamed pocket cannot leave a contradictory legacy path behind.
+/// Backwards compatibility is preserved on the *read* side instead:
+/// `branding::LEGACY_ROOT_ENV_KEYS` and `task::detect_prefix` still accept the
+/// legacy keys in pre-existing files.
+fn sync_root_env_file(env_path: &Path, pocket_dir: &Path) -> Result<()> {
     let mut lines = if env_path.exists() {
         fs::read_to_string(env_path)
             .with_context(|| format!("Failed to read env file: {}", env_path.display()))?
             .lines()
             .filter(|line| {
                 let trimmed = line.trim_start();
-                !trimmed.starts_with("LEFT_POCKET_ROOT=") && !trimmed.starts_with("SPOCKET_ROOT=")
+                !trimmed.starts_with("POCKET_ROOT=")
+                    && !trimmed.starts_with("LEFT_POCKET_ROOT=")
+                    && !trimmed.starts_with("SPOCKET_ROOT=")
             })
             .map(str::to_string)
             .collect::<Vec<_>>()
@@ -477,7 +481,7 @@ fn sync_root_env_file(env_path: &Path, left_pocket_dir: &Path) -> Result<()> {
         Vec::new()
     };
 
-    lines.push(format!("LEFT_POCKET_ROOT={}", left_pocket_dir.display()));
+    lines.push(format!("POCKET_ROOT={}", pocket_dir.display()));
 
     let content = if lines.is_empty() {
         String::new()
@@ -508,19 +512,13 @@ fn migrate_backup_script_paths() -> Result<()> {
     for legacy_root in crate::branding::known_registry_roots()? {
         if legacy_root != current_root {
             let legacy_root_text = legacy_root.to_string_lossy().into_owned();
-            content = content.replace(
-                &legacy_root_text,
-                &current_root.to_string_lossy(),
-            );
+            content = content.replace(&legacy_root_text, &current_root.to_string_lossy());
         }
     }
     for legacy_backup in crate::branding::known_backup_repo_paths()? {
         if legacy_backup != preferred_backup {
             let legacy_backup_text = legacy_backup.to_string_lossy().into_owned();
-            content = content.replace(
-                &legacy_backup_text,
-                &preferred_backup.to_string_lossy(),
-            );
+            content = content.replace(&legacy_backup_text, &preferred_backup.to_string_lossy());
         }
     }
 
@@ -547,10 +545,7 @@ fn migrate_backup_crontab_path() -> Result<()> {
         }
         let legacy_script = legacy_root.join("backup.sh");
         let legacy_script_text = legacy_script.to_string_lossy().into_owned();
-        current = current.replace(
-            &legacy_script_text,
-            &current_script.to_string_lossy(),
-        );
+        current = current.replace(&legacy_script_text, &current_script.to_string_lossy());
     }
 
     if current == original {
@@ -581,7 +576,7 @@ fn handle_worktree(action: WorktreeAction) -> Result<()> {
 
     let workspace = Workspace::find_workspace_for_cwd(&cwd)?.ok_or_else(|| {
         anyhow!(
-            "No workspace found for current directory: {}\nRun this from inside a project directory that belongs to a left_pocket.",
+            "No workspace found for current directory: {}\nRun this from inside a project directory that belongs to a pocket.",
             cwd.display()
         )
     })?;
@@ -601,7 +596,7 @@ fn handle_worktree(action: WorktreeAction) -> Result<()> {
                 return Err(anyhow!("Path does not exist: {}", target_path.display()));
             }
 
-            let mut manifest = Manifest::load(&workspace.left_pocket_dir)?.unwrap_or_else(|| {
+            let mut manifest = Manifest::load(&workspace.pocket_dir)?.unwrap_or_else(|| {
                 Manifest::new_with_options(
                     workspace.hash.clone(),
                     workspace.core_paths.clone(),
@@ -610,7 +605,7 @@ fn handle_worktree(action: WorktreeAction) -> Result<()> {
             });
 
             if manifest.add_worktree(target_path.clone()) {
-                manifest.save(&workspace.left_pocket_dir)?;
+                manifest.save(&workspace.pocket_dir)?;
                 println!(
                     "{} {} -> {}",
                     "Worktree registered:".bright_green(),
@@ -632,7 +627,7 @@ fn handle_worktree(action: WorktreeAction) -> Result<()> {
             let config = Config::load()?;
             let target_path = config.resolve_path(&path)?;
 
-            let mut manifest = match Manifest::load(&workspace.left_pocket_dir)? {
+            let mut manifest = match Manifest::load(&workspace.pocket_dir)? {
                 Some(m) => m,
                 None => {
                     return Err(anyhow!(
@@ -643,7 +638,7 @@ fn handle_worktree(action: WorktreeAction) -> Result<()> {
             };
 
             if manifest.remove_worktree(&target_path) {
-                manifest.save(&workspace.left_pocket_dir)?;
+                manifest.save(&workspace.pocket_dir)?;
                 println!(
                     "{} {}",
                     "Worktree removed:".bright_green(),
@@ -661,7 +656,7 @@ fn handle_worktree(action: WorktreeAction) -> Result<()> {
         }
 
         WorktreeAction::List => {
-            let manifest = match Manifest::load(&workspace.left_pocket_dir)? {
+            let manifest = match Manifest::load(&workspace.pocket_dir)? {
                 Some(m) => m,
                 None => {
                     return Err(anyhow!(
@@ -679,7 +674,7 @@ fn handle_worktree(action: WorktreeAction) -> Result<()> {
             println!(
                 "  {} {}",
                 "Location:".dimmed(),
-                workspace.left_pocket_dir.display().to_string().bright_blue()
+                workspace.pocket_dir.display().to_string().bright_blue()
             );
             println!();
 
@@ -789,15 +784,15 @@ fn find_existing_workspace_for_paths(paths: &[PathBuf]) -> Result<Option<Workspa
                 let relative = path.strip_prefix(&temporary_spocket_dir).unwrap();
                 if let Some(hash_component) = relative.components().next() {
                     let hash = hash_component.as_os_str().to_string_lossy().to_string();
-                    let left_pocket_dir = temporary_spocket_dir.join(&hash);
+                    let pocket_dir = temporary_spocket_dir.join(&hash);
                     if let Some((_, core_paths)) =
-                        Workspace::load_manifest_or_backfill(&left_pocket_dir)?
+                        Workspace::load_manifest_or_backfill(&pocket_dir)?
                     {
                         return Ok(Some(Workspace {
                             hash,
                             core_paths,
                             sidecar_paths: vec![],
-                            left_pocket_dir,
+                            pocket_dir,
                             create_readmes: false,
                             temporary: true,
                         }));
@@ -812,15 +807,15 @@ fn find_existing_workspace_for_paths(paths: &[PathBuf]) -> Result<Option<Workspa
                     if hash == "temporary" {
                         continue;
                     }
-                    let left_pocket_dir = spocket_dir.join(&hash);
+                    let pocket_dir = spocket_dir.join(&hash);
                     if let Some((_, core_paths)) =
-                        Workspace::load_manifest_or_backfill(&left_pocket_dir)?
+                        Workspace::load_manifest_or_backfill(&pocket_dir)?
                     {
                         return Ok(Some(Workspace {
                             hash,
                             core_paths,
                             sidecar_paths: vec![],
-                            left_pocket_dir,
+                            pocket_dir,
                             create_readmes: false,
                             temporary: false,
                         }));
@@ -849,15 +844,15 @@ fn repair_empty_workspace_paths(
         return Ok(());
     }
 
-    if let Some(mut manifest) = Manifest::load(&workspace.left_pocket_dir)? {
+    if let Some(mut manifest) = Manifest::load(&workspace.pocket_dir)? {
         if manifest.core_paths.is_empty() {
-            manifest.update_paths(workspace.core_paths.clone(), &workspace.left_pocket_dir)?;
+            manifest.update_paths(workspace.core_paths.clone(), &workspace.pocket_dir)?;
         }
     }
 
-    if let Some(workspace_file) = Workspace::find_workspace_file(&workspace.left_pocket_dir) {
+    if let Some(workspace_file) = Workspace::find_workspace_file(&workspace.pocket_dir) {
         let (existing, file_paths) =
-            Workspace::read_workspace_file(&workspace_file, &workspace.left_pocket_dir)
+            Workspace::read_workspace_file(&workspace_file, &workspace.pocket_dir)
                 .map(|(ws, paths)| (Some(ws), paths))
                 .unwrap_or((None, Vec::new()));
         if file_paths.is_empty() {
@@ -904,7 +899,7 @@ fn handle_workspace(cli: Cli) -> Result<()> {
 
         let mut workspace = Workspace::clone_from(&source_path, &core_paths, cli.temporary)?;
 
-        workspace.create_left_pocket_structure()?;
+        workspace.create_pocket_structure()?;
 
         apply_session_tools(&cli.with_tools, &mut workspace)?;
         apply_project_tools(&cli.add_tools, &workspace)?;
@@ -918,7 +913,7 @@ fn handle_workspace(cli: Cli) -> Result<()> {
         if let Some(existing) = find_existing_workspace_for_paths(&core_paths)? {
             if !existing.temporary {
                 return Err(anyhow!(
-                    "A permanent left_pocket already exists for these paths: {}\nUse `left_pocket -i ...` to open it, or pass `--new` if you really want a separate temporary left_pocket.",
+                    "A permanent pocket already exists for these paths: {}\nUse `left_pocket -i ...` to open it, or pass `--new` if you really want a separate temporary pocket.",
                     existing.hash
                 ));
             }
@@ -929,7 +924,7 @@ fn handle_workspace(cli: Cli) -> Result<()> {
         if let Some(mut existing) = find_existing_workspace_for_paths(&core_paths)? {
             if cli.temporary && !existing.temporary {
                 return Err(anyhow!(
-                    "Found a permanent left_pocket for these paths: {}\nTemporary mode only reuses temporary left_pockets.",
+                    "Found a permanent pocket for these paths: {}\nTemporary mode only reuses temporary pockets.",
                     existing.hash
                 ));
             }
@@ -944,9 +939,9 @@ fn handle_workspace(cli: Cli) -> Result<()> {
             repair_empty_workspace_paths(&mut existing, &core_paths)?;
             existing.migrate_storage_references()?;
 
-            // If the CLI paths differ from this left_pocket's core_paths, the user is
+            // If the CLI paths differ from this pocket's core_paths, the user is
             // opening via a registered worktree path. Inject those paths as sidecars
-            // so VS Code shows the worktree branch's files alongside the left_pocket.
+            // so VS Code shows the worktree branch's files alongside the pocket.
             let existing_path_set: std::collections::HashSet<_> =
                 existing.core_paths.iter().collect();
             let extra_paths: Vec<PathBuf> = core_paths
@@ -964,14 +959,14 @@ fn handle_workspace(cli: Cli) -> Result<()> {
 
             let drift_result = existing.detect_and_resolve_drift()?;
             if let DriftResult::AcceptFile { new_core_paths } = drift_result {
-                let mut manifest = Manifest::load(&existing.left_pocket_dir)?.unwrap_or_else(|| {
+                let mut manifest = Manifest::load(&existing.pocket_dir)?.unwrap_or_else(|| {
                     Manifest::new_with_options(
                         existing.hash.clone(),
                         existing.core_paths.clone(),
                         existing.temporary,
                     )
                 });
-                manifest.update_paths(new_core_paths.clone(), &existing.left_pocket_dir)?;
+                manifest.update_paths(new_core_paths.clone(), &existing.pocket_dir)?;
                 existing.core_paths = new_core_paths;
             }
 
@@ -991,14 +986,14 @@ fn handle_workspace(cli: Cli) -> Result<()> {
     )?;
 
     if !workspace.exists() {
-        // Secondary lookup: check if any existing left_pocket's manifest matches these paths
-        // (handles left_pockets that evolved in-place via sync/augment)
+        // Secondary lookup: check if any existing pocket's manifest matches these paths
+        // (handles pockets that evolved in-place via sync/augment)
         if let Some(mut existing) = Workspace::find_workspace_by_manifest_paths(&core_paths)? {
             if existing.temporary == cli.temporary {
                 if verbose() {
                     println!(
                         "{} {} (matched by manifest)",
-                        "Found existing left_pocket:".bright_green(),
+                        "Found existing pocket:".bright_green(),
                         existing.hash.bright_yellow()
                     );
                 }
@@ -1019,17 +1014,17 @@ fn handle_workspace(cli: Cli) -> Result<()> {
                 // Clone from selected workspace
                 println!("Cloning from: {}", selected.hash.bright_yellow());
 
-                // Copy left_pocket contents
-                if workspace.left_pocket_dir.exists() {
+                // Copy pocket contents
+                if workspace.pocket_dir.exists() {
                     registry::move_to_unhoused(
-                        &workspace.left_pocket_dir,
+                        &workspace.pocket_dir,
                         "smart clone target replacement",
                     )?;
-                    registry::remove_left_pocket(&workspace.left_pocket_dir)?;
+                    registry::remove_pocket(&workspace.pocket_dir)?;
                 }
 
-                copy_dir_all(&selected.left_pocket_dir, &workspace.left_pocket_dir)
-                    .context("Failed to copy left_pocket contents")?;
+                copy_dir_all(&selected.pocket_dir, &workspace.pocket_dir)
+                    .context("Failed to copy pocket contents")?;
 
                 // Create workspace file with new paths
                 workspace.create_workspace_file()?;
@@ -1041,12 +1036,12 @@ fn handle_workspace(cli: Cli) -> Result<()> {
                     selected.hash.clone(),
                     workspace.temporary,
                 );
-                manifest.save(&workspace.left_pocket_dir)?;
+                manifest.save(&workspace.pocket_dir)?;
 
                 // Update parent's children list
-                if let Ok(Some(mut parent_manifest)) = Manifest::load(&selected.left_pocket_dir) {
+                if let Ok(Some(mut parent_manifest)) = Manifest::load(&selected.pocket_dir) {
                     parent_manifest.add_child(workspace.hash.clone());
-                    let _ = parent_manifest.save(&selected.left_pocket_dir);
+                    let _ = parent_manifest.save(&selected.pocket_dir);
                 }
 
                 println!(
@@ -1093,7 +1088,7 @@ fn handle_workspace(cli: Cli) -> Result<()> {
 
         match drift_result {
             DriftResult::AcceptFile { new_core_paths } => {
-                let mut manifest = match Manifest::load(&workspace.left_pocket_dir)? {
+                let mut manifest = match Manifest::load(&workspace.pocket_dir)? {
                     Some(m) => m,
                     None => Manifest::new_with_options(
                         workspace.hash.clone(),
@@ -1101,7 +1096,7 @@ fn handle_workspace(cli: Cli) -> Result<()> {
                         workspace.temporary,
                     ),
                 };
-                manifest.update_paths(new_core_paths.clone(), &workspace.left_pocket_dir)?;
+                manifest.update_paths(new_core_paths.clone(), &workspace.pocket_dir)?;
                 workspace.core_paths = new_core_paths;
                 println!(
                     "{} {}",
@@ -1134,7 +1129,7 @@ fn normalize_tool_name(name: &str) -> Result<String> {
 fn apply_session_tools(names: &[String], workspace: &mut Workspace) -> Result<()> {
     for name in names {
         let tool = normalize_tool_name(name)?;
-        let dir = workspace.left_pocket_dir.join(".session-tools").join(&tool);
+        let dir = workspace.pocket_dir.join(".session-tools").join(&tool);
         prepare_tool_dir(&dir, &tool, workspace)?;
         if !workspace.sidecar_paths.contains(&dir) {
             workspace.sidecar_paths.push(dir);
@@ -1170,7 +1165,7 @@ fn project_tool_installed(tool: &str, workspace: &Workspace) -> bool {
     match tool {
         "gitleaks" => {
             workspace
-                .left_pocket_dir
+                .pocket_dir
                 .join("tools/gitleaks/pre-commit-hook.sh")
                 .is_file()
                 && workspace.core_paths.iter().all(|project| {
@@ -1180,13 +1175,13 @@ fn project_tool_installed(tool: &str, workspace: &Workspace) -> bool {
         }
         "graphify" => {
             workspace
-                .left_pocket_dir
+                .pocket_dir
                 .join("tools/graphify/README.md")
                 .is_file()
-                && workspace.left_pocket_dir.join("graphify-out").is_dir()
+                && workspace.pocket_dir.join("graphify-out").is_dir()
         }
         "memgraph" => {
-            let dir = workspace.left_pocket_dir.join("tools/memgraph");
+            let dir = workspace.pocket_dir.join("tools/memgraph");
             dir.join("scan-config.json").is_file()
                 && dir.join("docker-compose.yml").is_file()
                 && dir.join("schema.cypher").is_file()
@@ -1213,14 +1208,14 @@ fn prepare_tool_dir(dir: &Path, tool: &str, workspace: &Workspace) -> Result<()>
 fn tool_readme(tool: &str) -> String {
     match tool {
         "gitleaks" => "# gitleaks\n\nManaged by left_pocket. Use `gitleaks detect --source <project>` to scan for secrets.\n".to_string(),
-        "graphify" => "# graphify\n\nManaged by left_pocket. Graph output is stored in the left_pocket and may be bridged into the project.\n".to_string(),
-        "memgraph" => "# Memgraph relational memory\n\nManaged by left_pocket. This directory contains a Memgraph configuration, Docker Compose file, Cypher schema, and a scanner for the left_pocket's FEATURES tree and relevant markdown context files.\n".to_string(),
+        "graphify" => "# graphify\n\nManaged by left_pocket. Graph output is stored in the pocket and may be bridged into the project.\n".to_string(),
+        "memgraph" => "# Memgraph relational memory\n\nManaged by left_pocket. This directory contains a Memgraph configuration, Docker Compose file, Cypher schema, and a scanner for the pocket's FEATURES tree and relevant markdown context files.\n".to_string(),
         _ => format!("# {tool}\n\nManaged by left_pocket.\n"),
     }
 }
 
 fn install_gitleaks(workspace: &Workspace) -> Result<()> {
-    let tool_dir = workspace.left_pocket_dir.join("tools").join("gitleaks");
+    let tool_dir = workspace.pocket_dir.join("tools").join("gitleaks");
     fs::create_dir_all(&tool_dir)
         .with_context(|| format!("Failed to create gitleaks tool dir: {}", tool_dir.display()))?;
     let readme = tool_dir.join("README.md");
@@ -1290,8 +1285,8 @@ fn git_hooks_dir(project: &Path) -> Option<PathBuf> {
 }
 
 fn install_graphify(workspace: &Workspace) -> Result<()> {
-    let tool_dir = workspace.left_pocket_dir.join("tools").join("graphify");
-    let graph_dir = workspace.left_pocket_dir.join("graphify-out");
+    let tool_dir = workspace.pocket_dir.join("tools").join("graphify");
+    let graph_dir = workspace.pocket_dir.join("graphify-out");
     fs::create_dir_all(&tool_dir)
         .with_context(|| format!("Failed to create graphify tool dir: {}", tool_dir.display()))?;
     fs::create_dir_all(&graph_dir).with_context(|| {
@@ -1321,7 +1316,7 @@ fn install_graphify(workspace: &Workspace) -> Result<()> {
 }
 
 fn install_memgraph(workspace: &Workspace) -> Result<()> {
-    let tool_dir = workspace.left_pocket_dir.join("tools").join("memgraph");
+    let tool_dir = workspace.pocket_dir.join("tools").join("memgraph");
     prepare_tool_dir(&tool_dir, "memgraph", workspace)?;
     add_persistent_workspace_folder(workspace, &tool_dir, "[Tool] memgraph")
 }
@@ -1348,8 +1343,8 @@ fn write_memgraph_config(tool_dir: &Path, workspace: &Workspace) -> Result<()> {
         },
         "runtime": {
             "compose_project": memgraph_compose_project(workspace),
-            "left_pocket_hash": workspace.hash,
-            "left_pocket_path": workspace.left_pocket_dir.to_string_lossy().to_string(),
+            "pocket_hash": workspace.hash,
+            "pocket_path": workspace.pocket_dir.to_string_lossy().to_string(),
             "bolt_port": memgraph_bolt_port(workspace),
             "lab_port": memgraph_lab_port(workspace),
             "import_cypher": tool_dir.join("import/load-markdown.cypher").to_string_lossy().to_string()
@@ -1381,9 +1376,9 @@ fn write_memgraph_config(tool_dir: &Path, workspace: &Workspace) -> Result<()> {
 }
 
 fn memgraph_scan_paths(workspace: &Workspace) -> Vec<PathBuf> {
-    let mut paths = vec![workspace.left_pocket_dir.join("FEATURES")];
+    let mut paths = vec![workspace.pocket_dir.join("FEATURES")];
     for name in ["AGENTS.md", "GEMINI.md", "README.md", "Install.md"] {
-        let candidate = workspace.left_pocket_dir.join(name);
+        let candidate = workspace.pocket_dir.join(name);
         if candidate.exists() || name == "AGENTS.md" {
             paths.push(candidate);
         }
@@ -1422,8 +1417,8 @@ config = json.loads(Path(sys.argv[1]).read_text())
 jsonl = Path(sys.argv[2])
 cypher = Path(sys.argv[3])
 runtime = config['runtime']
-left_pocket_hash = runtime['left_pocket_hash']
-left_pocket_path = runtime['left_pocket_path']
+pocket_hash = runtime['pocket_hash']
+pocket_path = runtime['pocket_path']
 bolt_url = config['bolt_url']
 lab_url = config['lab_url']
 stopwords = {'about','after','again','before','being','better','feature','features','graph','graphs','memgraph','project','safe','left_pocket','using','with','from','this','that','into'}
@@ -1435,8 +1430,8 @@ def concepts(title):
     tokens = re.findall(r"[A-Za-z][A-Za-z0-9_-]+", title)
     return sorted({token.capitalize() for token in tokens if len(token) > 4 and token.lower() not in stopwords})
 
-lines = [f"MATCH (n {{left_pocket_hash: {q(left_pocket_hash)}}}) DETACH DELETE n;"]
-lines.append(f"MERGE (p:left_pocket {{hash: {q(left_pocket_hash)}}}) SET p.path = {q(left_pocket_path)}, p.left_pocket_hash = {q(left_pocket_hash)}, p.bolt_url = {q(bolt_url)}, p.lab_url = {q(lab_url)};")
+lines = [f"MATCH (n {{pocket_hash: {q(pocket_hash)}}}) DETACH DELETE n;"]
+lines.append(f"MERGE  (p:pocket {{hash: {q(pocket_hash)}}}) SET p.path = {q(pocket_path)}, p.pocket_hash = {q(pocket_hash)}, p.bolt_url = {q(bolt_url)}, p.lab_url = {q(lab_url)};")
 
 if jsonl.exists():
     for raw in jsonl.read_text(encoding='utf-8').splitlines():
@@ -1445,15 +1440,15 @@ if jsonl.exists():
         item = json.loads(raw)
         path = item['path']
         title = item.get('title') or Path(path).stem
-        rel = str(Path(path).relative_to(left_pocket_path)) if path.startswith(left_pocket_path) else path
-        lines.append(f"MERGE (f:File {{path: {q(path)}}}) SET f.language = 'markdown', f.title = {q(title)}, f.relative_path = {q(rel)}, f.bytes = {item.get('bytes', 0)}, f.left_pocket_hash = {q(left_pocket_hash)};")
-        lines.append(f"MATCH (p:left_pocket {{hash: {q(left_pocket_hash)}}}), (f:File {{path: {q(path)}}}) MERGE (p)-[:CONTAINS]->(f);")
+        rel = str(Path(path).relative_to(pocket_path)) if path.startswith(pocket_path) else path
+        lines.append(f"MERGE (f:File {{path: {q(path)}}}) SET f.language = 'markdown', f.title = {q(title)}, f.relative_path = {q(rel)}, f.bytes = {item.get('bytes', 0)}, f.pocket_hash = {q(pocket_hash)};")
+        lines.append(f"MATCH  (p:pocket {{hash: {q(pocket_hash)}}}), (f:File {{path: {q(path)}}}) MERGE (p)-[:CONTAINS]->(f);")
         if rel.startswith('FEATURES/'):
-            lines.append(f"MERGE (feat:Feature {{name: {q(title)}, left_pocket_hash: {q(left_pocket_hash)}}}) SET feat.status = 'tracked', feat.description = {q(rel)}, feat.source_path = {q(path)};")
-            lines.append(f"MATCH (f:File {{path: {q(path)}}}), (feat:Feature {{name: {q(title)}, left_pocket_hash: {q(left_pocket_hash)}}}) MERGE (f)-[:IMPLEMENTS]->(feat);")
+            lines.append(f"MERGE (feat:Feature {{name: {q(title)}, pocket_hash: {q(pocket_hash)}}}) SET feat.status = 'tracked', feat.description = {q(rel)}, feat.source_path = {q(path)};")
+            lines.append(f"MATCH (f:File {{path: {q(path)}}}), (feat:Feature {{name: {q(title)}, pocket_hash: {q(pocket_hash)}}}) MERGE (f)-[:IMPLEMENTS]->(feat);")
             for concept in concepts(title):
-                lines.append(f"MERGE (c:Concept {{name: {q(concept)}, left_pocket_hash: {q(left_pocket_hash)}}});")
-                lines.append(f"MATCH (feat:Feature {{name: {q(title)}, left_pocket_hash: {q(left_pocket_hash)}}}), (c:Concept {{name: {q(concept)}, left_pocket_hash: {q(left_pocket_hash)}}}) MERGE (feat)-[:REQUIRES]->(c);")
+                lines.append(f"MERGE (c:Concept {{name: {q(concept)}, pocket_hash: {q(pocket_hash)}}});")
+                lines.append(f"MATCH (feat:Feature {{name: {q(title)}, pocket_hash: {q(pocket_hash)}}}), (c:Concept {{name: {q(concept)}, pocket_hash: {q(pocket_hash)}}}) MERGE (feat)-[:REQUIRES]->(c);")
 
 cypher.write_text('\n'.join(lines) + '\n', encoding='utf-8')
 PY
@@ -1540,7 +1535,7 @@ fn add_persistent_workspace_folder(workspace: &Workspace, path: &Path, name: &st
         .with_context(|| format!("Failed to read {}", workspace_file.display()))?;
     let existing_workspace: VSCodeWorkspace = serde_json::from_str(&text)
         .with_context(|| format!("Failed to parse {}", workspace_file.display()))?;
-    let (_, file_paths) = Workspace::read_workspace_file(&workspace_file, &workspace.left_pocket_dir)?;
+    let (_, file_paths) = Workspace::read_workspace_file(&workspace_file, &workspace.pocket_dir)?;
     if file_paths.is_empty() && !workspace.core_paths.is_empty() {
         workspace.write_workspace_file_preserving(Some(&existing_workspace))?;
         text = fs::read_to_string(&workspace_file)
@@ -1588,18 +1583,18 @@ fn handle_completion_spec() -> Result<()> {
     Ok(())
 }
 
-fn handle_mark(mark: MarkChoice, left_pocket: String) -> Result<()> {
+fn handle_mark(mark: MarkChoice, pocket: String) -> Result<()> {
     match mark {
-        MarkChoice::Temporary => mark_temporary(left_pocket),
+        MarkChoice::Temporary => mark_temporary(pocket),
     }
 }
 
-fn mark_temporary(left_pocket: String) -> Result<()> {
-    let workspace = resolve_workspace_reference(&left_pocket)?;
-    let manifest_path = workspace.left_pocket_dir.join("manifest.json");
+fn mark_temporary(pocket: String) -> Result<()> {
+    let workspace = resolve_workspace_reference(&pocket)?;
+    let manifest_path = workspace.pocket_dir.join("manifest.json");
 
-    let mut manifest = Manifest::load(&workspace.left_pocket_dir)?
-        .ok_or_else(|| anyhow!("No manifest found in left_pocket: {}", manifest_path.display()))?;
+    let mut manifest = Manifest::load(&workspace.pocket_dir)?
+        .ok_or_else(|| anyhow!("No manifest found in pocket: {}", manifest_path.display()))?;
 
     if manifest.temporary {
         println!(
@@ -1613,24 +1608,24 @@ fn mark_temporary(left_pocket: String) -> Result<()> {
     let target_dir = registry::temporary_registry_dir()?.join(&workspace.hash);
     if target_dir.exists() {
         bail!(
-            "Cannot mark left_pocket temporary because target already exists: {}",
+            "Cannot mark pocket temporary because target already exists: {}",
             target_dir.display()
         );
     }
 
     fs::create_dir_all(target_dir.parent().unwrap_or_else(|| Path::new("/")))
         .context("Failed to create temporary registry directory")?;
-    fs::rename(&workspace.left_pocket_dir, &target_dir).with_context(|| {
+    fs::rename(&workspace.pocket_dir, &target_dir).with_context(|| {
         format!(
-            "Failed to move left_pocket into temporary registry: {} -> {}",
-            workspace.left_pocket_dir.display(),
+            "Failed to move pocket into temporary registry: {} -> {}",
+            workspace.pocket_dir.display(),
             target_dir.display()
         )
     })?;
 
     manifest.temporary = true;
     manifest.save(&target_dir)?;
-    registry::remove_left_pocket(&workspace.left_pocket_dir)?;
+    registry::remove_pocket(&workspace.pocket_dir)?;
 
     println!(
         "{} {}",
@@ -1652,7 +1647,7 @@ fn handle_clean(
     let entries: Vec<RegistryEntry> = if let Some(scope) = scope {
         match scope {
             CleanScope::Temporary => cache
-                .left_pockets
+                .pockets
                 .into_iter()
                 .filter(|entry| entry.temporary)
                 .collect(),
@@ -1660,12 +1655,12 @@ fn handle_clean(
     } else if let Some(age) = older_than {
         let cutoff = parse_age_cutoff(&age)?;
         cache
-            .left_pockets
+            .pockets
             .into_iter()
             .filter(|entry| entry.created_at < cutoff)
             .collect()
     } else if all {
-        cache.left_pockets
+        cache.pockets
     } else {
         bail!("Specify `temporary`, `--older-than`, or `--all`.");
     };
@@ -1682,15 +1677,15 @@ fn handle_clean(
     let count = entries.len();
     for entry in entries {
         if hard {
-            delete_left_pocket_dir(&entry.path)?;
+            delete_pocket_dir(&entry.path)?;
         }
-        registry::remove_left_pocket(&entry.path)?;
+        registry::remove_pocket(&entry.path)?;
     }
 
     if hard {
         println!(
-            "{} {} left_pocket(s)",
-            "Deleted left_pockets:".bright_green(),
+            "{} {} pocket(s)",
+            "Deleted pockets:".bright_green(),
             count.to_string().bright_yellow()
         );
     } else {
@@ -1732,7 +1727,7 @@ fn confirm_hard_clean(entries: &[RegistryEntry], yes: bool) -> Result<()> {
     println!(
         "{}",
         format!(
-            "Hard clean will delete left_pocket directories from {}. Project folders are preserved.",
+            "Hard clean will delete pocket directories from {}. Project folders are preserved.",
             registry::registry_root()?.display()
         )
         .bright_yellow()
@@ -1755,11 +1750,11 @@ fn confirm_hard_clean(entries: &[RegistryEntry], yes: bool) -> Result<()> {
     }
 }
 
-fn delete_left_pocket_dir(path: &Path) -> Result<()> {
+fn delete_pocket_dir(path: &Path) -> Result<()> {
     let known_roots = crate::branding::known_registry_roots()?;
     if !known_roots.iter().any(|root| path.starts_with(root)) {
         bail!(
-            "Refusing to delete path outside known left_pocket roots: {}",
+            "Refusing to delete path outside known pocket roots: {}",
             path.display()
         );
     }
@@ -1774,7 +1769,7 @@ fn delete_left_pocket_dir(path: &Path) -> Result<()> {
 fn handle_heal(
     project: Option<String>,
     alias: Option<String>,
-    left_pocket: Option<String>,
+    pocket: Option<String>,
 ) -> Result<()> {
     let config = Config::load()?;
     let project_ref = match (project, alias) {
@@ -1795,63 +1790,63 @@ fn handle_heal(
         bail!("Project path does not exist: {}", project_path.display());
     }
 
-    let left_pocket_ref = match left_pocket {
-        Some(left_pocket) => left_pocket,
-        None => prompt_heal_left_pocket(&project_path)?,
+    let pocket_ref = match pocket {
+        Some(pocket) => pocket,
+        None => prompt_heal_pocket(&project_path)?,
     };
-    let source = resolve_workspace_reference(&left_pocket_ref)?;
+    let source = resolve_workspace_reference(&pocket_ref)?;
     let target =
         Workspace::new_with_options(vec![project_path.clone()], vec![], false, source.temporary)?;
 
-    if source.left_pocket_dir == target.left_pocket_dir {
+    if source.pocket_dir == target.pocket_dir {
         let existing_ws =
-            Workspace::find_workspace_file(&source.left_pocket_dir).and_then(|workspace_file| {
-                Workspace::read_workspace_file(&workspace_file, &source.left_pocket_dir)
+            Workspace::find_workspace_file(&source.pocket_dir).and_then(|workspace_file| {
+                Workspace::read_workspace_file(&workspace_file, &source.pocket_dir)
                     .ok()
                     .map(|(ws, _)| ws)
             });
         target.write_workspace_file_preserving(existing_ws.as_ref())?;
 
-        let mut manifest = Manifest::load(&source.left_pocket_dir)?.ok_or_else(|| {
+        let mut manifest = Manifest::load(&source.pocket_dir)?.ok_or_else(|| {
             anyhow!(
-                "No manifest found in left_pocket: {}",
-                source.left_pocket_dir.display()
+                "No manifest found in pocket: {}",
+                source.pocket_dir.display()
             )
         })?;
         manifest.hash = target.hash.clone();
         manifest.temporary = target.temporary;
-        manifest.update_paths(vec![project_path], &source.left_pocket_dir)?;
-        let _ = event::append_left_pocket_event(
-            &source.left_pocket_dir,
+        manifest.update_paths(vec![project_path], &source.pocket_dir)?;
+        let _ = event::append_pocket_event(
+            &source.pocket_dir,
             "heal.in_place",
             serde_json::json!({ "core_paths": manifest.core_paths }),
         );
         println!(
             "{} {}",
             "Healed in place:".bright_green(),
-            source.left_pocket_dir.display().to_string().bright_blue()
+            source.pocket_dir.display().to_string().bright_blue()
         );
         return Ok(());
     }
 
-    if target.left_pocket_dir.exists() {
-        registry::move_to_unhoused(&target.left_pocket_dir, "heal target replacement")?;
-        registry::remove_left_pocket(&target.left_pocket_dir)?;
+    if target.pocket_dir.exists() {
+        registry::move_to_unhoused(&target.pocket_dir, "heal target replacement")?;
+        registry::remove_pocket(&target.pocket_dir)?;
     }
 
-    if let Some(parent) = target.left_pocket_dir.parent() {
-        fs::create_dir_all(parent).context("Failed to create target left_pocket parent")?;
+    if let Some(parent) = target.pocket_dir.parent() {
+        fs::create_dir_all(parent).context("Failed to create target pocket parent")?;
     }
 
-    fs::rename(&source.left_pocket_dir, &target.left_pocket_dir).or_else(|_| {
-        copy_dir_all(&source.left_pocket_dir, &target.left_pocket_dir)?;
-        fs::remove_dir_all(&source.left_pocket_dir)?;
+    fs::rename(&source.pocket_dir, &target.pocket_dir).or_else(|_| {
+        copy_dir_all(&source.pocket_dir, &target.pocket_dir)?;
+        fs::remove_dir_all(&source.pocket_dir)?;
         Ok::<(), anyhow::Error>(())
     })?;
 
-    registry::remove_left_pocket(&source.left_pocket_dir)?;
+    registry::remove_pocket(&source.pocket_dir)?;
 
-    // The left_pocket directory name is the task prefix; migrate any tracked tasks
+    // The pocket directory name is the task prefix; migrate any tracked tasks
     // from the old name to the new one so the built-in task tracker keeps
     // working after the rename.
     match task::reprefix_global(&source.hash, &target.hash) {
@@ -1870,7 +1865,7 @@ fn handle_heal(
         }
     }
 
-    let workspace_file = Workspace::find_workspace_file(&target.left_pocket_dir);
+    let workspace_file = Workspace::find_workspace_file(&target.pocket_dir);
     if let Some(old_file) = workspace_file {
         let new_file = target.workspace_file_path();
         if old_file != new_file && old_file.exists() {
@@ -1885,7 +1880,7 @@ fn handle_heal(
     }
 
     target.create_workspace_file()?;
-    let mut manifest = Manifest::load(&target.left_pocket_dir)?.unwrap_or_else(|| {
+    let mut manifest = Manifest::load(&target.pocket_dir)?.unwrap_or_else(|| {
         Manifest::new_with_options(
             target.hash.clone(),
             target.core_paths.clone(),
@@ -1895,9 +1890,9 @@ fn handle_heal(
     manifest.hash = target.hash.clone();
     manifest.core_paths = target.core_paths.clone();
     manifest.temporary = target.temporary;
-    manifest.save(&target.left_pocket_dir)?;
-    let _ = event::append_left_pocket_event(
-        &target.left_pocket_dir,
+    manifest.save(&target.pocket_dir)?;
+    let _ = event::append_pocket_event(
+        &target.pocket_dir,
         "heal.replace",
         serde_json::json!({
             "source_hash": source.hash,
@@ -1908,27 +1903,27 @@ fn handle_heal(
 
     println!(
         "{} {} -> {}",
-        "Healed left_pocket:".bright_green(),
+        "Healed pocket:".bright_green(),
         source.hash.bright_yellow(),
-        target.left_pocket_dir.display().to_string().bright_blue()
+        target.pocket_dir.display().to_string().bright_blue()
     );
     Ok(())
 }
 
-fn prompt_heal_left_pocket(project_path: &Path) -> Result<String> {
+fn prompt_heal_pocket(project_path: &Path) -> Result<String> {
     let mut candidates = Workspace::rank_heal_candidates(project_path)?;
     if candidates.is_empty() {
-        bail!("No left_pockets found to heal from. Use --left_pocket <id-or-path>.");
+        bail!("No pockets found to heal from. Use --pocket <id-or-path>.");
     }
 
-    println!("{}", "left_pockets available for healing:".bright_white().bold());
+    println!("{}", "pockets available for healing:".bright_white().bold());
     for (index, (workspace, score)) in candidates.iter().enumerate() {
         println!(
             "  {}. {} {} {}",
             (index + 1).to_string().bright_yellow(),
             workspace.hash.bright_blue(),
             format!("score {:.2}", score).dimmed(),
-            workspace.left_pocket_dir.display().to_string().dimmed()
+            workspace.pocket_dir.display().to_string().dimmed()
         );
         for path in &workspace.core_paths {
             println!("     - {}", path.display().to_string().dimmed());
@@ -1939,20 +1934,20 @@ fn prompt_heal_left_pocket(project_path: &Path) -> Result<String> {
         "0".bright_yellow(),
         "Enter an id/path manually".dimmed()
     );
-    print!("{} ", "Select left_pocket to use [0-N]:".bright_white());
+    print!("{} ", "Select pocket to use [0-N]:".bright_white());
     io::stdout().flush()?;
 
     let mut input = String::new();
     io::stdin().read_line(&mut input)?;
     let input = input.trim();
     if input.is_empty() || input == "0" {
-        print!("{} ", "left_pocket id/path:".bright_white());
+        print!("{} ", "pocket id/path:".bright_white());
         io::stdout().flush()?;
         let mut manual = String::new();
         io::stdin().read_line(&mut manual)?;
         let manual = manual.trim();
         if manual.is_empty() {
-            bail!("No left_pocket selected.");
+            bail!("No pocket selected.");
         }
         return Ok(manual.to_string());
     }
@@ -1982,7 +1977,7 @@ fn handle_locate(path: String) -> Result<()> {
             let out = serde_json::json!({
                 "status": "found",
                 "hash": workspace.hash,
-                "left_pocket_dir": workspace.left_pocket_dir,
+                "pocket_dir": workspace.pocket_dir,
                 "core_paths": workspace.core_paths,
                 "temporary": workspace.temporary,
             });
@@ -2016,8 +2011,8 @@ fn handle_locate_read_only(path: String) -> Result<()> {
     // Rank every candidate rather than returning the first hit. A first-match
     // scan resolves an ancestor project (e.g. `~/dev/bin` for
     // `~/dev/bin/left_pocket`), which for an audit is actively dangerous: `left_pocket
-    // tests -i` would back up and clone the wrong left_pocket. Specificity wins:
-    // an exact project/left_pocket match beats a containing one, and among
+    // tests -i` would back up and clone the wrong pocket. Specificity wins:
+    // an exact project/pocket match beats a containing one, and among
     // containing matches the longest matched path wins.
     let mut best: Option<(u8, usize, PathBuf, Manifest)> = None;
 
@@ -2028,7 +2023,7 @@ fn handle_locate_read_only(path: String) -> Result<()> {
                 Err(_) => continue,
             };
             for entry in entries.filter_map(Result::ok) {
-                let left_pocket_dir = entry.path();
+                let pocket_dir = entry.path();
                 let file_type = match entry.file_type() {
                     Ok(file_type) => file_type,
                     Err(_) => continue,
@@ -2045,7 +2040,7 @@ fn handle_locate_read_only(path: String) -> Result<()> {
                 if registry::is_reserved_registry_name(name.as_ref()) {
                     continue;
                 }
-                let manifest_path = left_pocket_dir.join("manifest.json");
+                let manifest_path = pocket_dir.join("manifest.json");
                 let manifest: Manifest = match fs::read_to_string(&manifest_path)
                     .ok()
                     .and_then(|text| serde_json::from_str(&text).ok())
@@ -2054,9 +2049,9 @@ fn handle_locate_read_only(path: String) -> Result<()> {
                     None => continue,
                 };
 
-                let left_pocket_canonical = left_pocket_dir
+                let pocket_canonical = pocket_dir
                     .canonicalize()
-                    .unwrap_or_else(|_| left_pocket_dir.clone());
+                    .unwrap_or_else(|_| pocket_dir.clone());
 
                 let mut rank: Option<(u8, usize)> = None;
                 let mut consider = |exact: bool, len: usize| {
@@ -2066,10 +2061,10 @@ fn handle_locate_read_only(path: String) -> Result<()> {
                     }
                 };
 
-                if resolved == left_pocket_canonical {
-                    consider(true, left_pocket_canonical.as_os_str().len());
-                } else if resolved.starts_with(&left_pocket_canonical) {
-                    consider(false, left_pocket_canonical.as_os_str().len());
+                if resolved == pocket_canonical {
+                    consider(true, pocket_canonical.as_os_str().len());
+                } else if resolved.starts_with(&pocket_canonical) {
+                    consider(false, pocket_canonical.as_os_str().len());
                 }
                 for project in manifest.core_paths.iter().chain(manifest.worktrees.iter()) {
                     let project = project
@@ -2085,23 +2080,21 @@ fn handle_locate_read_only(path: String) -> Result<()> {
                 let Some((kind, len)) = rank else {
                     continue;
                 };
-                let is_better = best
-                    .as_ref()
-                    .map_or(true, |(best_kind, best_len, _, _)| {
-                        (kind, len) > (*best_kind, *best_len)
-                    });
+                let is_better = best.as_ref().map_or(true, |(best_kind, best_len, _, _)| {
+                    (kind, len) > (*best_kind, *best_len)
+                });
                 if is_better {
-                    best = Some((kind, len, left_pocket_dir, manifest));
+                    best = Some((kind, len, pocket_dir, manifest));
                 }
             }
         }
     }
 
-    if let Some((_, _, left_pocket_dir, manifest)) = best {
-        // left_pockets are addressed by directory name; a renamed left_pocket can carry a
+    if let Some((_, _, pocket_dir, manifest)) = best {
+        // pockets are addressed by directory name; a renamed pocket can carry a
         // divergent `manifest.hash`. Report the directory name so the value is
         // usable, and expose the manifest's own hash separately.
-        let dir_hash = left_pocket_dir
+        let dir_hash = pocket_dir
             .file_name()
             .map(|name| name.to_string_lossy().into_owned())
             .unwrap_or_else(|| manifest.hash.clone());
@@ -2109,7 +2102,7 @@ fn handle_locate_read_only(path: String) -> Result<()> {
             "status": "found",
             "hash": dir_hash,
             "manifest_hash": manifest.hash,
-            "left_pocket_dir": left_pocket_dir,
+            "pocket_dir": pocket_dir,
             "core_paths": manifest.core_paths,
             "temporary": manifest.temporary,
             "read_only": true,
@@ -2132,7 +2125,7 @@ fn handle_backup(repo: String, schedule: String) -> Result<()> {
     let script_path = registry::registry_root()?.join("backup.sh");
     let source_dir = registry::registry_root()?;
 
-    fs::create_dir_all(&source_dir).context("Failed to create left_pocket registry root")?;
+    fs::create_dir_all(&source_dir).context("Failed to create pocket registry root")?;
 
     if !backup_repo.exists() {
         let output = std::process::Command::new("git")
@@ -2148,7 +2141,7 @@ fn handle_backup(repo: String, schedule: String) -> Result<()> {
     }
 
     let script = format!(
-        "#!/bin/sh\nset -eu\nrsync -a --delete --exclude '.git/' --exclude 'backup.sh' '{source}/' '{backup}/'\ncd '{backup}'\ngit add .\nif ! git diff --cached --quiet; then\n  git commit -m 'Back up left_pockets'\n  git push\nfi\n",
+        "#!/bin/sh\nset -eu\nrsync -a --delete --exclude '.git/' --exclude 'backup.sh' '{source}/' '{backup}/'\ncd '{backup}'\ngit add .\nif ! git diff --cached --quiet; then\n  git commit -m 'Back up pockets'\n  git push\nfi\n",
         source = source_dir.display(),
         backup = backup_repo.display()
     );
@@ -2210,13 +2203,13 @@ fn handle_backup(repo: String, schedule: String) -> Result<()> {
 fn handle_sync_registry_git() -> Result<()> {
     let count = registry::sync_registry_git_state()?;
     println!(
-        "{} {} left_pocket snapshot(s)",
+        "{} {} pocket snapshot(s)",
         "Registry git snapshot refreshed:".bright_green(),
         count.to_string().bright_yellow()
     );
     let _ = event::append_registry_event(
         "registry.snapshot.sync",
-        serde_json::json!({ "left_pockets": count }),
+        serde_json::json!({ "pockets": count }),
     );
     Ok(())
 }
@@ -2224,13 +2217,13 @@ fn handle_sync_registry_git() -> Result<()> {
 fn handle_sync_registry() -> Result<()> {
     let count = registry::rebuild_all_caches()?;
     println!(
-        "{} {} left_pocket(s) across all registry roots",
+        "{} {} pocket(s) across all registry roots",
         "Rebuilt registry caches:".bright_green(),
         count.to_string().bright_yellow()
     );
     let _ = event::append_registry_event(
         "registry.cache.rebuild",
-        serde_json::json!({ "left_pockets": count }),
+        serde_json::json!({ "pockets": count }),
     );
     Ok(())
 }
@@ -2244,10 +2237,10 @@ fn resolve_workspace_reference(reference: &str) -> Result<Workspace> {
         config.resolve_path(reference)?
     };
 
-    if resolved.is_dir() && registry::is_registry_left_pocket_dir(&resolved)? {
+    if resolved.is_dir() && registry::is_registry_pocket_dir(&resolved)? {
         let manifest = Manifest::load(&resolved)?.ok_or_else(|| {
             anyhow!(
-                "No manifest found in left_pocket directory: {}",
+                "No manifest found in pocket directory: {}",
                 resolved.display()
             )
         })?;
@@ -2260,7 +2253,7 @@ fn resolve_workspace_reference(reference: &str) -> Result<Workspace> {
                 .to_string(),
             core_paths: manifest.core_paths.clone(),
             sidecar_paths: vec![],
-            left_pocket_dir: resolved,
+            pocket_dir: resolved,
             create_readmes: false,
             temporary: manifest.temporary,
         });
@@ -2272,23 +2265,23 @@ fn resolve_workspace_reference(reference: &str) -> Result<Workspace> {
         return Ok(workspace);
     }
 
-    for entry in registry::load_cache_or_rebuild()?.left_pockets {
+    for entry in registry::load_cache_or_rebuild()?.pockets {
         if entry.hash == reference {
             return Ok(Workspace {
                 hash: entry.hash,
                 core_paths: entry.core_paths,
                 sidecar_paths: vec![],
-                left_pocket_dir: entry.path,
+                pocket_dir: entry.path,
                 create_readmes: false,
                 temporary: entry.temporary,
             });
         }
     }
 
-    Err(anyhow!("No left_pocket found for reference: {}", reference))
+    Err(anyhow!("No pocket found for reference: {}", reference))
 }
 
-fn handle_sync(target: Option<String>, left_pocket: Option<String>) -> Result<()> {
+fn handle_sync(target: Option<String>, pocket: Option<String>) -> Result<()> {
     // Dispatch to system-wide sync targets when a TARGET is given.
     if let Some(target) = target.as_deref() {
         match target.to_ascii_lowercase().as_str() {
@@ -2297,42 +2290,42 @@ fn handle_sync(target: Option<String>, left_pocket: Option<String>) -> Result<()
             other => {
                 return Err(anyhow!(
                     "Unknown sync target '{other}'. Valid targets: agents, all.\n\
-                     (Omit the target and pass --left_pocket for the manifest sync.)"
+                     (Omit the target and pass --pocket for the manifest sync.)"
                 ));
             }
         }
     }
 
-    let left_pocket = left_pocket.ok_or_else(|| {
+    let pocket = pocket.ok_or_else(|| {
         anyhow!(
-            "`sync` requires either a TARGET (agents, all) or --left_pocket <PATH> for the manifest sync."
+            "`sync` requires either a TARGET (agents, all) or --pocket <PATH> for the manifest sync."
         )
     })?;
-    let left_pocket_dir = PathBuf::from(&left_pocket);
+    let pocket_dir = PathBuf::from(&pocket);
 
-    if !left_pocket_dir.is_dir() {
+    if !pocket_dir.is_dir() {
         let out = serde_json::json!({
             "status": "error",
-            "message": format!("left_pocket directory does not exist: {}", left_pocket)
+            "message": format!("pocket directory does not exist: {}", pocket)
         });
         println!("{}", serde_json::to_string(&out)?);
         return Ok(());
     }
 
     // Find the workspace file
-    let workspace_file = match Workspace::find_workspace_file(&left_pocket_dir) {
+    let workspace_file = match Workspace::find_workspace_file(&pocket_dir) {
         Some(f) => f,
         None => {
             let out = serde_json::json!({
                 "status": "error",
-                "message": "No workspace file found in left_pocket directory"
+                "message": "No workspace file found in pocket directory"
             });
             println!("{}", serde_json::to_string(&out)?);
             return Ok(());
         }
     };
 
-    let workspace_hash = left_pocket_dir
+    let workspace_hash = pocket_dir
         .file_name()
         .and_then(|name| name.to_str())
         .unwrap_or("")
@@ -2341,14 +2334,14 @@ fn handle_sync(target: Option<String>, left_pocket: Option<String>) -> Result<()
         hash: workspace_hash.clone(),
         core_paths: vec![],
         sidecar_paths: vec![],
-        left_pocket_dir: left_pocket_dir.clone(),
+        pocket_dir: pocket_dir.clone(),
         create_readmes: false,
-        temporary: left_pocket_dir.starts_with(Workspace::temporary_spocket_dir()?),
+        temporary: pocket_dir.starts_with(Workspace::temporary_spocket_dir()?),
     };
     migration_workspace.migrate_storage_references()?;
 
     // Load or backfill manifest
-    let (mut manifest, manifest_paths) = match Workspace::load_manifest_or_backfill(&left_pocket_dir)? {
+    let (mut manifest, manifest_paths) = match Workspace::load_manifest_or_backfill(&pocket_dir)? {
         Some(result) => result,
         None => {
             let out = serde_json::json!({
@@ -2361,16 +2354,16 @@ fn handle_sync(target: Option<String>, left_pocket: Option<String>) -> Result<()
     };
 
     // Read current paths from workspace file. If the editor reports a transient
-    // left_pocket-only workspace but the manifest still knows the project folders,
+    // pocket-only workspace but the manifest still knows the project folders,
     // repair the workspace file instead of attempting to erase the manifest.
     let (existing_workspace, mut file_paths) =
-        Workspace::read_workspace_file(&workspace_file, &left_pocket_dir)?;
+        Workspace::read_workspace_file(&workspace_file, &pocket_dir)?;
     if file_paths.is_empty() && !manifest_paths.is_empty() {
         let repair_workspace = Workspace {
             hash: workspace_hash.clone(),
             core_paths: manifest_paths.clone(),
             sidecar_paths: vec![],
-            left_pocket_dir: left_pocket_dir.clone(),
+            pocket_dir: pocket_dir.clone(),
             create_readmes: false,
             temporary: manifest.temporary,
         };
@@ -2407,7 +2400,7 @@ fn handle_sync(target: Option<String>, left_pocket: Option<String>) -> Result<()
 
     // Paths differ — update manifest in place
     let old_hash = manifest.hash.clone();
-    manifest.update_paths(file_paths, &left_pocket_dir)?;
+    manifest.update_paths(file_paths, &pocket_dir)?;
 
     let out = serde_json::json!({
         "status": "synced",
@@ -2420,23 +2413,23 @@ fn handle_sync(target: Option<String>, left_pocket: Option<String>) -> Result<()
     Ok(())
 }
 
-/// Synchronize the unified agent definitions into the left_pocket for the current
-/// working directory (rendered OpenCode agents under `<left_pocket>/.opencode/agent`).
+/// Synchronize the unified agent definitions into the pocket for the current
+/// working directory (rendered OpenCode agents under `<pocket>/.opencode/agent`).
 fn handle_sync_agents() -> Result<()> {
     template::ensure_default_assets()?;
 
     let cwd = std::env::current_dir().context("Failed to get current working directory")?;
     let workspace = Workspace::find_workspace_for_cwd(&cwd)?.ok_or_else(|| {
         anyhow!(
-            "No left_pocket found for the current directory: {}\n\
+            "No pocket found for the current directory: {}\n\
              Agents are now installed per-project. Run this from inside a workspace \
-             directory (or its left_pocket) so the agents can be written to \
-             `<left_pocket>/.opencode/agent`.",
+             directory (or its pocket) so the agents can be written to \
+             `<pocket>/.opencode/agent`.",
             cwd.display()
         )
     })?;
 
-    let target = agents::left_pocket_agent_dir(&workspace.left_pocket_dir);
+    let target = agents::pocket_agent_dir(&workspace.pocket_dir);
     let report = agents::sync_agents_into(&target)?;
     print_agents_sync_report(&report, &target);
 
@@ -2525,7 +2518,7 @@ fn handle_augment(add: Vec<String>, remove: Vec<String>, no_open: bool) -> Resul
 
     let workspace = Workspace::find_workspace_for_cwd(&cwd)?
         .ok_or_else(|| anyhow!(
-            "No workspace found for current directory: {}\nRun this from inside a workspace directory or a left_pocket directory.",
+            "No workspace found for current directory: {}\nRun this from inside a workspace directory or a pocket directory.",
             cwd.display()
         ))?;
 
@@ -2603,25 +2596,25 @@ fn handle_augment(add: Vec<String>, remove: Vec<String>, no_open: bool) -> Resul
     let workspace_file = workspace.workspace_file_path();
     let existing_ws = if workspace_file.exists() {
         workspace.migrate_storage_references()?;
-        let (ws, _) = Workspace::read_workspace_file(&workspace_file, &workspace.left_pocket_dir)?;
+        let (ws, _) = Workspace::read_workspace_file(&workspace_file, &workspace.pocket_dir)?;
         Some(ws)
     } else {
         None
     };
 
-    // In-place update: rewrite workspace file + manifest, left_pocket dir stays put
+    // In-place update: rewrite workspace file + manifest, pocket dir stays put
     let updated_workspace = Workspace {
         hash: workspace.hash.clone(),
         core_paths: new_paths.clone(),
         sidecar_paths: workspace.sidecar_paths.clone(),
-        left_pocket_dir: workspace.left_pocket_dir.clone(),
+        pocket_dir: workspace.pocket_dir.clone(),
         create_readmes: false,
         temporary: workspace.temporary,
     };
     updated_workspace.write_workspace_file_preserving(existing_ws.as_ref())?;
 
     // Update manifest in place
-    let mut manifest = match Manifest::load(&workspace.left_pocket_dir)? {
+    let mut manifest = match Manifest::load(&workspace.pocket_dir)? {
         Some(m) => m,
         None => Manifest::new_with_options(
             workspace.hash.clone(),
@@ -2629,10 +2622,10 @@ fn handle_augment(add: Vec<String>, remove: Vec<String>, no_open: bool) -> Resul
             workspace.temporary,
         ),
     };
-    manifest.update_paths(new_paths, &workspace.left_pocket_dir)?;
+    manifest.update_paths(new_paths, &workspace.pocket_dir)?;
 
     println!(
-        "{} {} (left_pocket dir unchanged)",
+        "{} {} (pocket dir unchanged)",
         "Workspace updated in place:".bright_green(),
         manifest.hash.bright_yellow()
     );
@@ -2643,7 +2636,7 @@ fn handle_augment(add: Vec<String>, remove: Vec<String>, no_open: bool) -> Resul
         println!(
             "  {} {}",
             "Location:".dimmed(),
-            workspace.left_pocket_dir.display().to_string().bright_blue()
+            workspace.pocket_dir.display().to_string().bright_blue()
         );
     }
 
@@ -2651,12 +2644,16 @@ fn handle_augment(add: Vec<String>, remove: Vec<String>, no_open: bool) -> Resul
 }
 
 fn open_with_merge(ws: &Workspace) -> Result<()> {
-    // Keep the unified agents in sync inside the left_pocket whenever it is opened.
+    // Present the pocket logo with the resolved pocket ID: running from a
+    // project directory is the "full logo" case.
+    crate::branding::print_pocket_logo(&ws.hash);
+
+    // Keep the unified agents in sync inside the pocket whenever it is opened.
     // Best-effort: a failure here must never block opening the workspace.
-    match agents::sync_agents_into_left_pocket(&ws.left_pocket_dir) {
+    match agents::sync_agents_into_pocket(&ws.pocket_dir) {
         Ok(report) if report.changed() => {
             if verbose() {
-                print_agents_sync_report(&report, &agents::left_pocket_agent_dir(&ws.left_pocket_dir));
+                print_agents_sync_report(&report, &agents::pocket_agent_dir(&ws.pocket_dir));
             }
         }
         Ok(_) => {}
@@ -2667,12 +2664,12 @@ fn open_with_merge(ws: &Workspace) -> Result<()> {
         }
     }
 
-    if let Ok(ctx) = build_template_context(&ws.left_pocket_dir) {
+    if let Ok(ctx) = build_template_context(&ws.pocket_dir) {
         // Apply quiet-merge templates on every open so that files which were
-        // added to the template set after this left_pocket was created (e.g. the
+        // added to the template set after this pocket was created (e.g. the
         // project .env) get written retroactively.  This is idempotent and
         // non-destructive: merge_content only adds missing keys/lines.
-        if let Err(e) = template::apply_quiet_merge_templates(&ws.left_pocket_dir, &ctx) {
+        if let Err(e) = template::apply_quiet_merge_templates(&ws.pocket_dir, &ctx) {
             if verbose() {
                 eprintln!(
                     "{} {}",
@@ -2681,7 +2678,7 @@ fn open_with_merge(ws: &Workspace) -> Result<()> {
                 );
             }
         }
-        if let Err(e) = template::apply_merge_at_runtime(&ws.left_pocket_dir, &ctx) {
+        if let Err(e) = template::apply_merge_at_runtime(&ws.pocket_dir, &ctx) {
             eprintln!(
                 "{} {}",
                 "Warning: merge-at-runtime failed:".bright_yellow(),
@@ -2710,7 +2707,7 @@ fn open_with_merge(ws: &Workspace) -> Result<()> {
 }
 
 fn print_memgraph_connection_details(ws: &Workspace) {
-    let tool_dir = ws.left_pocket_dir.join("tools/memgraph");
+    let tool_dir = ws.pocket_dir.join("tools/memgraph");
     if !tool_dir.join("scan-config.json").is_file() {
         return;
     }
@@ -2730,7 +2727,7 @@ fn print_memgraph_connection_details(ws: &Workspace) {
 }
 
 fn run_memgraph_standard_operation(ws: &Workspace) {
-    let tool_dir = ws.left_pocket_dir.join("tools/memgraph");
+    let tool_dir = ws.pocket_dir.join("tools/memgraph");
     if !tool_dir.is_dir() {
         return;
     }
@@ -2738,9 +2735,9 @@ fn run_memgraph_standard_operation(ws: &Workspace) {
     let _ = write_memgraph_config(&tool_dir, ws);
 
     let scan_changed =
-        memgraph_state_outdated(&tool_dir, &ws.left_pocket_dir, ".safe_pocket_scan_state.json");
+        memgraph_state_outdated(&tool_dir, &ws.pocket_dir, ".safe_pocket_scan_state.json");
     let import_needed =
-        memgraph_state_outdated(&tool_dir, &ws.left_pocket_dir, ".safe_pocket_import_state.json");
+        memgraph_state_outdated(&tool_dir, &ws.pocket_dir, ".safe_pocket_import_state.json");
     let scanner = tool_dir.join("scan-safe-pocket.sh");
     let mut scanner_ok = !scan_changed;
     if scan_changed && scanner.is_file() {
@@ -2751,7 +2748,7 @@ fn run_memgraph_standard_operation(ws: &Workspace) {
         {
             Ok(out) if out.status.success() => {
                 scanner_ok = true;
-                write_memgraph_state(&tool_dir, ".safe_pocket_scan_state.json", &ws.left_pocket_dir);
+                write_memgraph_state(&tool_dir, ".safe_pocket_scan_state.json", &ws.pocket_dir);
             }
             Ok(out) => eprintln!(
                 "{} {}",
@@ -2791,7 +2788,7 @@ fn run_memgraph_standard_operation(ws: &Workspace) {
                                 write_memgraph_state(
                                     &tool_dir,
                                     ".safe_pocket_import_state.json",
-                                    &ws.left_pocket_dir,
+                                    &ws.pocket_dir,
                                 );
                             }
                             Ok(import_out) => eprintln!(
@@ -2834,12 +2831,12 @@ fn stop_legacy_memgraph_compose_project(tool_dir: &Path) {
         .output();
 }
 
-fn stop_memgraph_standard_operation(left_pocket_dir: &Path) {
-    let tool_dir = left_pocket_dir.join("tools/memgraph");
+fn stop_memgraph_standard_operation(pocket_dir: &Path) {
+    let tool_dir = pocket_dir.join("tools/memgraph");
     if !tool_dir.join("docker-compose.yml").is_file() {
         return;
     }
-    let hash = left_pocket_dir
+    let hash = pocket_dir
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("safe-pocket");
@@ -2853,8 +2850,8 @@ fn memgraph_compose_project(ws: &Workspace) -> String {
     format!("spocket-{}", ws.hash)
 }
 
-fn memgraph_state_outdated(tool_dir: &Path, left_pocket_dir: &Path, state_name: &str) -> bool {
-    let latest = memgraph_latest_input_mtime(left_pocket_dir);
+fn memgraph_state_outdated(tool_dir: &Path, pocket_dir: &Path, state_name: &str) -> bool {
+    let latest = memgraph_latest_input_mtime(pocket_dir);
     let state_path = tool_dir.join(state_name);
     let previous = fs::read_to_string(state_path)
         .ok()
@@ -2866,26 +2863,26 @@ fn memgraph_state_outdated(tool_dir: &Path, left_pocket_dir: &Path, state_name: 
     previous != Some(latest)
 }
 
-fn write_memgraph_state(tool_dir: &Path, state_name: &str, left_pocket_dir: &Path) {
+fn write_memgraph_state(tool_dir: &Path, state_name: &str, pocket_dir: &Path) {
     let _ = fs::write(
         tool_dir.join(state_name),
-        serde_json::json!({ "last_input_mtime_ns": memgraph_latest_input_mtime(left_pocket_dir) })
+        serde_json::json!({ "last_input_mtime_ns": memgraph_latest_input_mtime(pocket_dir) })
             .to_string(),
     );
 }
 
-fn memgraph_latest_input_mtime(left_pocket_dir: &Path) -> u64 {
+fn memgraph_latest_input_mtime(pocket_dir: &Path) -> u64 {
     let mut latest = 0;
-    for path in memgraph_scan_paths_for_left_pocket(left_pocket_dir) {
+    for path in memgraph_scan_paths_for_pocket(pocket_dir) {
         collect_latest_markdown_mtime(&path, &mut latest);
     }
     latest
 }
 
-fn memgraph_scan_paths_for_left_pocket(left_pocket_dir: &Path) -> Vec<PathBuf> {
-    let mut paths = vec![left_pocket_dir.join("FEATURES")];
+fn memgraph_scan_paths_for_pocket(pocket_dir: &Path) -> Vec<PathBuf> {
+    let mut paths = vec![pocket_dir.join("FEATURES")];
     for name in ["AGENTS.md", "GEMINI.md", "README.md", "Install.md"] {
-        let candidate = left_pocket_dir.join(name);
+        let candidate = pocket_dir.join(name);
         if candidate.exists() || name == "AGENTS.md" {
             paths.push(candidate);
         }
@@ -2912,9 +2909,9 @@ fn collect_latest_markdown_mtime(path: &Path, latest: &mut u64) {
     }
 }
 
-fn build_template_context(left_pocket_dir: &std::path::Path) -> Result<template::TemplateContext> {
-    let manifest = Manifest::load(left_pocket_dir)?
-        .ok_or_else(|| anyhow!("No manifest found in left_pocket: {}", left_pocket_dir.display()))?;
+fn build_template_context(pocket_dir: &std::path::Path) -> Result<template::TemplateContext> {
+    let manifest = Manifest::load(pocket_dir)?
+        .ok_or_else(|| anyhow!("No manifest found in pocket: {}", pocket_dir.display()))?;
 
     let project_root = manifest
         .core_paths
@@ -2922,7 +2919,7 @@ fn build_template_context(left_pocket_dir: &std::path::Path) -> Result<template:
         .cloned()
         .unwrap_or_else(|| PathBuf::from("<unknown>"));
 
-    let spocket_name = left_pocket_dir
+    let pocket_name = pocket_dir
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("")
@@ -2942,25 +2939,25 @@ fn build_template_context(left_pocket_dir: &std::path::Path) -> Result<template:
     });
 
     Ok(template::TemplateContext {
-        spocket_root: left_pocket_dir.to_path_buf(),
+        pocket_root: pocket_dir.to_path_buf(),
         project_root,
-        spocket_name,
+        pocket_name,
         global_observations_path: global_obs,
         config_root,
     })
 }
 
-fn handle_merge_start(left_pocket: String) -> Result<()> {
-    let left_pocket_dir = PathBuf::from(&left_pocket);
+fn handle_merge_start(pocket: String) -> Result<()> {
+    let pocket_dir = PathBuf::from(&pocket);
 
-    if !left_pocket_dir.is_dir() {
-        return Err(anyhow!("left_pocket directory does not exist: {}", left_pocket));
+    if !pocket_dir.is_dir() {
+        return Err(anyhow!("pocket directory does not exist: {}", pocket));
     }
 
-    let ctx = build_template_context(&left_pocket_dir)?;
-    let count = template::apply_merge_at_runtime(&left_pocket_dir, &ctx)?;
-    let _ = event::append_left_pocket_event(
-        &left_pocket_dir,
+    let ctx = build_template_context(&pocket_dir)?;
+    let count = template::apply_merge_at_runtime(&pocket_dir, &ctx)?;
+    let _ = event::append_pocket_event(
+        &pocket_dir,
         "merge.start",
         serde_json::json!({ "files_changed": count }),
     );
@@ -2978,18 +2975,18 @@ fn handle_merge_start(left_pocket: String) -> Result<()> {
     Ok(())
 }
 
-fn handle_merge_stop(left_pocket: String) -> Result<()> {
-    let left_pocket_dir = PathBuf::from(&left_pocket);
+fn handle_merge_stop(pocket: String) -> Result<()> {
+    let pocket_dir = PathBuf::from(&pocket);
 
-    if !left_pocket_dir.is_dir() {
-        return Err(anyhow!("left_pocket directory does not exist: {}", left_pocket));
+    if !pocket_dir.is_dir() {
+        return Err(anyhow!("pocket directory does not exist: {}", pocket));
     }
 
-    let ctx = build_template_context(&left_pocket_dir)?;
-    let count = template::strip_merge_at_runtime(&left_pocket_dir, &ctx)?;
-    stop_memgraph_standard_operation(&left_pocket_dir);
-    let _ = event::append_left_pocket_event(
-        &left_pocket_dir,
+    let ctx = build_template_context(&pocket_dir)?;
+    let count = template::strip_merge_at_runtime(&pocket_dir, &ctx)?;
+    stop_memgraph_standard_operation(&pocket_dir);
+    let _ = event::append_pocket_event(
+        &pocket_dir,
         "merge.stop",
         serde_json::json!({ "files_changed": count }),
     );
@@ -3012,17 +3009,17 @@ fn handle_upgrade(path: String) -> Result<()> {
     let resolved = config.resolve_path(&path)?;
 
     // The path might be:
-    // 1. A left_pocket directory directly (e.g. ~/.safe_pocket/abc123)
-    // 2. A project directory that has an associated left_pocket
-    let is_direct_left_pocket = crate::branding::known_registry_roots()?
+    // 1. A pocket directory directly (e.g. ~/.safe_pocket/abc123)
+    // 2. A project directory that has an associated pocket
+    let is_direct_pocket = crate::branding::known_registry_roots()?
         .iter()
         .any(|root| resolved.starts_with(root) || resolved.starts_with(&root.join("temporary")))
         && resolved.is_dir();
 
-    let left_pocket_dir = if is_direct_left_pocket {
+    let pocket_dir = if is_direct_pocket {
         resolved.clone()
     } else {
-        // Try to find the left_pocket for this project path
+        // Try to find the pocket for this project path
         let workspace = Workspace::find_workspace_containing(&resolved)?
             .or_else(|| {
                 // Also try find_workspace_for_cwd
@@ -3030,22 +3027,22 @@ fn handle_upgrade(path: String) -> Result<()> {
             })
             .ok_or_else(|| {
                 anyhow!(
-                    "No left_pocket found for path: {}\n\
-                     Provide either a left_pocket directory or a project directory with an existing left_pocket.",
+                    "No pocket found for path: {}\n\
+                     Provide either a pocket directory or a project directory with an existing pocket.",
                     resolved.display()
                 )
             })?;
-        workspace.left_pocket_dir
+        workspace.pocket_dir
     };
 
     // Beyond re-placing templates, an upgrade must also rewrite legacy
     // `#CORNER_*`/`#SPOCKET_*` directives in files that already exist on
-    // disk — both inside the left_pocket itself and inside the linked project
+    // disk — both inside the pocket itself and inside the linked project
     // directories. Otherwise stale directives from before a rename would
     // keep being emitted into freshly generated files.
-    let mut rewrite_roots: Vec<std::path::PathBuf> = vec![left_pocket_dir.clone()];
-    if is_direct_left_pocket {
-        if let Some(manifest) = crate::manifest::Manifest::load(&left_pocket_dir)? {
+    let mut rewrite_roots: Vec<std::path::PathBuf> = vec![pocket_dir.clone()];
+    if is_direct_pocket {
+        if let Some(manifest) = crate::manifest::Manifest::load(&pocket_dir)? {
             for path in &manifest.core_paths {
                 if path.is_dir() {
                     rewrite_roots.push(path.clone());
@@ -3057,8 +3054,7 @@ fn handle_upgrade(path: String) -> Result<()> {
     }
     println!(
         "{}",
-        "Scanning left_pocket and project for legacy #CORNER_*/#SPOCKET_* directives..."
-            .bright_white()
+        "Scanning pocket and project for legacy #CORNER_*/#SPOCKET_* directives...".bright_white()
     );
     let rewritten = crate::migrate::rewrite_legacy_tokens_in_roots(&rewrite_roots)?;
     if rewritten > 0 {
@@ -3068,13 +3064,16 @@ fn handle_upgrade(path: String) -> Result<()> {
             rewritten.to_string().bright_yellow()
         );
     } else {
-        println!("{}", "No legacy directives found in left_pocket or project.".dimmed());
+        println!(
+            "{}",
+            "No legacy directives found in pocket or project.".dimmed()
+        );
     }
 
-    let result = template::upgrade_left_pocket(&left_pocket_dir);
+    let result = template::upgrade_pocket(&pocket_dir);
     if result.is_ok() {
-        let _ = event::append_left_pocket_event(
-            &left_pocket_dir,
+        let _ = event::append_pocket_event(
+            &pocket_dir,
             "left_pocket.upgrade",
             serde_json::json!({ "path": path }),
         );

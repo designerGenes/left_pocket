@@ -206,7 +206,7 @@ if [ -d "$CONFIG_TEMPLATES_DIR" ]; then
     printf '%s\n' "  s) Skip - keep the existing templates unchanged (recommended if you have"
     printf '%s\n' "     local customisations you want to preserve)"
     printf '%s\n' "  d) Dry-run upgrade-installation instead (rewrite legacy #CORNER_*/#SPOCKET_* references"
-    printf '%s\n' "     to #LEFT_POCKET_* in-place without replacing files)"
+    printf '%s\n' "     to #POCKET_* in-place without replacing files)"
     # `set -e` is on: a bare `read` at EOF returns non-zero and aborts the
     # script here, after the binaries are already copied but before assets are
     # seeded, leaving a half-install. Non-interactive runs take the safe

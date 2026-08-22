@@ -9,17 +9,56 @@ pub const PRIMARY_BINARY_NAME: &str = "left_pocket";
 pub const LEGACY_BINARY_NAMES: &[&str] = &["locket", "corner", "safe_pocket", "spocket"];
 pub const REPOSITORY_URL: &str = "https://github.com/designerGenes/left_pocket";
 
-/// ASCII-art logo shown before `--help` and `-v` output.
+/// ASCII-art pocket logo shown before `--help` and `-v` output.
 ///
-/// The outer rectangle is 10 columns wide (right edge at column 9). A smaller
-/// inset rectangle (columns 6-9) houses the filled `▓▓` block on line 4, and
-/// the product name `left_pocket` sits on line 3 after three spaces.
+/// The shape is a jeans-style pocket: a flap at the top carrying the product
+/// name, a square body, and rounded lower corners. When left_pocket is invoked
+/// from a project directory, [`logo_with_pocket_id`] renders the same shape
+/// with the current pocket's ID centred inside the body instead.
 pub const LOGO: &str = "\
-╭────────╮
-│        │
-│     ╭──┤   left_pocket
-│     │▓▓│
-╰─────┴──╯";
++-------------------+
+| left_pocket       |
++-------------------+
+|                   |
+|                   |
+|                   |
+|                   |
+ \\                 /
+  `---------------'";
+
+/// Width of the pocket body interior, in characters. The ID line rendered by
+/// [`logo_with_pocket_id`] is padded to exactly this width.
+const LOGO_INTERIOR_WIDTH: usize = 19;
+
+/// Centre `label` in a field of `width` characters (padding biased left, so a
+/// 12-char pocket ID in the 19-char interior gets 3 leading and 4 trailing
+/// spaces). Labels at least as wide as the field are returned unpadded.
+fn center_in(label: &str, width: usize) -> String {
+    let len = label.chars().count();
+    if len >= width {
+        return label.to_string();
+    }
+    let left = (width - len) / 2;
+    let right = width - len - left;
+    format!("{}{}{}", " ".repeat(left), label, " ".repeat(right))
+}
+
+/// Render the pocket logo with `pocket_id` centred inside the pocket body.
+pub fn logo_with_pocket_id(pocket_id: &str) -> String {
+    let id_line = center_in(pocket_id, LOGO_INTERIOR_WIDTH);
+    format!(
+        "\
++-------------------+
+| left_pocket       |
++-------------------+
+|                   |
+|                   |
+|{id_line}|
+|                   |
+ \\                 /
+  `---------------'"
+    )
+}
 
 /// Print the logo to stdout followed by a blank line.
 pub fn print_logo() {
@@ -27,8 +66,21 @@ pub fn print_logo() {
     println!();
 }
 
-pub const PRIMARY_ROOT_ENV_KEY: &str = "LEFT_POCKET_ROOT";
-pub const LEGACY_ROOT_ENV_KEYS: &[&str] = &["LOCKET_ROOT", "CORNER_ROOT", "SPOCKET_ROOT"];
+/// Print the pocket logo with `pocket_id` centred inside it, followed by a
+/// blank line. Used whenever left_pocket opens a project so the terminal
+/// shows exactly which pocket was resolved.
+pub fn print_pocket_logo(pocket_id: &str) {
+    println!("{}", logo_with_pocket_id(pocket_id));
+    println!();
+}
+
+pub const PRIMARY_ROOT_ENV_KEY: &str = "POCKET_ROOT";
+pub const LEGACY_ROOT_ENV_KEYS: &[&str] = &[
+    "LEFT_POCKET_ROOT",
+    "LOCKET_ROOT",
+    "CORNER_ROOT",
+    "SPOCKET_ROOT",
+];
 
 pub const PRIMARY_REGISTRY_DIRNAME: &str = ".left_pocket";
 pub const LEGACY_REGISTRY_DIRNAMES: &[&str] = &[".corner", ".safe_pocket", ".spocket"];
@@ -140,4 +192,31 @@ pub fn root_env_keys() -> Vec<&'static str> {
     let mut keys = vec![PRIMARY_ROOT_ENV_KEY];
     keys.extend(LEGACY_ROOT_ENV_KEYS.iter().copied());
     keys
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn logo_with_pocket_id_centres_the_id() {
+        let logo = logo_with_pocket_id("3fcff0d934c6");
+        assert!(logo.contains("|   3fcff0d934c6    |"));
+        // The frame matches the static logo except for the centred ID line.
+        let without_id = logo.replace("|   3fcff0d934c6    |", "|                   |");
+        assert_eq!(without_id, LOGO);
+    }
+
+    #[test]
+    fn logo_with_pocket_id_handles_long_ids() {
+        let long_id = "0123456789abcdefghijkl";
+        let logo = logo_with_pocket_id(long_id);
+        assert!(logo.contains(&format!("|{long_id}|")));
+    }
+
+    #[test]
+    fn static_logo_has_no_pocket_id() {
+        assert!(!LOGO.contains("hash"));
+        assert!(LOGO.contains("left_pocket"));
+    }
 }

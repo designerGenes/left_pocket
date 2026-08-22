@@ -1,16 +1,20 @@
 ```
-╭────────╮
-│        │
-│     ╭──┤   left_pocket
-│     │▓▓│
-╰─────┴──╯
++-------------------+
+| left_pocket       |
++-------------------+
+|                   |
+|                   |
+|                   |
+|                   |
+ \                 /
+  `---------------'
 ```
 
 # left_pocket
 
 **left_pocket** (compatibility aliases: `safe_pocket`, `spocket`) — ad hoc VS Code workspace manager with AI copilot support.
 
-Keep "meta" files (copilot instructions, prompts, observations, feature notes) in a dedicated left_pocket directory (`~/.left_pocket/<hash>/`) so they never pollute your project repo, yet VS Code opens them together with your project as a single multi-root workspace.
+Keep "meta" files (copilot instructions, prompts, observations, feature notes) in a dedicated pocket directory (`~/.left_pocket/<hash>/`) so they never pollute your project repo, yet VS Code opens them together with your project as a single multi-root workspace.
 
 left_pocket prefers the new roots `~/.left_pocket/` and `~/.config/left_pocket/`, but it falls back to legacy `~/.safe_pocket/`, `~/.spocket/`, `~/.config/safe_pocket/`, and `~/.config/spocket/` locations when the matching files or directories only exist there.
 
@@ -31,10 +35,10 @@ left_pocket -i .
 # Create a workspace spanning two projects
 left_pocket -i ~/dev/frontend -i ~/dev/backend
 
-# Upgrade left_pocket templates to match latest config
+# Upgrade pocket templates to match latest config
 left_pocket -u ~/dev/myproject
 
-# Check which left_pocket a project belongs to
+# Check which pocket a project belongs to
 left_pocket locate --path ~/dev/myproject
 
 # Generate shell completions (zsh)
@@ -53,10 +57,10 @@ left_pocket
 │  ├─ -s, --sidecar PATH      Add temporary sidecar (session only)
 │  ├─ --with TOOL             Add tool for this session only
 │  ├─ --add TOOL              Install tool for future sessions
-│  ├─ -u, --upgrade PATH      Upgrade left_pocket templates
-│  ├─ --clone-from PATH       Clone left_pocket from another project
+│  ├─ -u, --upgrade PATH      Upgrade pocket templates
+│  ├─ --clone-from PATH       Clone pocket from another project
 │  ├─ --temporary             Use ~/.left_pocket/temporary
-│  ├─ --force-new             Create new left_pocket even if one exists
+│  ├─ --force-new             Create new pocket even if one exists
 │  ├─ --no-readme             Skip README generation
 │  ├─ --simulate-runtime      Inject runtime content without launching VS Code
 │  ├─ --silent                Setup workspace without opening VS Code
@@ -66,7 +70,7 @@ left_pocket
 ├─ register NAME="PATH"        Register directory alias
 ├─ unregister NAME             Remove directory alias
 ├─ list-aliases                List all aliases
-├─ list-workspaces             List all known left_pockets
+├─ list-workspaces             List all known pockets
 │
 ├─ sync [TARGET]               Sync assets or manifest
 │  └─ TARGET: agents | all
@@ -76,28 +80,28 @@ left_pocket
 │  ├─ --remove PATH            Remove directory
 │  └─ --no-open                Don't open VS Code
 │
-├─ mark MARK LEFT_POCKET            Mark left_pocket with metadata
+├─ mark MARK POCKET            Mark pocket with metadata
 │  └─ MARK: temporary
 │
-├─ clean [SCOPE]               Clean left_pockets in bulk
+├─ clean [SCOPE]               Clean pockets in bulk
 │  ├─ SCOPE: temporary
-│  ├─ --older-than AGE         Clean left_pockets older than AGE
-│  ├─ --all                    Clean all left_pockets
+│  ├─ --older-than AGE         Clean pockets older than AGE
+│  ├─ --all                    Clean all pockets
 │  ├─ --hard                   Delete directories (not just registry)
 │  └─ -y, --yes                Skip confirmation
 │
-├─ heal                         Reconnect project to existing left_pocket
+├─ heal                         Reconnect project to existing pocket
 │  ├─ --project PATH           Project directory
 │  ├─ --alias ALIAS            Alias name (instead of path)
-│  └─ --left_pocket LEFT_POCKET          left_pocket directory
+│  └─ --pocket POCKET          pocket directory
 │
-├─ locate                       Find left_pocket for a path
+├─ locate                       Find pocket for a path
 │  ├─ --path PATH              Project path (default: .)
 │  └─ --read-only              Resolve without writing config/registry caches
 │
-├─ sync-registry-git            Refresh git snapshot of all left_pockets
+├─ sync-registry-git            Refresh git snapshot of all pockets
 │
-├─ upgrade-installation         Rewrite legacy #SPOCKET_* tokens to #LOCKET_*
+├─ upgrade-installation         Rewrite legacy tokens to #POCKET_*
 │  ├─ --dry-run                Preview rewrites without changing files
 │  ├─ -y, --yes                Apply without prompting
 │  ├─ --root PATH              Extra root to scan (repeatable)
@@ -120,11 +124,11 @@ left_pocket
 ├─ completion-spec              Machine-readable completion model
 │
 ├─ daily-feature                Manage daily feature notes
-│  ├─ --left_pocket PATH            left_pocket directory
+│  ├─ --pocket PATH            pocket directory
 │  ├─ --new                    Always create new file
 │  └─ --subpath PATH           Subfolder for daily files
 │
-├─ worktree ACTION              Manage git worktrees sharing this left_pocket
+├─ worktree ACTION              Manage git worktrees sharing this pocket
 │  ├─ add [PATH]               Register worktree
 │  ├─ remove PATH              Unregister worktree
 │  └─ list                     List all worktrees
@@ -185,7 +189,7 @@ left_pocket -i . --with gitleaks --with graphify
 ```
 
 #### `--add TOOL` (repeatable)
-Install a tool into the project and left_pocket for future sessions. If already installed, this is a no-op.
+Install a tool into the project and pocket for future sessions. If already installed, this is a no-op.
 
 Supported tools: `gitleaks`, `graphify`, `memgraph`
 
@@ -194,7 +198,7 @@ left_pocket -i . --add graphify
 ```
 
 #### `--clone-from PATH`
-Clone the left_pocket from the workspace containing this path. Copies all meta files (copilot instructions, prompts, observations, etc.) from the source left_pocket into the new one, then tracks lineage in both manifests. Useful when starting a new project that should inherit AI configuration from a related one.
+Clone the pocket from the workspace containing this path. Copies all meta files (copilot instructions, prompts, observations, etc.) from the source pocket into the new one, then tracks lineage in both manifests. Useful when starting a new project that should inherit AI configuration from a related one.
 
 ```bash
 left_pocket -i ~/dev/new-project --clone-from ~/dev/existing-project
@@ -203,7 +207,7 @@ left_pocket -i ~/dev/new-project --clone-from ~/dev/existing-project
 #### `-u`, `--upgrade PATH`
 Upgrade an existing left_pocket to match current templates (does not open VS Code). Reads every template from the preferred config root, starting with `~/.config/left_pocket/templates/` and falling back to legacy config roots when needed, then expands variables and writes the result to the left_pocket. If a file already exists with different content, you are shown a diff and asked to confirm.
 
-PATH may be either the left_pocket directory itself or any project directory whose left_pocket you want to upgrade.
+PATH may be either the pocket directory itself or any project directory whose pocket you want to upgrade.
 
 ```bash
 left_pocket -u ~/dev/myproject
@@ -211,14 +215,14 @@ left_pocket -u ~/.left_pocket/abc123
 ```
 
 #### `--new`
-Force creation of a new workspace even if one already exists. By default, if a project already belongs to an existing left_pocket, that left_pocket is opened instead of creating a duplicate.
+Force creation of a new workspace even if one already exists. By default, if a project already belongs to an existing pocket, that pocket is opened instead of creating a duplicate.
 
 ```bash
 left_pocket -i . --new
 ```
 
 #### `--temporary`
-Create or reuse the left_pocket under `~/.left_pocket/temporary/`. Temporary left_pockets are tracked separately so test suites and other short-lived workflows can be cleaned up without touching normal left_pockets.
+Create or reuse the left_pocket under `~/.left_pocket/temporary/`. Temporary pockets are tracked separately so test suites and other short-lived workflows can be cleaned up without touching normal pockets.
 
 ```bash
 left_pocket -i . --temporary
@@ -234,7 +238,7 @@ left_pocket -i . --no-readme
 ### Execution Control
 
 #### `--simulate-runtime`
-Inject runtime content into destination files without launching VS Code. Every file that would normally gain inject-at-runtime content (wrapped in `#LOCKET_RUNTIME_CONTENT_START` / `#LOCKET_RUNTIME_CONTENT_END` markers) gains that content even though VS Code is never started. Implies `--silent`.
+Inject runtime content into destination files without launching VS Code. Every file that would normally gain inject-at-runtime content (wrapped in `#POCKET_RUNTIME_CONTENT_START` / `#POCKET_RUNTIME_CONTENT_END` markers) gains that content even though VS Code is never started. Implies `--silent`.
 
 ```bash
 left_pocket -i . --simulate-runtime --temporary
@@ -287,7 +291,7 @@ left_pocket list-aliases
 ```
 
 #### `list-workspaces`
-List all known left_pockets with their project paths and status.
+List all known pockets with their project paths and status.
 
 ```bash
 left_pocket list-workspaces
@@ -300,21 +304,21 @@ left_pocket list-workspaces
 #### `sync [TARGET]`
 Sync system-wide assets or the manifest.
 
-**With a TARGET**, synchronizes system-wide left_pocket assets that every left_pocket draws from:
+**With a TARGET**, synchronizes system-wide pocket assets that every pocket draws from:
 
 - `agents` — Write unified agent definitions from `~/.config/left_pocket/templates/agents/` into the places OpenCode looks for agents
 - `all` — Run every system-wide sync (currently agents only)
 
-**Without a TARGET** (legacy form used by VS Code extension), updates the left_pocket manifest to reflect the current .code-workspace folders and prints JSON. Requires `--left_pocket`. You rarely need to run this manually.
+**Without a TARGET** (legacy form used by VS Code extension), updates the pocket manifest to reflect the current .code-workspace folders and prints JSON. Requires `--pocket`. You rarely need to run this manually.
 
 ```bash
 left_pocket sync agents      # Write agent definitions
 left_pocket sync all         # Sync everything
-left_pocket sync --left_pocket ~/.left_pocket/abc123  # Manifest sync (internal)
+left_pocket sync --pocket ~/.left_pocket/abc123  # Manifest sync (internal)
 ```
 
 #### `augment`
-Add or remove project directories from the current workspace in-place. Rewrites the .code-workspace file and manifest without moving the left_pocket directory. Run from inside a left_pocket or project directory that belongs to an existing workspace.
+Add or remove project directories from the current workspace in-place. Rewrites the .code-workspace file and manifest without moving the pocket directory. Run from inside a pocket or project directory that belongs to an existing workspace.
 
 ```bash
 left_pocket augment --add ~/dev/new-service
@@ -327,18 +331,18 @@ left_pocket augment --add ~/dev/new-service --no-open
 - `--remove PATH` — Project directory to remove from the workspace (repeatable)
 - `--no-open` — Update workspace without opening VS Code afterwards
 
-#### `mark MARK LEFT_POCKET`
-Mark an existing left_pocket with additional metadata.
+#### `mark MARK POCKET`
+Mark an existing pocket with additional metadata.
 
 ```bash
 left_pocket mark temporary ~/.left_pocket/abc123
 ```
 
 **Mark types:**
-- `temporary` — Mark left_pocket as temporary
+- `temporary` — Mark pocket as temporary
 
 #### `locate`
-Locate the left_pocket associated with a project or left_pocket path. Outputs JSON for editor integrations.
+Locate the pocket associated with a project or pocket path. Outputs JSON for editor integrations.
 
 ```bash
 left_pocket locate --path ~/dev/myproject
@@ -353,45 +357,45 @@ left_pocket locate --read-only --path ~/dev/myproject
 Normal `locate` may create or refresh the registry cache as a side effect, which
 is undesirable when auditing an installation you must not disturb. `--read-only`
 guarantees no writes, adds `"read_only": true` to the payload, and reports the
-left_pocket's directory name as `hash` alongside the manifest's own `manifest_hash`
-(these differ for a renamed left_pocket). Both forms resolve the most specific
+pocket's directory name as `hash` alongside the manifest's own `manifest_hash`
+(these differ for a renamed pocket). Both forms resolve the most specific
 matching project, so a left_pocket registered for a parent directory never shadows the
 left_pocket for a nested project. This is the mode `left_pocket tests -i` uses.
 
 ---
 
-### left_pocket Maintenance
+### Pocket Maintenance
 
 #### `heal`
-Reconnect a project directory to an existing left_pocket. Moves the selected left_pocket's contents into the deterministic left_pocket path for the PROJECT. If that target left_pocket already exists, it is moved aside under `~/.left_pocket/unhoused/`, with fallback to legacy roots before replacement.
+Reconnect a project directory to an existing pocket. Moves the selected left_pocket's contents into the deterministic left_pocket path for the PROJECT. If that target left_pocket already exists, it is moved aside under `~/.left_pocket/unhoused/`, with fallback to legacy roots before replacement.
 
 ```bash
-left_pocket heal --project ~/dev/app --left_pocket abc123
-left_pocket heal --project . --left_pocket ~/.left_pocket/oldhash
-left_pocket heal --alias myproject --left_pocket ~/.left_pocket/xyz789
+left_pocket heal --project ~/dev/app --pocket abc123
+left_pocket heal --project . --pocket ~/.left_pocket/oldhash
+left_pocket heal --alias myproject --pocket ~/.left_pocket/xyz789
 ```
 
 **Options:**
 - `--project PATH` — Project directory (conflicts with `--alias`)
 - `--alias ALIAS` — Alias name (conflicts with `--project`)
-- `--left_pocket LEFT_POCKET` — left_pocket directory to move
+- `--pocket POCKET` — pocket directory to move
 
 #### `clean [SCOPE]`
-Remove registry entries or left_pocket directories in bulk.
+Remove registry entries or pocket directories in bulk.
 
 ```bash
-left_pocket clean temporary              # Remove temporary left_pockets
-left_pocket clean --all --hard           # Delete all left_pockets
-left_pocket clean --older-than "7 days"  # Remove old left_pockets
+left_pocket clean temporary              # Remove temporary pockets
+left_pocket clean --all --hard           # Delete all pockets
+left_pocket clean --older-than "7 days"  # Remove old pockets
 left_pocket clean temporary -y           # Skip confirmation
 ```
 
 **Scopes:**
-- `temporary` — Remove temporary left_pockets only
+- `temporary` — Remove temporary pockets only
 
 **Options:**
-- `--older-than AGE` — Remove left_pockets older than AGE (e.g., "7 days", "2 weeks")
-- `--all` — Remove all left_pockets
+- `--older-than AGE` — Remove pockets older than AGE (e.g., "7 days", "2 weeks")
+- `--all` — Remove all pockets
 - `--hard` — Delete directories (not just registry entries)
 - `-y`, `--yes` — Skip confirmation
 
@@ -432,15 +436,15 @@ left_pocket tests --all -i .
 Without `-i`, left_pocket creates an isolated temporary `HOME`, config tree, registry,
 projects, and fake `code` executable. It tests:
 
-- creating and locating a normal left_pocket inside the temporary isolated HOME;
+- creating and locating a normal pocket inside the temporary isolated HOME;
 - `.env` roots and quiet template merging;
 - repeated/open idempotency and reverse-sync prevention;
 - runtime merge start/stop and preservation outside managed markers;
 - `left_pocket -u` replacement versus quiet-merge preservation;
 - augment add/remove/idempotency;
 - alias lifecycle;
-- healing a left_pocket to a different project;
-- per-left_pocket OpenCode agent placement;
+- healing a pocket to a different project;
+- per-pocket OpenCode agent placement;
 - unresolved config-root artifacts; and
 - `upgrade-installation` idempotency.
 
@@ -503,13 +507,13 @@ Resolve (and create) today's daily feature file for the VS Code hotkey. Outputs 
 Newly created files are seeded with feature tags whose definition in `feature_tags.yaml` sets `place_automatically: true`.
 
 ```bash
-left_pocket daily-feature --left_pocket ~/.left_pocket/abc123
-left_pocket daily-feature --left_pocket ~/.left_pocket/abc123 --new
-left_pocket daily-feature --left_pocket ~/.left_pocket/abc123 --subpath dailies
+left_pocket daily-feature --pocket ~/.left_pocket/abc123
+left_pocket daily-feature --pocket ~/.left_pocket/abc123 --new
+left_pocket daily-feature --pocket ~/.left_pocket/abc123 --subpath dailies
 ```
 
 **Options:**
-- `--left_pocket PATH` — left_pocket directory containing the FEATURES folder (required)
+- `--pocket PATH` — pocket directory containing the FEATURES folder (required)
 - `--new` — Always create a new numbered daily feature file
 - `--subpath PATH` — Subfolder under FEATURES where new daily files are created
 
@@ -521,13 +525,13 @@ left_pocket daily-feature --left_pocket ~/.left_pocket/abc123 --subpath dailies
 Manage git worktrees that share this left_pocket. Worktrees are additional project directories (typically git worktrees of the same repo) that share the same left_pocket — meaning the same copilot instructions, FEATURES notes, and observations apply to all of them.
 
 ```bash
-# Register a worktree to share the left_pocket for the current directory
+# Register a worktree to share the pocket for the current directory
 left_pocket worktree add ~/dev/my-project-feature-x
 
 # Remove a previously registered worktree
 left_pocket worktree remove ~/dev/my-project-feature-x
 
-# List all worktrees sharing this left_pocket
+# List all worktrees sharing this pocket
 left_pocket worktree list
 ```
 
@@ -560,7 +564,7 @@ left_pocket worktree list
 ### Task Tracking
 
 #### `task`
-Built-in issue tracker (replaces Beads). Tasks live in a global SQLite database at `~/.left_pocket/global_data/tasks.db`, with fallback to legacy registry roots when needed. Tasks are grouped per left_pocket by a prefix derived from the left_pocket directory name. When run from inside a registered project, the correct prefix is detected automatically.
+Built-in issue tracker (replaces Beads). Tasks live in a global SQLite database at `~/.left_pocket/global_data/tasks.db`, with fallback to legacy registry roots when needed. Tasks are grouped per left_pocket by a prefix derived from the pocket directory name. When run from inside a registered project, the correct prefix is detected automatically.
 
 Task IDs are formatted as `<prefix>-<hash>` (e.g., `27472722730d-AB12CD`).
 
@@ -667,7 +671,7 @@ left_pocket task 27472722730d-AB12CD describe --raw  # JSON output
 - `--raw` — Machine-readable JSON output
 
 ##### `task reprefix`
-Rename task prefix (when a left_pocket is reorganized or renamed).
+Rename task prefix (when a pocket is reorganized or renamed).
 
 ```bash
 left_pocket task reprefix --from 27472722730d --to abc123def456
@@ -698,31 +702,32 @@ left_pocket -i api -i frontend
 
 ### Templates
 
-Customize files written into every new left_pocket by editing templates in `~/.config/left_pocket/templates/`, with fallback to legacy config roots when those directories already exist. Each template file must begin with:
+Customize files written into every new pocket by editing templates in `~/.config/left_pocket/templates/`, with fallback to legacy config roots when those directories already exist. Each template file must begin with:
 
 ```
-#LOCKET_TEMPLATE_DESTINATION: <relative-path>
+#POCKET_TEMPLATE_DESTINATION: <relative-path>
 ```
 
 Supported directives:
 
 | Directive | Meaning |
 | --- | --- |
-| `#LOCKET_TEMPLATE_DESTINATION: <path>` | Where the template is Placed inside a left_pocket. A file may contain several, each starting a new block. |
-| `#LOCKET_INSTALL_DESTINATION: <path>` | Place this file at an arbitrary path at **install** time only (e.g. `directory_structure.yaml` lands directly in `~/.config/left_pocket`, not under `templates/`). Stripped from the placed file. |
-| `#LOCKET_QUIET_MERGE` | Merge into an existing destination file instead of overwriting, de-duplicating `KEY=VALUE` lines. Used for `.env` and `.gitignore`. |
-| `#LOCKET_MERGE_AT_RUNTIME` | Inject content when a session opens, wrapped in `#LOCKET_RUNTIME_CONTENT_START` / `#LOCKET_RUNTIME_CONTENT_END`, and strip it when the session closes. |
+| `#POCKET_TEMPLATE_DESTINATION: <path>` | Where the template is Placed inside a pocket. A file may contain several, each starting a new block. |
+| `#POCKET_INSTALL_DESTINATION: <path>` | Place this file at an arbitrary path at **install** time only (e.g. `directory_structure.yaml` lands directly in `~/.config/left_pocket`, not under `templates/`). Stripped from the placed file. |
+| `#POCKET_QUIET_MERGE` | Merge into an existing destination file instead of overwriting, de-duplicating `KEY=VALUE` lines. Used for `.env` and `.gitignore`. |
+| `#POCKET_MERGE_AT_RUNTIME` | Inject content when a session opens, wrapped in `#POCKET_RUNTIME_CONTENT_START` / `#POCKET_RUNTIME_CONTENT_END`, and strip it when the session closes. |
 
-The legacy `#SPOCKET_*` spellings of all of the above are still recognised when
-reading templates and already-placed files. New content is always written with
-the `#LOCKET_` prefix. Run [`left_pocket upgrade-installation`](#left_pocket-upgrade-installation)
+The legacy `#LEFT_POCKET_*`, `#CORNER_*`, and `#SPOCKET_*` spellings of all of
+the above are still recognised when reading templates and already-placed files.
+New content is always written with the `#POCKET_` prefix. Run
+[`left_pocket upgrade-installation`](#left_pocket-upgrade-installation)
 to migrate old files in place.
 
 Supported variables:
-- `{{LOCKET_ROOT}}` / `{{SPOCKET_ROOT}}` — Absolute path to the left_pocket directory (`LOCKET_*` preferred)
-- `{{LOCKET_NAME}}` / `{{SPOCKET_NAME}}` — Hash-based left_pocket identifier (`LOCKET_*` preferred)
-- `{{LOCKET_CONFIG_ROOT}}` / `{{SPOCKET_CONFIG_ROOT}}` — Preferred config root with fallback support
-- `{{LOCKET_REGISTRY_ROOT}}` / `{{SPOCKET_REGISTRY_ROOT}}` — Preferred registry root with fallback support
+- `{{POCKET_ROOT}}` / `{{LEFT_POCKET_ROOT}}` / `{{SPOCKET_ROOT}}` — Absolute path to the pocket directory (`POCKET_*` preferred)
+- `{{POCKET_NAME}}` / `{{LEFT_POCKET_NAME}}` / `{{SPOCKET_NAME}}` — Hash-based pocket identifier (`POCKET_*` preferred)
+- `{{POCKET_CONFIG_ROOT}}` / `{{LEFT_POCKET_CONFIG_ROOT}}` / `{{SPOCKET_CONFIG_ROOT}}` — Preferred config root with fallback support
+- `{{POCKET_REGISTRY_ROOT}}` / `{{LEFT_POCKET_REGISTRY_ROOT}}` / `{{SPOCKET_REGISTRY_ROOT}}` — Preferred registry root with fallback support
 - `{{PROJECT_ROOT}}` — Absolute path to the first included project
 
 Directory structure is controlled by `~/.config/left_pocket/directory_structure.yaml`.
@@ -733,25 +738,25 @@ left_pocket never syncs *from* a project *to* the templates. Templates are **Pla
 always one-way, in one of three ways:
 
 1. **Into config**, at install time — `src/templates` is materialised into
-   `~/.config/left_pocket` (honouring `#LOCKET_INSTALL_DESTINATION`).
-2. **Into a project**, when a left_pocket is created with `left_pocket -i .` — templates are
-   Placed per their `#LOCKET_TEMPLATE_DESTINATION`. Edits you then make to the
+   `~/.config/left_pocket` (honouring `#POCKET_INSTALL_DESTINATION`).
+2. **Into a project**, when a pocket is created with `left_pocket -i .` — templates are
+   Placed per their `#POCKET_TEMPLATE_DESTINATION`. Edits you then make to the
    *placed* copies never travel back to the templates.
 3. **At runtime into a project**, when a session opens — templates marked
-   `#LOCKET_MERGE_AT_RUNTIME` are merged into their destination between the
+   `#POCKET_MERGE_AT_RUNTIME` are merged into their destination between the
    runtime markers, and removed again when the session closes. Content you write
    above or below the markers is preserved.
 
-`left_pocket -u <path>` re-Places templates over an existing left_pocket. This is
-destructive to the placed copies: local edits inside the left_pocket are replaced with
+`left_pocket -u <path>` re-Places templates over an existing pocket. This is
+destructive to the placed copies: local edits inside the pocket are replaced with
 the current template content.
 
 #### `left_pocket upgrade-installation`
 
-Rewrites legacy `#SPOCKET_*` directives and runtime markers to `#LOCKET_*` in
-place, across every known config root (`~/.config/left_pocket`,
-`~/.config/safe_pocket`, `~/.config/spocket`) and registry root (`~/.left_pocket`,
-`~/.safe_pocket`, `~/.spocket`):
+Rewrites legacy `#SPOCKET_*`, `#LEFT_POCKET_*`, and `#CORNER_*` directives and
+runtime markers to `#POCKET_*` in place, across every known config root
+(`~/.config/left_pocket`, `~/.config/safe_pocket`, `~/.config/spocket`) and
+registry root (`~/.left_pocket`, `~/.safe_pocket`, `~/.spocket`):
 
 ```bash
 left_pocket upgrade-installation --dry-run   # preview, change nothing
@@ -766,8 +771,8 @@ project back into the config templates directory. User-facing feature-tag names
 such as `SPOCKET_MUST_INSTALL` are deliberately left untouched, since they are
 defined in `feature_tags.yaml` and referenced from your feature files.
 
-The command also reports active-left_pocket directories whose literal name is
-`{{SPOCKET_CONFIG_ROOT}}` or `{{LOCKET_CONFIG_ROOT}}`. These are artifacts from
+The command also reports active-pocket directories whose literal name is
+`{{SPOCKET_CONFIG_ROOT}}` or `{{POCKET_CONFIG_ROOT}}`. These are artifacts from
 an older install-time template bug. Historical `snapshots/` and `unhoused/`
 archives are intentionally excluded. Artifacts are report-only by default. Cleanup is
 deliberately conservative: `--clean-literal-root-artifacts` accepts only a
@@ -785,7 +790,7 @@ left_pocket install-default-assets --replace
 
 ### Directory Structure
 
-The default left_pocket directory structure is:
+The default pocket directory structure is:
 
 ```
 ~/.left_pocket/<hash>/
@@ -797,18 +802,18 @@ The default left_pocket directory structure is:
 │  └── dailies/
 ├── observations/        # Session notes
 ├── README.md
-└── manifest.json        # left_pocket metadata
+└── manifest.json        # pocket metadata
 ```
 
 Customize by editing `~/.config/left_pocket/directory_structure.yaml`.
 
 ---
 
-## left_pocket Directory Location
+## Pocket Directory Location
 
-left_pockets are stored in `~/.left_pocket/<hash>/` where `<hash>` is derived from the project directory path, ensuring deterministic left_pocket association across sessions. If a left_pocket root does not exist yet, the runtime falls back to legacy `~/.safe_pocket/` and `~/.spocket/` roots.
+pockets are stored in `~/.left_pocket/<hash>/` where `<hash>` is derived from the project directory path, ensuring deterministic left_pocket association across sessions. If a left_pocket root does not exist yet, the runtime falls back to legacy `~/.safe_pocket/` and `~/.spocket/` roots.
 
-View all left_pockets:
+View all pockets:
 
 ```bash
 left_pocket list-workspaces
@@ -817,7 +822,7 @@ left_pocket list-workspaces
 ### The `.opencode` Directory
 
 left_pocket renders its managed OpenCode agent definitions into
-`<left_pocket>/.opencode/agent/` whenever a left_pocket is created/opened or
+`<pocket>/.opencode/agent/` whenever a pocket is created/opened or
 `left_pocket sync agents` runs. Those Markdown files are generated and small; deleting
 them is safe, but left_pocket will recreate them.
 
@@ -832,10 +837,10 @@ only left_pocket's managed `agent/` files will come back automatically.
 
 ## Environment Variables
 
-- `LOCKET_ROOT` — Preferred path to the left_pocket directory
-- `SPOCKET_ROOT` — Legacy compatibility alias for `LOCKET_ROOT`
+- `POCKET_ROOT` — Preferred path to the pocket directory
+- `LEFT_POCKET_ROOT` / `SPOCKET_ROOT` — Legacy compatibility aliases for `POCKET_ROOT`
 - `PROJECT_ROOT` — (internal) Path to the first included project
-- `LOCKET_NAME` / `SPOCKET_NAME` — Internal left_pocket hash identifier (template variables)
+- `POCKET_NAME` / `SPOCKET_NAME` — Internal pocket hash identifier (template variables)
 
 ---
 
@@ -856,16 +861,16 @@ left_pocket -i ~/dev/api -i ~/dev/frontend
 ### Switch a project to a different left_pocket
 
 ```bash
-left_pocket heal --project ~/dev/app --left_pocket ~/.left_pocket/new-hash
+left_pocket heal --project ~/dev/app --pocket ~/.left_pocket/new-hash
 ```
 
-### Upgrade all left_pocket templates
+### Upgrade all pocket templates
 
 ```bash
 left_pocket sync agents
 ```
 
-### Clean up old temporary left_pockets
+### Clean up old temporary pockets
 
 ```bash
 left_pocket clean temporary --hard -y
@@ -885,6 +890,6 @@ left_pocket completions zsh > ~/.zsh/completions/_left_pocket
 ## See Also
 
 - `~/.left_pocket/aliases` — Preferred alias registry file
-- `~/.left_pocket/snapshots/` — Preferred git snapshot of all left_pockets
+- `~/.left_pocket/snapshots/` — Preferred git snapshot of all pockets
 - `~/.left_pocket/global_data/tasks.db` — Preferred global tasks database
 - `~/.config/left_pocket/` — Preferred user configuration and templates

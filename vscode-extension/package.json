@@ -1,6 +1,6 @@
 {
   "name": "left-pocket",
-  "displayName": "left Pocket (left_pocket)",
+  "displayName": "left_pocket (locket)",
   "description": "Real-time sync between VS Code workspace folders and left_pocket manifests",
   "version": "2.1.1",
   "publisher": "jadennation",

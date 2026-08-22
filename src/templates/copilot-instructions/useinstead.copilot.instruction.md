@@ -1,5 +1,5 @@
-#LEFT_POCKET_TEMPLATE_DESTINATION: {{LEFT_POCKET_ROOT}}/.github/copilot-instructions.md
-#LEFT_POCKET_MERGE_AT_RUNTIME
+#POCKET_TEMPLATE_DESTINATION: {{POCKET_ROOT}}/.github/copilot-instructions.md
+#POCKET_MERGE_AT_RUNTIME
 
 # IMPORTANT: software tool choices
 

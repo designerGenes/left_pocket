@@ -42,18 +42,18 @@ const path = __importStar(require("path"));
 const os = __importStar(require("os"));
 let statusBarItem;
 let syncInProgress = false;
-let active_left_pocket_dir;
+let active_pocket_dir;
 const POCKET_ROOT_NAMES = [".left_pocket", ".safe_pocket", ".spocket"];
 const CONFIG_ROOT_NAMES = ["left_pocket", "corner", "safe_pocket", "spocket"];
-function getpocketRoots() {
+function getPocketRoots() {
     return POCKET_ROOT_NAMES.map((name) => path.join(os.homedir(), name));
 }
-function isLeftPocketWorkspace(workspaceFile) {
+function isPocketWorkspace(workspaceFile) {
     if (!workspaceFile) {
         return undefined;
     }
     const filePath = workspaceFile.fsPath;
-    for (const pocketRootDir of getpocketRoots()) {
+    for (const pocketRootDir of getPocketRoots()) {
         if (filePath.startsWith(pocketRootDir)) {
             return path.dirname(filePath);
         }
@@ -74,10 +74,10 @@ function getBinaryPath() {
     }
     return "left_pocket";
 }
-function runSync(left_pocket_dir) {
+function runSync(pocket_dir) {
     return new Promise((resolve) => {
         const binary = getBinaryPath();
-        (0, child_process_1.execFile)(binary, ["sync", "--left_pocket", left_pocket_dir], (error, stdout) => {
+        (0, child_process_1.execFile)(binary, ["sync", "--pocket", pocket_dir], (error, stdout) => {
             if (error) {
                 resolve({
                     status: "error",
@@ -98,10 +98,10 @@ function runSync(left_pocket_dir) {
         });
     });
 }
-function runMergeCommand(action, left_pocket_dir) {
+function runMergeCommand(action, pocket_dir) {
     return new Promise((resolve) => {
         const binary = getBinaryPath();
-        (0, child_process_1.execFile)(binary, [action, "--left_pocket", left_pocket_dir], (error) => {
+        (0, child_process_1.execFile)(binary, [action, "--pocket", pocket_dir], (error) => {
             if (error) {
                 console.error(`left_pocket ${action} failed: ${error.message}`);
             }
@@ -109,7 +109,7 @@ function runMergeCommand(action, left_pocket_dir) {
         });
     });
 }
-function locateLeftPocketDir(workspacePath) {
+function locatePocketDir(workspacePath) {
     return new Promise((resolve) => {
         const binary = getBinaryPath();
         (0, child_process_1.execFile)(binary, ["locate", "--path", workspacePath], (error, stdout) => {
@@ -120,7 +120,7 @@ function locateLeftPocketDir(workspacePath) {
             }
             try {
                 const result = JSON.parse(stdout.trim());
-                resolve(result.status === "found" ? result.left_pocket_dir : undefined);
+                resolve(result.status === "found" ? result.pocket_dir : undefined);
             }
             catch {
                 console.error(`Failed to parse locate output: ${stdout}`);
@@ -129,22 +129,22 @@ function locateLeftPocketDir(workspacePath) {
         });
     });
 }
-async function resolveActiveLeftPocketDir() {
-    if (active_left_pocket_dir) {
-        return active_left_pocket_dir;
+async function resolveActivePocketDir() {
+    if (active_pocket_dir) {
+        return active_pocket_dir;
     }
-    const workspaceLeftPocket = isLeftPocketWorkspace(vscode.workspace.workspaceFile);
+    const workspaceLeftPocket = isPocketWorkspace(vscode.workspace.workspaceFile);
     if (workspaceLeftPocket) {
-        active_left_pocket_dir = workspaceLeftPocket;
+        active_pocket_dir = workspaceLeftPocket;
         return workspaceLeftPocket;
     }
     for (const folder of vscode.workspace.workspaceFolders ?? []) {
         if (folder.uri.scheme !== "file") {
             continue;
         }
-        const located = await locateLeftPocketDir(folder.uri.fsPath);
+        const located = await locatePocketDir(folder.uri.fsPath);
         if (located) {
-            active_left_pocket_dir = located;
+            active_pocket_dir = located;
             return located;
         }
     }
@@ -211,10 +211,10 @@ function parseDatedFilename(fileName) {
     }
     return undefined;
 }
-function runDailyFeature(left_pocket_dir, isNew) {
+function runDailyFeature(pocket_dir, isNew) {
     return new Promise((resolve) => {
         const binary = getBinaryPath();
-        const args = ["daily-feature", "--left_pocket", left_pocket_dir];
+        const args = ["daily-feature", "--pocket", pocket_dir];
         if (isNew) {
             args.push("--new");
         }
@@ -252,13 +252,13 @@ function featureTagsYamlPath() {
 }
 /**
  * Determine whether `fsPath` is "today's" feature file: a markdown file living
- * under the left_pocket's FEATURES directory whose name parses to today's date.
+ * under the pocket's FEATURES directory whose name parses to today's date.
  */
-function isTodaysFeatureFile(left_pocket_dir, fsPath) {
+function isTodaysFeatureFile(pocket_dir, fsPath) {
     if (!fsPath) {
         return false;
     }
-    const featuresDir = path.join(left_pocket_dir, "FEATURES");
+    const featuresDir = path.join(pocket_dir, "FEATURES");
     if (fsPath !== featuresDir && !fsPath.startsWith(featuresDir + path.sep)) {
         return false;
     }
@@ -289,17 +289,17 @@ async function openFeatureTagsYaml() {
  * - Otherwise, open (or create) today's daily feature file.
  */
 async function openDailyFeature() {
-    const left_pocket_dir = await resolveActiveLeftPocketDir();
-    if (!left_pocket_dir) {
-        vscode.window.showWarningMessage("left_pocket: no active left_pocket workspace.");
+    const pocket_dir = await resolveActivePocketDir();
+    if (!pocket_dir) {
+        vscode.window.showWarningMessage("left_pocket: no active pocket workspace.");
         return;
     }
     const activePath = vscode.window.activeTextEditor?.document.uri.fsPath;
-    if (isTodaysFeatureFile(left_pocket_dir, activePath)) {
+    if (isTodaysFeatureFile(pocket_dir, activePath)) {
         await openFeatureTagsYaml();
         return;
     }
-    const result = await runDailyFeature(left_pocket_dir, false);
+    const result = await runDailyFeature(pocket_dir, false);
     if (result.status !== "ok" || !result.path) {
         vscode.window.showWarningMessage(`left_pocket: failed to open daily feature: ${result.message ?? "unknown error"}`);
         return;
@@ -312,12 +312,12 @@ async function openDailyFeature() {
  * file for today.
  */
 async function newDailyFeature() {
-    const left_pocket_dir = await resolveActiveLeftPocketDir();
-    if (!left_pocket_dir) {
-        vscode.window.showWarningMessage("left_pocket: no active left_pocket workspace.");
+    const pocket_dir = await resolveActivePocketDir();
+    if (!pocket_dir) {
+        vscode.window.showWarningMessage("left_pocket: no active pocket workspace.");
         return;
     }
-    const result = await runDailyFeature(left_pocket_dir, true);
+    const result = await runDailyFeature(pocket_dir, true);
     if (result.status !== "ok" || !result.path) {
         vscode.window.showWarningMessage(`left_pocket: failed to create daily feature: ${result.message ?? "unknown error"}`);
         return;
@@ -330,21 +330,21 @@ async function newDailyFeature() {
  * so the shift+hotkey binding can be gated to today's feature file.
  */
 async function updateFeatureContext() {
-    const left_pocket_dir = active_left_pocket_dir ?? (await resolveActiveLeftPocketDir());
+    const pocket_dir = active_pocket_dir ?? (await resolveActivePocketDir());
     const activePath = vscode.window.activeTextEditor?.document.uri.fsPath;
-    const inTodaysFeature = left_pocket_dir
-        ? isTodaysFeatureFile(left_pocket_dir, activePath)
+    const inTodaysFeature = pocket_dir
+        ? isTodaysFeatureFile(pocket_dir, activePath)
         : false;
     await vscode.commands.executeCommand("setContext", "left_pocket.inTodaysFeature", inTodaysFeature);
 }
-async function handleFolderChange(left_pocket_dir) {
+async function handleFolderChange(pocket_dir) {
     if (syncInProgress) {
         return;
     }
     syncInProgress = true;
     updateStatusBar("$(sync~spin) left_pocket syncing...");
     try {
-        const result = await runSync(left_pocket_dir);
+        const result = await runSync(pocket_dir);
         switch (result.status) {
             case "unchanged":
                 updateStatusBar(`$(check) left_pocket`, `Hash: ${result.hash}\nBirth: ${result.birth_hash}`);
@@ -375,29 +375,29 @@ async function activate(context) {
     context.subscriptions.push(vscode.commands.registerCommand("left_pocket.openDailyFeature", openDailyFeature), vscode.commands.registerCommand("left_pocket.newDailyFeature", newDailyFeature), vscode.window.onDidChangeActiveTextEditor(() => {
         updateFeatureContext().catch((err) => console.error("left_pocket updateFeatureContext failed:", err));
     }));
-    const left_pocket_dir = await resolveActiveLeftPocketDir();
-    if (!left_pocket_dir) {
+    const pocket_dir = await resolveActivePocketDir();
+    if (!pocket_dir) {
         return;
     }
-    active_left_pocket_dir = left_pocket_dir;
+    active_pocket_dir = pocket_dir;
     await updateFeatureContext();
     statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
     statusBarItem.text = "$(check) left_pocket";
-    statusBarItem.tooltip = `left_pocket: ${path.basename(left_pocket_dir)}`;
+    statusBarItem.tooltip = `left_pocket: ${path.basename(pocket_dir)}`;
     statusBarItem.show();
     context.subscriptions.push(statusBarItem);
     const disposable = vscode.workspace.onDidChangeWorkspaceFolders(() => {
-        handleFolderChange(left_pocket_dir);
+        handleFolderChange(pocket_dir);
     });
     context.subscriptions.push(disposable);
-    handleFolderChange(left_pocket_dir);
-    runMergeCommand("runtime-merge-start", left_pocket_dir).catch((err) => console.error("left_pocket runtime-merge-start failed:", err));
+    handleFolderChange(pocket_dir);
+    runMergeCommand("runtime-merge-start", pocket_dir).catch((err) => console.error("left_pocket runtime-merge-start failed:", err));
 }
 function deactivate() {
     statusBarItem?.dispose();
     statusBarItem = undefined;
-    if (active_left_pocket_dir) {
-        return runMergeCommand("runtime-merge-stop", active_left_pocket_dir);
+    if (active_pocket_dir) {
+        return runMergeCommand("runtime-merge-stop", active_pocket_dir);
     }
 }
 //# sourceMappingURL=extension.js.map

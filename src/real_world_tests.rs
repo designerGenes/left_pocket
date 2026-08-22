@@ -1,7 +1,7 @@
 //! Post-installation operational tests for the currently running left_pocket binary.
 //!
 //! The harness deliberately invokes `std::env::current_exe()` for every tested
-//! operation. It does not call left_pocket's internal workspace/template functions,
+//! operation. It does not call pocket's internal workspace/template functions,
 //! and it does not assume a source checkout exists. The default suite runs under
 //! an isolated temporary HOME. Existing-project mode performs a small set of
 //! non-destructive idempotency checks after retaining a backup, then runs the
@@ -19,8 +19,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-const RUNTIME_START: &str = "#LEFT_POCKET_RUNTIME_CONTENT_START";
-const RUNTIME_END: &str = "#LEFT_POCKET_RUNTIME_CONTENT_END";
+const RUNTIME_START: &str = "#POCKET_RUNTIME_CONTENT_START";
+const RUNTIME_END: &str = "#POCKET_RUNTIME_CONTENT_END";
 const PLACED_EDIT: &str = "# left_pocket-real-world-placed-edit";
 
 pub struct Options {
@@ -222,8 +222,10 @@ impl TestEnvironment {
             .duration_since(UNIX_EPOCH)
             .context("system clock is before the Unix epoch")?
             .as_nanos();
-        let root =
-            std::env::temp_dir().join(format!("left_pocket-real-world-{}-{unique}", std::process::id()));
+        let root = std::env::temp_dir().join(format!(
+            "left_pocket-real-world-{}-{unique}",
+            std::process::id()
+        ));
         let home = root.join("home");
         let bin = root.join("bin");
         fs::create_dir_all(&home)?;
@@ -276,7 +278,7 @@ impl Drop for TestEnvironment {
             );
         } else if self.root.exists() {
             // This is the harness-owned isolated root only. It never points at a
-            // user's project, config root, or existing left_pocket.
+            // user's project, config root, or existing pocket.
             if let Err(error) = fs::remove_dir_all(&self.root) {
                 eprintln!(
                     "Warning: could not remove test fixture {}: {error}",
@@ -294,7 +296,8 @@ impl Drop for TestEnvironment {
 }
 
 pub fn run(options: Options) -> Result<()> {
-    let binary = std::env::current_exe().context("failed to locate the running left_pocket binary")?;
+    let binary =
+        std::env::current_exe().context("failed to locate the running left_pocket binary")?;
     let mut suite = Suite::new(binary.clone(), options.verbose);
 
     crate::branding::print_logo();
@@ -319,7 +322,7 @@ pub fn run(options: Options) -> Result<()> {
         .map(Path::canonicalize)
         .transpose()
         .with_context(|| "included project does not exist")?;
-    let included_left_pocket = if let Some(project) = included_project.as_deref() {
+    let included_pocket = if let Some(project) = included_project.as_deref() {
         run_existing_project_checks(&mut suite, project)?
     } else {
         None
@@ -340,7 +343,7 @@ pub fn run(options: Options) -> Result<()> {
         &mut suite,
         &env,
         included_project.as_deref(),
-        included_left_pocket.as_deref(),
+        included_pocket.as_deref(),
         options.all,
     )?;
 
@@ -350,7 +353,7 @@ pub fn run(options: Options) -> Result<()> {
     );
     suite.skip(
         "Bulk clean commands",
-        "left_pocket clean --all / --hard are intentionally never invoked by the harness",
+        "pocket clean --all / --hard are intentionally never invoked by the harness",
     );
     suite.skip(
         "Interactive VS Code lifecycle",
@@ -377,17 +380,17 @@ fn run_existing_project_checks(suite: &mut Suite, project: &Path) -> Result<Opti
             project.to_string_lossy().as_ref(),
         ],
     )?;
-    let left_pocket = optional_left_pocket_from_locate(&locate)?;
+    let pocket = optional_pocket_from_locate(&locate)?;
 
-    if let Some(left_pocket) = left_pocket.as_deref() {
-        let backup = backup_existing_left_pocket(left_pocket, project)?;
+    if let Some(pocket) = pocket.as_deref() {
+        let backup = backup_existing_pocket(pocket, project)?;
         println!("Retained complete content backup: {}", backup.display());
-        suite.case("Existing left_pocket backup", |_| {
+        suite.case("Existing pocket backup", |_| {
             if !backup.join("BACKUP-MANIFEST.txt").is_file() {
                 bail!("backup manifest was not written");
             }
-            if hash_tree(left_pocket)? != hash_tree(&backup.join("left_pocket"))? {
-                bail!("retained backup file-content hash does not match the existing left_pocket");
+            if hash_tree(pocket)? != hash_tree(&backup.join("pocket"))? {
+                bail!("retained backup file-content hash does not match the existing pocket");
             }
             Ok(format!(
                 "complete content backup retained at {} (file bytes and symlink targets verified)",
@@ -396,8 +399,8 @@ fn run_existing_project_checks(suite: &mut Suite, project: &Path) -> Result<Opti
         });
     } else {
         suite.skip(
-            "Existing left_pocket backup",
-            "the supplied project has no registered left_pocket; no left_pocket required backing up",
+            "Existing pocket backup",
+            "the supplied project has no registered pocket; no pocket required backing up",
         );
     }
 
@@ -411,8 +414,8 @@ fn run_existing_project_checks(suite: &mut Suite, project: &Path) -> Result<Opti
                 project.to_string_lossy().as_ref(),
             ],
         )?;
-        let located = optional_left_pocket_from_locate(&output)?;
-        if located != left_pocket {
+        let located = optional_pocket_from_locate(&output)?;
+        if located != pocket {
             bail!("repeated locate changed its result");
         }
         if hash_project_source(project)? != project_before {
@@ -436,12 +439,12 @@ fn run_existing_project_checks(suite: &mut Suite, project: &Path) -> Result<Opti
     });
 
     suite.case("Existing .opencode ownership audit", |_| {
-        let Some(left_pocket) = left_pocket.as_deref() else {
+        let Some(pocket) = pocket.as_deref() else {
             return Ok(
-                "no registered left_pocket, so there is no left_pocket-local .opencode to audit".to_string(),
+                "no registered pocket, so there is no pocket-local .opencode to audit".to_string(),
             );
         };
-        let opencode = left_pocket.join(".opencode");
+        let opencode = pocket.join(".opencode");
         if !opencode.exists() {
             return Ok("no .opencode directory is present".to_string());
         }
@@ -449,7 +452,7 @@ fn run_existing_project_checks(suite: &mut Suite, project: &Path) -> Result<Opti
         let agents = directory_size(&opencode.join("agent"))?;
         let npm = directory_size(&opencode.join("node_modules"))?;
         Ok(format!(
-            "{} total (left_pocket-owned agent files: {}; external OpenCode/npm node_modules: {}). Nothing removed",
+            "{} total (pocket-owned agent files: {}; external OpenCode/npm node_modules: {}). Nothing removed",
             human_bytes(total),
             human_bytes(agents),
             human_bytes(npm)
@@ -481,19 +484,19 @@ fn run_existing_project_checks(suite: &mut Suite, project: &Path) -> Result<Opti
         "Existing project open/upgrade/augment/heal",
         "the original is never opened or mutated; operational coverage runs against the retained isolated project copy",
     );
-    Ok(left_pocket)
+    Ok(pocket)
 }
 
 fn run_isolated_checks(
     suite: &mut Suite,
     env: &TestEnvironment,
     seed_project: Option<&Path>,
-    seed_left_pocket: Option<&Path>,
+    seed_pocket: Option<&Path>,
     all: bool,
 ) -> Result<()> {
     let project = env.project_from_seed("primary", seed_project)?;
-    let seeded = match seed_left_pocket {
-        Some(seed_left_pocket) => Some(seed_existing_left_pocket(env, seed_left_pocket, &project)?),
+    let seeded = match seed_pocket {
+        Some(seed_pocket) => Some(seed_existing_pocket(env, seed_pocket, &project)?),
         None => None,
     };
     let sidecar = env.project("augment-sidecar")?;
@@ -520,8 +523,10 @@ fn run_isolated_checks(
         suite.exec(env, &project, &["install-default-assets"])?;
         for required in [
             env.home.join(".config/left_pocket/templates/AGENTS.md"),
-            env.home.join(".config/left_pocket/templates/project.env.md"),
-            env.home.join(".config/left_pocket/directory_structure.yaml"),
+            env.home
+                .join(".config/left_pocket/templates/project.env.md"),
+            env.home
+                .join(".config/left_pocket/directory_structure.yaml"),
         ] {
             if !required.is_file() {
                 bail!("missing installed asset: {}", required.display());
@@ -530,58 +535,58 @@ fn run_isolated_checks(
         Ok("embedded assets installed without touching the real HOME".to_string())
     });
 
-    suite.case("Create a normal left_pocket with left_pocket -i", |suite| {
+    suite.case("Create a normal pocket with pocket -i", |suite| {
         suite.exec(
             env,
             &project,
             &["-i", project.to_string_lossy().as_ref(), "--silent"],
         )?;
-        let left_pocket = locate_left_pocket(suite, env, &project)?;
-        if !left_pocket.join("manifest.json").is_file() {
-            bail!("left_pocket has no manifest: {}", left_pocket.display());
+        let pocket = locate_pocket(suite, env, &project)?;
+        if !pocket.join("manifest.json").is_file() {
+            bail!("pocket has no manifest: {}", pocket.display());
         }
-        Ok(format!("created {}", left_pocket.display()))
+        Ok(format!("created {}", pocket.display()))
     });
 
     if let Some(seeded) = seeded.as_deref() {
         // Without this check the seeding step can fail silently: an orphaned
-        // clone leaves `left_pocket -i` free to create a blank left_pocket, and every
+        // clone leaves `pocket -i` free to create a blank pocket, and every
         // check below still passes while testing none of the placed state the
         // seeding exists to provide.
-        suite.case("Seeded existing left_pocket is adopted, not replaced", |suite| {
-            let left_pocket = locate_left_pocket(suite, env, &project)?;
-            if left_pocket != seeded {
+        suite.case("Seeded existing pocket is adopted, not replaced", |suite| {
+            let pocket = locate_pocket(suite, env, &project)?;
+            if pocket != seeded {
                 bail!(
-                    "left_pocket -i created {} instead of adopting the seeded left_pocket {}",
-                    left_pocket.display(),
+                    "left_pocket -i created {} instead of adopting the seeded pocket {}",
+                    pocket.display(),
                     seeded.display()
                 );
             }
-            let left_pockets = fs::read_dir(env.home.join(".left_pocket"))?
+            let pockets = fs::read_dir(env.home.join(".left_pocket"))?
                 .filter_map(Result::ok)
                 .filter(|entry| entry.path().join("manifest.json").is_file())
                 .count();
-            if left_pockets != 1 {
-                bail!("expected exactly one left_pocket in the isolated registry, found {left_pockets}");
+            if pockets != 1 {
+                bail!("expected exactly one pocket in the isolated registry, found {pockets}");
             }
             Ok(format!(
-                "the copied left_pocket was re-keyed and reused as existing placed state at {}",
+                "the copied pocket was re-keyed and reused as existing placed state at {}",
                 seeded.display()
             ))
         });
     }
 
-    suite.case("Environment root placement is left_pocket-only", |suite| {
-        let left_pocket = locate_left_pocket(suite, env, &project)?;
-        for file in [project.join(".env"), left_pocket.join(".env")] {
+    suite.case("Environment root placement is pocket-only", |suite| {
+        let pocket = locate_pocket(suite, env, &project)?;
+        for file in [project.join(".env"), pocket.join(".env")] {
             let content = fs::read_to_string(&file)
                 .with_context(|| format!("failed to read {}", file.display()))?;
-            for key in ["PROJECT_ROOT=", "LEFT_POCKET_ROOT="] {
+            for key in ["PROJECT_ROOT=", "POCKET_ROOT="] {
                 if !content.lines().any(|line| line.starts_with(key)) {
                     bail!("{} is missing {key}", file.display());
                 }
             }
-            // The Spocket/Safe_pocket rename is complete: left_pocket must no longer
+            // The Spocket/Safe_pocket rename is complete: pocket must no longer
             // emit the legacy root key. Compatibility is read-only.
             if content.lines().any(|line| line.starts_with("SPOCKET_ROOT=")) {
                 bail!(
@@ -590,7 +595,7 @@ fn run_isolated_checks(
                 );
             }
         }
-        Ok("project and left_pocket .env define PROJECT_ROOT and LEFT_POCKET_ROOT, with no legacy SPOCKET_ROOT".to_string())
+        Ok("project and pocket .env define PROJECT_ROOT and LEFT_POCKET_ROOT, with no legacy SPOCKET_ROOT".to_string())
     });
 
     suite.case(
@@ -643,8 +648,8 @@ fn run_isolated_checks(
     });
 
     suite.case("Runtime merge start/stop round trip", |suite| {
-        let left_pocket = locate_left_pocket(suite, env, &project)?;
-        let agents = left_pocket.join("AGENTS.md");
+        let pocket = locate_pocket(suite, env, &project)?;
+        let agents = pocket.join("AGENTS.md");
         let existing = fs::read_to_string(&agents)?;
         let outside = "user content outside runtime block\n";
         fs::write(&agents, format!("{outside}{existing}"))?;
@@ -654,8 +659,8 @@ fn run_isolated_checks(
             &project,
             &[
                 "runtime-merge-stop",
-                "--left_pocket",
-                left_pocket.to_string_lossy().as_ref(),
+                "--pocket",
+                pocket.to_string_lossy().as_ref(),
             ],
         )?;
         let stopped = fs::read_to_string(&agents)?;
@@ -671,8 +676,8 @@ fn run_isolated_checks(
             &project,
             &[
                 "runtime-merge-start",
-                "--left_pocket",
-                left_pocket.to_string_lossy().as_ref(),
+                "--pocket",
+                pocket.to_string_lossy().as_ref(),
             ],
         )?;
         let started = fs::read_to_string(&agents)?;
@@ -685,9 +690,9 @@ fn run_isolated_checks(
         Ok("runtime content was stripped/reinjected while outside content survived".to_string())
     });
 
-    suite.case("left_pocket -u upgrade semantics", |suite| {
-        let left_pocket = locate_left_pocket(suite, env, &project)?;
-        let prompt = left_pocket.join(".github/prompts/TalkLikeACat.md");
+    suite.case("pocket -u upgrade semantics", |suite| {
+        let pocket = locate_pocket(suite, env, &project)?;
+        let prompt = pocket.join(".github/prompts/TalkLikeACat.md");
         fs::write(&prompt, "user-edited non-quiet prompt\n")?;
         let gitignore_before = fs::read_to_string(project.join(".gitignore"))?;
 
@@ -715,8 +720,8 @@ fn run_isolated_checks(
                     "--no-open",
                 ],
             )?;
-            let left_pocket = locate_left_pocket(suite, env, &project)?;
-            if !manifest_contains_path(&left_pocket, &sidecar)? {
+            let pocket = locate_pocket(suite, env, &project)?;
+            if !manifest_contains_path(&pocket, &sidecar)? {
                 bail!("augmented path missing from manifest");
             }
             let duplicate = suite.exec(
@@ -742,7 +747,7 @@ fn run_isolated_checks(
                     "--no-open",
                 ],
             )?;
-            if manifest_contains_path(&left_pocket, &sidecar)? {
+            if manifest_contains_path(&pocket, &sidecar)? {
                 bail!("removed path remains in manifest");
             }
             let duplicate_remove = suite.exec(
@@ -779,7 +784,7 @@ fn run_isolated_checks(
             Ok("alias lifecycle completed".to_string())
         });
 
-        suite.case("Heal moves a left_pocket to a new project", |suite| {
+        suite.case("Heal moves a pocket to a new project", |suite| {
             let source = env.project("heal-source")?;
             let target = env.project("heal-target")?;
             suite.exec(
@@ -787,7 +792,7 @@ fn run_isolated_checks(
                 &source,
                 &["-i", source.to_string_lossy().as_ref(), "--silent"],
             )?;
-            let source_left_pocket = locate_left_pocket(suite, env, &source)?;
+            let source_pocket = locate_pocket(suite, env, &source)?;
             suite.exec(
                 env,
                 &target,
@@ -795,13 +800,13 @@ fn run_isolated_checks(
                     "heal",
                     "--project",
                     target.to_string_lossy().as_ref(),
-                    "--left_pocket",
-                    source_left_pocket.to_string_lossy().as_ref(),
+                    "--pocket",
+                    source_pocket.to_string_lossy().as_ref(),
                 ],
             )?;
-            let healed = locate_left_pocket(suite, env, &target)?;
+            let healed = locate_pocket(suite, env, &target)?;
             if !manifest_contains_path(&healed, &target)? {
-                bail!("healed left_pocket does not reference target project");
+                bail!("healed pocket does not reference target project");
             }
             let old = suite.exec(
                 env,
@@ -813,24 +818,24 @@ fn run_isolated_checks(
                 bail!("source project still resolves after heal");
             }
             Ok(format!(
-                "healed left_pocket now resolves at {}",
+                "healed pocket now resolves at {}",
                 healed.display()
             ))
         });
 
-        suite.case("Per-left_pocket OpenCode agent placement", |suite| {
-            let left_pocket = locate_left_pocket(suite, env, &project)?;
+        suite.case("Per-pocket OpenCode agent placement", |suite| {
+            let pocket = locate_pocket(suite, env, &project)?;
             suite.exec(env, &project, &["sync", "agents"])?;
-            let agent_dir = left_pocket.join(".opencode/agent");
+            let agent_dir = pocket.join(".opencode/agent");
             let count = fs::read_dir(&agent_dir)?.filter_map(Result::ok).count();
             if count == 0 {
                 bail!("no OpenCode agents were rendered");
             }
-            if left_pocket.join(".opencode/node_modules").exists() {
-                bail!("left_pocket unexpectedly installed node_modules into .opencode");
+            if pocket.join(".opencode/node_modules").exists() {
+                bail!("pocket unexpectedly installed node_modules into .opencode");
             }
             Ok(format!(
-                "rendered {count} agent files; no node_modules were installed by left_pocket"
+                "rendered {count} agent files; no node_modules were installed by pocket"
             ))
         });
 
@@ -873,20 +878,20 @@ fn run_isolated_checks(
     Ok(())
 }
 
-fn locate_left_pocket(suite: &Suite, env: &TestEnvironment, project: &Path) -> Result<PathBuf> {
+fn locate_pocket(suite: &Suite, env: &TestEnvironment, project: &Path) -> Result<PathBuf> {
     let output = suite.exec(
         env,
         project,
         &["locate", "--path", project.to_string_lossy().as_ref()],
     )?;
-    left_pocket_from_locate(&output)
+    pocket_from_locate(&output)
 }
 
-fn left_pocket_from_locate(output: &Output) -> Result<PathBuf> {
-    optional_left_pocket_from_locate(output)?.ok_or_else(|| anyhow!("left_pocket locate returned not_found"))
+fn pocket_from_locate(output: &Output) -> Result<PathBuf> {
+    optional_pocket_from_locate(output)?.ok_or_else(|| anyhow!("pocket locate returned not_found"))
 }
 
-fn optional_left_pocket_from_locate(output: &Output) -> Result<Option<PathBuf>> {
+fn optional_pocket_from_locate(output: &Output) -> Result<Option<PathBuf>> {
     let json: Value = serde_json::from_slice(&output.stdout).with_context(|| {
         format!(
             "invalid locate JSON: {}",
@@ -896,17 +901,17 @@ fn optional_left_pocket_from_locate(output: &Output) -> Result<Option<PathBuf>> 
     match json.get("status").and_then(Value::as_str) {
         Some("not_found") => return Ok(None),
         Some("found") => {}
-        _ => bail!("left_pocket locate returned {}", json),
+        _ => bail!("pocket locate returned {}", json),
     }
     let path = json
-        .get("left_pocket_dir")
+        .get("pocket_dir")
         .and_then(Value::as_str)
-        .ok_or_else(|| anyhow!("locate output has no left_pocket_dir"))?;
+        .ok_or_else(|| anyhow!("locate output has no pocket_dir"))?;
     Ok(Some(PathBuf::from(path)))
 }
 
-fn manifest_contains_path(left_pocket: &Path, expected: &Path) -> Result<bool> {
-    let manifest: Value = serde_json::from_str(&fs::read_to_string(left_pocket.join("manifest.json"))?)?;
+fn manifest_contains_path(pocket: &Path, expected: &Path) -> Result<bool> {
+    let manifest: Value = serde_json::from_str(&fs::read_to_string(pocket.join("manifest.json"))?)?;
     let expected = expected
         .canonicalize()
         .unwrap_or_else(|_| expected.to_path_buf());
@@ -924,20 +929,20 @@ fn manifest_contains_path(left_pocket: &Path, expected: &Path) -> Result<bool> {
         .unwrap_or(false))
 }
 
-/// Copy an existing left_pocket into the isolated registry and re-key it to the
+/// Copy an existing pocket into the isolated registry and re-key it to the
 /// fixture project.
 ///
-/// A left_pocket is addressed by `hash_paths(core_paths)`: the directory name, the
+/// A pocket is addressed by `hash_paths(core_paths)`: the directory name, the
 /// `.code-workspace` filename and `manifest.hash` all have to agree, and
-/// `Workspace::find_workspace_by_manifest_paths` only adopts a left_pocket whose
+/// `Workspace::find_workspace_by_manifest_paths` only adopts a pocket whose
 /// *on-disk* `manifest.hash` equals the hash of the paths being looked up.
 /// Rewriting `core_paths` alone therefore produces an orphan that no lookup
-/// ever resolves: `left_pocket -i` would quietly create a second, blank left_pocket and
+/// ever resolves: `pocket -i` would quietly create a second, blank pocket and
 /// every idempotency check below would run against empty state while still
-/// reporting PASS. Re-keying is what makes the seeded left_pocket real.
-fn seed_existing_left_pocket(
+/// reporting PASS. Re-keying is what makes the seeded pocket real.
+fn seed_existing_pocket(
     env: &TestEnvironment,
-    source_left_pocket: &Path,
+    source_pocket: &Path,
     fixture_project: &Path,
 ) -> Result<PathBuf> {
     let project = fixture_project
@@ -945,13 +950,13 @@ fn seed_existing_left_pocket(
         .unwrap_or_else(|_| fixture_project.to_path_buf());
     let hash = hash_paths(std::slice::from_ref(&project));
     let destination = env.home.join(".left_pocket").join(&hash);
-    copy_isolated_left_pocket_clone(source_left_pocket, &destination)?;
+    copy_isolated_pocket_clone(source_pocket, &destination)?;
 
     let manifest_path = destination.join("manifest.json");
     let mut manifest: Value =
         serde_json::from_str(&fs::read_to_string(&manifest_path).with_context(|| {
             format!(
-                "seeded left_pocket has no readable manifest: {}",
+                "seeded pocket has no readable manifest: {}",
                 manifest_path.display()
             )
         })?)?;
@@ -973,7 +978,7 @@ fn seed_existing_left_pocket(
     // The workspace file is looked up as `<dirname>.code-workspace` first, so
     // the copy has to be renamed rather than left under the source hash. The
     // folder label uses the real branding helper: seeding state that differs
-    // from what `left_pocket -i` would itself write would make the very first
+    // from what `pocket -i` would itself write would make the very first
     // reopen look like a change and defeat the idempotency checks.
     for entry in fs::read_dir(&destination)? {
         let entry = entry?;
@@ -994,7 +999,7 @@ fn seed_existing_left_pocket(
     }
 
     let roots = format!(
-        "PROJECT_ROOT={}\nLEFT_POCKET_ROOT={}\n",
+        "PROJECT_ROOT={}\nPOCKET_ROOT={}\n",
         project.display(),
         destination.display()
     );
@@ -1002,10 +1007,10 @@ fn seed_existing_left_pocket(
 
     // A genuinely pre-existing project already has correct roots in its own
     // `.env`. `sanitize_fixture_env` stripped the copied roots so the fixture
-    // could never point at the real left_pocket; restore them against the *fixture*
-    // paths here. Without this the adopted-left_pocket path looks like a missing
-    // placement, because `left_pocket -i` deliberately does not re-place templates
-    // for a left_pocket that already exists.
+    // could never point at the real pocket; restore them against the *fixture*
+    // paths here. Without this the adopted-pocket path looks like a missing
+    // placement, because `pocket -i` deliberately does not re-place templates
+    // for a pocket that already exists.
     let project_env = project.join(".env");
     let mut merged = fs::read_to_string(&project_env).unwrap_or_default();
     if !merged.is_empty() && !merged.ends_with('\n') {
@@ -1026,25 +1031,25 @@ fn seed_existing_left_pocket(
     Ok(destination)
 }
 
-fn backup_existing_left_pocket(left_pocket: &Path, project: &Path) -> Result<PathBuf> {
-    let parent = left_pocket
+fn backup_existing_pocket(pocket: &Path, project: &Path) -> Result<PathBuf> {
+    let parent = pocket
         .parent()
-        .ok_or_else(|| anyhow!("left_pocket has no registry parent: {}", left_pocket.display()))?;
+        .ok_or_else(|| anyhow!("pocket has no registry parent: {}", pocket.display()))?;
     let registry = if parent.file_name().and_then(|name| name.to_str()) == Some("temporary") {
         parent.parent().unwrap_or(parent)
     } else {
         parent
     };
-    let hash = left_pocket
+    let hash = pocket
         .file_name()
         .and_then(|name| name.to_str())
-        .unwrap_or("unknown-left_pocket");
+        .unwrap_or("unknown-pocket");
     let stamp = Utc::now().format("%Y%m%dT%H%M%S%.9fZ");
     let backup = registry
         .join(REAL_WORLD_TEST_BACKUPS_DIR)
         .join(format!("{hash}-{stamp}"));
     fs::create_dir_all(&backup)?;
-    copy_tree_complete(left_pocket, &backup.join("left_pocket"))?;
+    copy_tree_complete(pocket, &backup.join("pocket"))?;
 
     let project_files = backup.join("project-files");
     fs::create_dir_all(&project_files)?;
@@ -1057,9 +1062,9 @@ fn backup_existing_left_pocket(left_pocket: &Path, project: &Path) -> Result<Pat
     fs::write(
         backup.join("BACKUP-MANIFEST.txt"),
         format!(
-            "Created: {}\nleft_pocket: {}\nProject: {}\nBackup policy: complete left_pocket copy; no left_pocket content excluded\n",
+            "Created: {}\nleft_pocket: {}\nProject: {}\nBackup policy: complete pocket copy; no pocket content excluded\n",
             Utc::now().to_rfc3339(),
-            left_pocket.display(),
+            pocket.display(),
             project.display()
         ),
     )?;
@@ -1119,18 +1124,18 @@ fn copy_project_fixture(source: &Path, target: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Directory names never copied into the throwaway isolated left_pocket clone.
+/// Directory names never copied into the throwaway isolated pocket clone.
 ///
-/// `node_modules` is external OpenCode/npm content that left_pocket does not own or
+/// `node_modules` is external OpenCode/npm content that pocket does not own or
 /// regenerate and that routinely runs to tens of megabytes, so copying it into
-/// a fixture on every `left_pocket tests -i` run costs a great deal and proves
+/// a fixture on every `pocket tests -i` run costs a great deal and proves
 /// nothing. The retained backup is a separate, deliberately complete copy, so
 /// no content is lost by leaving these out here.
 const ISOLATED_CLONE_SKIP_DIRS: &[&str] = &["node_modules", "target", ".git"];
 
-/// Copy a left_pocket into the isolated fixture, dropping symlinks so no write can
+/// Copy a pocket into the isolated fixture, dropping symlinks so no write can
 /// escape back into the original tree.
-fn copy_isolated_left_pocket_clone(source: &Path, target: &Path) -> Result<()> {
+fn copy_isolated_pocket_clone(source: &Path, target: &Path) -> Result<()> {
     if !source.is_dir() {
         return Ok(());
     }
@@ -1148,7 +1153,7 @@ fn copy_isolated_left_pocket_clone(source: &Path, target: &Path) -> Result<()> {
             if ISOLATED_CLONE_SKIP_DIRS.contains(&name.to_string_lossy().as_ref()) {
                 continue;
             }
-            copy_isolated_left_pocket_clone(&path, &destination)?;
+            copy_isolated_pocket_clone(&path, &destination)?;
         } else if metadata.is_file() {
             fs::copy(&path, &destination)?;
         }
@@ -1165,7 +1170,7 @@ fn sanitize_fixture_env(path: &Path) -> Result<()> {
         .lines()
         .filter(|line| {
             !line.starts_with("PROJECT_ROOT=")
-                && !line.starts_with("LEFT_POCKET_ROOT=")
+                && !line.starts_with("POCKET_ROOT=")
                 && !line.starts_with("SPOCKET_ROOT=")
         })
         .collect::<Vec<_>>();
@@ -1333,7 +1338,7 @@ fn collect_named_dirs(root: &Path, names: &[&str], out: &mut Vec<PathBuf>) -> Re
                 continue;
             }
             let name = name.to_string_lossy();
-            // The two retained backup trees hold verbatim copies of left_pocket
+            // The two retained backup trees hold verbatim copies of pocket
             // content, artifact directories included. Descending into them
             // would re-report every copy, so the reported count would climb on
             // each test run and backup copies would be offered up for cleanup.
@@ -1432,8 +1437,10 @@ mod tests {
 
     #[test]
     fn named_directory_scan_finds_literal_roots_and_skips_snapshots() {
-        let root =
-            std::env::temp_dir().join(format!("left_pocket-real-world-scan-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!(
+            "left_pocket-real-world-scan-{}",
+            std::process::id()
+        ));
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(root.join("abc/{{SPOCKET_CONFIG_ROOT}}")).unwrap();
         fs::create_dir_all(root.join("snapshots/{{SPOCKET_CONFIG_ROOT}}")).unwrap();
@@ -1450,8 +1457,10 @@ mod tests {
 
     #[test]
     fn tree_hash_changes_with_content() {
-        let root =
-            std::env::temp_dir().join(format!("left_pocket-real-world-hash-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!(
+            "left_pocket-real-world-hash-{}",
+            std::process::id()
+        ));
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(&root).unwrap();
         fs::write(root.join("a.txt"), "one").unwrap();

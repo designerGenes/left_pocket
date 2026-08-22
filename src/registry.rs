@@ -24,7 +24,7 @@ const TEMPORARY_DIR: &str = "temporary";
 /// `upgrade-installation --clean-literal-root-artifacts`;
 /// `real-world-test-backups` is produced by `left_pocket tests -i`. Both hold
 /// verbatim copies of live left_pocket content, so every scanner that walks a
-/// registry root must treat them as opaque: they are not left_pockets, they must not
+/// registry root must treat them as opaque: they are not pockets, they must not
 /// be text-rewritten by migrations, and artifact audits must not re-report the
 /// copies they contain. A backup that a later command silently edits is not a
 /// backup.
@@ -42,15 +42,16 @@ pub struct RegistryCache {
     pub version: u32,
     #[serde(default = "now")]
     pub generated_at: DateTime<Utc>,
-    // Caches written before the pocket->left_pocket rename used the "pockets" key;
-    // accept it so an existing registry_cache.json still parses.
-    #[serde(default, alias = "pockets")]
-    pub left_pockets: Vec<RegistryEntry>,
+    // Caches written before the left_pocket->pocket rename used the "left_pockets"
+    // key (and, earlier still, "pockets"); accept both so an existing
+    // registry_cache.json still parses.
+    #[serde(default, alias = "left_pockets", alias = "pockets")]
+    pub pockets: Vec<RegistryEntry>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RegistryEntry {
-    /// Stable left_pocket id, derived from the directory name under `~/.safe_pocket`.
+    /// Stable pocket id, derived from the directory name under `~/.left_pocket`.
     pub hash: String,
     /// Current manifest hash. This can differ after sync/augment updates paths in place.
     pub manifest_hash: String,
@@ -85,7 +86,7 @@ impl Default for RegistryCache {
         Self {
             version: CACHE_VERSION,
             generated_at: Utc::now(),
-            left_pockets: Vec::new(),
+            pockets: Vec::new(),
         }
     }
 }
@@ -181,8 +182,8 @@ fn prompt_paths_tmp_path_for(root: &Path) -> PathBuf {
     root.join(PROMPT_PATHS_TMP)
 }
 
-pub fn is_registry_left_pocket_dir(left_pocket_dir: &Path) -> Result<bool> {
-    let parent = match left_pocket_dir.parent() {
+pub fn is_registry_pocket_dir(pocket_dir: &Path) -> Result<bool> {
+    let parent = match pocket_dir.parent() {
         Some(parent) => parent,
         None => return Ok(false),
     };
@@ -210,9 +211,9 @@ pub fn load_cache_or_rebuild() -> Result<RegistryCache> {
 
         any_existing_root = true;
         let cache = load_cache_or_rebuild_from(&root)?;
-        for entry in cache.left_pockets {
+        for entry in cache.pockets {
             if seen_paths.insert(entry.path.clone()) {
-                merged.left_pockets.push(entry);
+                merged.pockets.push(entry);
             }
         }
     }
@@ -226,7 +227,7 @@ pub fn load_cache_or_rebuild() -> Result<RegistryCache> {
     // canonical one instead of letting both entries survive. Without this, a
     // stale entry in the preferred root can shadow a fresh entry in a legacy
     // root and break `left_pocket locate` / `left_pocket -i` for the project.
-    merged.left_pockets = dedupe_left_pockets(merged.left_pockets, &preferred_root);
+    merged.pockets = dedupe_pockets(merged.pockets, &preferred_root);
 
     Ok(merged)
 }
@@ -245,10 +246,10 @@ pub fn load_cache_or_rebuild() -> Result<RegistryCache> {
 /// Entries that cannot be refreshed from disk (manifest missing) are dropped
 /// in favour of any sibling that still has a manifest. If every sibling is
 /// broken, the first entry is kept as-is so the caller can still see it.
-fn dedupe_left_pockets(left_pockets: Vec<RegistryEntry>, preferred_root: &Path) -> Vec<RegistryEntry> {
+fn dedupe_pockets(pockets: Vec<RegistryEntry>, preferred_root: &Path) -> Vec<RegistryEntry> {
     let mut by_hash: std::collections::HashMap<String, Vec<RegistryEntry>> =
         std::collections::HashMap::new();
-    for entry in left_pockets {
+    for entry in pockets {
         by_hash.entry(entry.hash.clone()).or_default().push(entry);
     }
 
@@ -285,7 +286,7 @@ fn pick_dedupe_survivor(
     //    it picks the freshly created left_pocket over the migrated one with history.
     let mut best_content: Option<(usize, RegistryEntry)> = None;
     for fresh in refreshed.iter().flatten() {
-        let count = count_left_pocket_content(&fresh.path);
+        let count = count_pocket_content(&fresh.path);
         match &best_content {
             None => best_content = Some((count, fresh.clone())),
             Some((prev_count, _)) => {
@@ -327,16 +328,16 @@ fn pick_dedupe_survivor(
 /// content directories.
 ///
 /// Capped at `CONTENT_COUNT_CAP` files to avoid pathological cases; once the
-/// cap is reached the exact count doesn't matter because both left_pockets are
+/// cap is reached the exact count doesn't matter because both pockets are
 /// "large" and the preferred-root / refreshable fallbacks take over.
 const CONTENT_COUNT_CAP: usize = 10_000;
-fn count_left_pocket_content(left_pocket_dir: &Path) -> usize {
+fn count_pocket_content(pocket_dir: &Path) -> usize {
     let mut count = 0usize;
-    count_left_pocket_content_recursive(left_pocket_dir, &mut count);
+    count_pocket_content_recursive(pocket_dir, &mut count);
     count
 }
 
-fn count_left_pocket_content_recursive(dir: &Path, count: &mut usize) {
+fn count_pocket_content_recursive(dir: &Path, count: &mut usize) {
     if *count >= CONTENT_COUNT_CAP {
         return;
     }
@@ -368,7 +369,7 @@ fn count_left_pocket_content_recursive(dir: &Path, count: &mut usize) {
             if path.join("manifest.json").exists() {
                 continue;
             }
-            count_left_pocket_content_recursive(&path, count);
+            count_pocket_content_recursive(&path, count);
         } else if file_type.is_file() {
             let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
             if name == ".DS_Store" {
@@ -410,33 +411,33 @@ pub fn scan_all_roots_for_entries() -> Result<Vec<RegistryEntry>> {
         }
     }
 
-    entries = dedupe_left_pockets(entries, &preferred_root);
+    entries = dedupe_pockets(entries, &preferred_root);
     Ok(entries)
 }
 
 fn collect_fresh_entries(root: &Path, entries: &mut Vec<RegistryEntry>) -> Result<()> {
     for entry in fs::read_dir(root).context("Failed to read left_pocket registry directory")? {
         let entry = entry?;
-        let left_pocket_dir = entry.path();
+        let pocket_dir = entry.path();
 
-        if !left_pocket_dir.is_dir() || is_reserved_registry_dir(&left_pocket_dir) {
+        if !pocket_dir.is_dir() || is_reserved_registry_dir(&pocket_dir) {
             continue;
         }
 
-        let dir_name = match left_pocket_dir.file_name().and_then(|n| n.to_str()) {
+        let dir_name = match pocket_dir.file_name().and_then(|n| n.to_str()) {
             Some(name) => name.to_string(),
             None => continue,
         };
 
-        let manifest = match Manifest::load_without_registry_update(&left_pocket_dir)? {
+        let manifest = match Manifest::load_without_registry_update(&pocket_dir)? {
             Some(manifest) => manifest,
-            None if has_workspace_file(&left_pocket_dir, &dir_name) => {
-                Manifest::backfill_without_registry_update(&left_pocket_dir, &dir_name)?
+            None if has_workspace_file(&pocket_dir, &dir_name) => {
+                Manifest::backfill_without_registry_update(&pocket_dir, &dir_name)?
             }
             None => continue,
         };
 
-        entries.push(entry_from_manifest(&left_pocket_dir, &manifest));
+        entries.push(entry_from_manifest(&pocket_dir, &manifest));
     }
 
     Ok(())
@@ -445,7 +446,7 @@ fn collect_fresh_entries(root: &Path, entries: &mut Vec<RegistryEntry>) -> Resul
 /// Force-rebuild the registry cache in every known registry root.
 ///
 /// Used by `left_pocket sync-registry` to recover from stale or split-brain cache
-/// state. Returns the total number of left_pockets written across all roots.
+/// state. Returns the total number of pockets written across all roots.
 pub fn rebuild_all_caches() -> Result<usize> {
     let mut total = 0;
     let known_roots = crate::branding::known_registry_roots()?;
@@ -455,20 +456,20 @@ pub fn rebuild_all_caches() -> Result<usize> {
             continue;
         }
         let mut cache = RegistryCache::default();
-        collect_left_pockets_from_dir(root, &mut cache)?;
+        collect_pockets_from_dir(root, &mut cache)?;
 
         let temporary_root = root.join(TEMPORARY_DIR);
         if temporary_root.exists() {
-            collect_left_pockets_from_dir(&temporary_root, &mut cache)?;
+            collect_pockets_from_dir(&temporary_root, &mut cache)?;
         }
 
         // Drop split-brain duplicates so the rebuilt cache only carries one
         // entry per left_pocket hash.
         let preferred_root = crate::branding::preferred_registry_root()?;
-        cache.left_pockets = dedupe_left_pockets(cache.left_pockets, &preferred_root);
-        total += cache.left_pockets.len();
+        cache.pockets = dedupe_pockets(cache.pockets, &preferred_root);
+        total += cache.pockets.len();
 
-        sort_entries(&mut cache.left_pockets);
+        sort_entries(&mut cache.pockets);
         cache.generated_at = Utc::now();
         write_cache_to(root, &cache)?;
     }
@@ -488,19 +489,19 @@ fn load_cache_or_rebuild_from(root: &Path) -> Result<RegistryCache> {
         Err(_) => return rebuild_cache_from(root),
     };
 
-    let before = cache.left_pockets.len();
-    cache.left_pockets.retain(|entry| entry.path.is_dir());
-    sort_entries(&mut cache.left_pockets);
+    let before = cache.pockets.len();
+    cache.pockets.retain(|entry| entry.path.is_dir());
+    sort_entries(&mut cache.pockets);
 
     // A whole-root rename (for example ~/.safe_pocket -> ~/.left_pocket) can leave a
     // cache file in place whose entries all point at paths that no longer
     // exist. If the root still contains left_pocket directories, rebuild instead of
     // persisting an empty cache.
-    if cache.left_pockets.is_empty() && before > 0 && root_has_left_pocket_dirs(root)? {
+    if cache.pockets.is_empty() && before > 0 && root_has_pocket_dirs(root)? {
         return rebuild_cache_from(root);
     }
 
-    if cache.left_pockets.len() != before {
+    if cache.pockets.len() != before {
         cache.generated_at = Utc::now();
         write_cache_to(root, &cache)?;
     }
@@ -512,34 +513,34 @@ fn rebuild_cache_from(root: &Path) -> Result<RegistryCache> {
     fs::create_dir_all(root).context("Failed to create left_pocket registry directory")?;
 
     let mut cache = RegistryCache::default();
-    collect_left_pockets_from_dir(root, &mut cache)?;
+    collect_pockets_from_dir(root, &mut cache)?;
 
     let temporary_root = root.join(TEMPORARY_DIR);
     if temporary_root.exists() {
-        collect_left_pockets_from_dir(&temporary_root, &mut cache)?;
+        collect_pockets_from_dir(&temporary_root, &mut cache)?;
     }
 
-    sort_entries(&mut cache.left_pockets);
+    sort_entries(&mut cache.pockets);
     write_cache_to(root, &cache)?;
     Ok(cache)
 }
 
-pub fn upsert_left_pocket(left_pocket_dir: &Path, manifest: &Manifest) -> Result<()> {
-    if !is_registry_left_pocket_dir(left_pocket_dir)? {
+pub fn upsert_pocket(pocket_dir: &Path, manifest: &Manifest) -> Result<()> {
+    if !is_registry_pocket_dir(pocket_dir)? {
         return Ok(());
     }
 
     let root = registry_dir()?;
     ensure_registry_git_state_from(&root)?;
     let mut cache = load_cache_or_rebuild_from(&root)?;
-    let entry = entry_from_manifest(left_pocket_dir, manifest);
+    let entry = entry_from_manifest(pocket_dir, manifest);
     let entry_hash = entry.hash.clone();
 
     cache
-        .left_pockets
+        .pockets
         .retain(|existing| existing.path != entry.path && existing.hash != entry.hash);
-    cache.left_pockets.push(entry);
-    sort_entries(&mut cache.left_pockets);
+    cache.pockets.push(entry);
+    sort_entries(&mut cache.pockets);
     cache.generated_at = Utc::now();
 
     write_cache_to(&root, &cache)?;
@@ -575,9 +576,9 @@ fn prune_duplicate_entries_from_other_roots(keep_root: &Path, hash: &str) -> Res
             Err(_) => continue,
         };
 
-        let before = cache.left_pockets.len();
-        cache.left_pockets.retain(|entry| entry.hash != hash);
-        if cache.left_pockets.len() == before {
+        let before = cache.pockets.len();
+        cache.pockets.retain(|entry| entry.hash != hash);
+        if cache.pockets.len() == before {
             continue;
         }
 
@@ -588,18 +589,18 @@ fn prune_duplicate_entries_from_other_roots(keep_root: &Path, hash: &str) -> Res
     Ok(())
 }
 
-pub fn remove_left_pocket(left_pocket_dir: &Path) -> Result<()> {
-    if !is_registry_left_pocket_dir(left_pocket_dir)? {
+pub fn remove_pocket(pocket_dir: &Path) -> Result<()> {
+    if !is_registry_pocket_dir(pocket_dir)? {
         return Ok(());
     }
 
     let root = registry_dir()?;
     ensure_registry_git_state_from(&root)?;
     let mut cache = load_cache_or_rebuild_from(&root)?;
-    let before = cache.left_pockets.len();
-    cache.left_pockets.retain(|entry| entry.path != left_pocket_dir);
+    let before = cache.pockets.len();
+    cache.pockets.retain(|entry| entry.path != pocket_dir);
 
-    if cache.left_pockets.len() != before {
+    if cache.pockets.len() != before {
         cache.generated_at = Utc::now();
         write_cache_to(&root, &cache)?;
     }
@@ -702,7 +703,7 @@ fn write_cache_to(root: &Path, cache: &RegistryCache) -> Result<()> {
 /// a left_pocket directory and `P` for one of its registered project paths.
 fn write_prompt_paths_to(root: &Path, cache: &RegistryCache) -> Result<()> {
     let mut paths = Vec::new();
-    for left_pocket in &cache.left_pockets {
+    for left_pocket in &cache.pockets {
         paths.push(("C", left_pocket.path.clone()));
         paths.extend(left_pocket.all_paths().cloned().map(|path| ("P", path)));
     }
@@ -720,8 +721,8 @@ fn write_prompt_paths_to(root: &Path, cache: &RegistryCache) -> Result<()> {
     Ok(())
 }
 
-fn entry_from_manifest(left_pocket_dir: &Path, manifest: &Manifest) -> RegistryEntry {
-    let hash = left_pocket_dir
+fn entry_from_manifest(pocket_dir: &Path, manifest: &Manifest) -> RegistryEntry {
+    let hash = pocket_dir
         .file_name()
         .and_then(|name| name.to_str())
         .unwrap_or(&manifest.hash)
@@ -730,7 +731,7 @@ fn entry_from_manifest(left_pocket_dir: &Path, manifest: &Manifest) -> RegistryE
     RegistryEntry {
         hash,
         manifest_hash: manifest.hash.clone(),
-        path: left_pocket_dir.to_path_buf(),
+        path: pocket_dir.to_path_buf(),
         created_at: manifest.created_at,
         temporary: manifest.temporary,
         core_paths: manifest.core_paths.clone(),
@@ -747,40 +748,40 @@ fn sort_entries(entries: &mut [RegistryEntry]) {
     entries.sort_by(|a, b| a.hash.cmp(&b.hash));
 }
 
-fn collect_left_pockets_from_dir(root: &Path, cache: &mut RegistryCache) -> Result<()> {
+fn collect_pockets_from_dir(root: &Path, cache: &mut RegistryCache) -> Result<()> {
     for entry in fs::read_dir(root).context("Failed to read left_pocket registry directory")? {
         let entry = entry?;
-        let left_pocket_dir = entry.path();
+        let pocket_dir = entry.path();
 
-        if !left_pocket_dir.is_dir() || is_reserved_registry_dir(&left_pocket_dir) {
+        if !pocket_dir.is_dir() || is_reserved_registry_dir(&pocket_dir) {
             continue;
         }
 
-        let dir_name = match left_pocket_dir.file_name().and_then(|n| n.to_str()) {
+        let dir_name = match pocket_dir.file_name().and_then(|n| n.to_str()) {
             Some(name) => name.to_string(),
             None => continue,
         };
 
-        let manifest = match Manifest::load_without_registry_update(&left_pocket_dir)? {
+        let manifest = match Manifest::load_without_registry_update(&pocket_dir)? {
             Some(manifest) => manifest,
-            None if has_workspace_file(&left_pocket_dir, &dir_name) => {
-                Manifest::backfill_without_registry_update(&left_pocket_dir, &dir_name)?
+            None if has_workspace_file(&pocket_dir, &dir_name) => {
+                Manifest::backfill_without_registry_update(&pocket_dir, &dir_name)?
             }
             None => continue,
         };
 
         cache
-            .left_pockets
-            .push(entry_from_manifest(&left_pocket_dir, &manifest));
+            .pockets
+            .push(entry_from_manifest(&pocket_dir, &manifest));
     }
 
     Ok(())
 }
 
-/// Directory names inside a registry root that are never left_pockets.
+/// Directory names inside a registry root that are never pockets.
 ///
-/// A registry root hosts more than left_pockets: task storage (`global_data`), the
-/// root git repository (`.git`), archived left_pockets (`snapshots`, `unhoused`),
+/// A registry root hosts more than pockets: task storage (`global_data`), the
+/// root git repository (`.git`), archived pockets (`snapshots`, `unhoused`),
 /// the temporary left_pocket area, and the retained backup trees above. This is the
 /// single authoritative list — `left_pocket locate --read-only` and every other
 /// registry walker share it, so adding an operational directory here cannot
@@ -809,7 +810,7 @@ fn is_reserved_registry_dir(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
-fn root_has_left_pocket_dirs(root: &Path) -> Result<bool> {
+fn root_has_pocket_dirs(root: &Path) -> Result<bool> {
     for entry in fs::read_dir(root).context("Failed to read left_pocket registry directory")? {
         let entry = entry?;
         let path = entry.path();
@@ -899,18 +900,18 @@ fn ensure_registry_pre_commit_hook(root: &Path) -> Result<()> {
 
 fn sync_registry_snapshot_from(root: &Path) -> Result<usize> {
     let snapshots_root = root.join(SNAPSHOTS_DIR);
-    let left_pockets_root = snapshots_root.join("left_pockets");
+    let pockets_root = snapshots_root.join("pockets");
     let temporary_root = snapshots_root.join(TEMPORARY_DIR);
     // Snapshot trees written before the pocket->left_pocket rename live under
-    // snapshots/pockets; drop the stale tree so only left_pockets/ remains.
+    // snapshots/pockets; drop the stale tree so only pockets/ remains.
     let legacy_snapshots = snapshots_root.join("pockets");
     if legacy_snapshots.exists() {
         let _ = fs::remove_dir_all(&legacy_snapshots);
     }
-    fs::create_dir_all(&left_pockets_root).with_context(|| {
+    fs::create_dir_all(&pockets_root).with_context(|| {
         format!(
             "Failed to create snapshots directory: {}",
-            left_pockets_root.display()
+            pockets_root.display()
         )
     })?;
     fs::create_dir_all(&temporary_root).with_context(|| {
@@ -937,7 +938,7 @@ fn sync_registry_snapshot_from(root: &Path) -> Result<usize> {
             Some(name) => name,
             None => continue,
         };
-        let target = left_pockets_root.join(name);
+        let target = pockets_root.join(name);
         mirror_snapshot_dir(&path, &target)?;
         expected.push(target);
         count += 1;
@@ -947,7 +948,7 @@ fn sync_registry_snapshot_from(root: &Path) -> Result<usize> {
     if temporary_source.exists() {
         for entry in fs::read_dir(&temporary_source).with_context(|| {
             format!(
-                "Failed to read temporary left_pockets: {}",
+                "Failed to read temporary pockets: {}",
                 temporary_source.display()
             )
         })? {
@@ -968,7 +969,7 @@ fn sync_registry_snapshot_from(root: &Path) -> Result<usize> {
         }
     }
 
-    prune_stale_snapshot_children(&left_pockets_root, &expected)?;
+    prune_stale_snapshot_children(&pockets_root, &expected)?;
     prune_stale_snapshot_children(&temporary_root, &expected)?;
 
     Ok(count)
@@ -1088,12 +1089,12 @@ fn prune_stale_snapshot_children(root: &Path, expected: &[PathBuf]) -> Result<()
     Ok(())
 }
 
-fn has_workspace_file(left_pocket_dir: &Path, hash: &str) -> bool {
-    if left_pocket_dir.join(format!("{}.code-workspace", hash)).exists() {
+fn has_workspace_file(pocket_dir: &Path, hash: &str) -> bool {
+    if pocket_dir.join(format!("{}.code-workspace", hash)).exists() {
         return true;
     }
 
-    fs::read_dir(left_pocket_dir)
+    fs::read_dir(pocket_dir)
         .map(|entries| {
             entries.flatten().any(|entry| {
                 entry.path().extension().and_then(|ext| ext.to_str()) == Some("code-workspace")
@@ -1131,21 +1132,21 @@ mod tests {
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(&root).unwrap();
 
-        let left_pocket_dir = root.join("abc123");
-        fs::create_dir_all(&left_pocket_dir).unwrap();
+        let pocket_dir = root.join("abc123");
+        fs::create_dir_all(&pocket_dir).unwrap();
         let mut manifest = Manifest::new("manifest_hash".to_string(), vec![PathBuf::from("/p")]);
         manifest.worktrees.push(PathBuf::from("/p-worktree"));
-        manifest.save(&left_pocket_dir).unwrap();
+        manifest.save(&pocket_dir).unwrap();
 
         let cache = rebuild_cache_from(&root).unwrap();
 
-        assert_eq!(cache.left_pockets.len(), 1);
-        assert_eq!(cache.left_pockets[0].hash, "abc123");
-        assert_eq!(cache.left_pockets[0].manifest_hash, "manifest_hash");
-        assert_eq!(cache.left_pockets[0].path, left_pocket_dir);
-        assert_eq!(cache.left_pockets[0].core_paths, vec![PathBuf::from("/p")]);
+        assert_eq!(cache.pockets.len(), 1);
+        assert_eq!(cache.pockets[0].hash, "abc123");
+        assert_eq!(cache.pockets[0].manifest_hash, "manifest_hash");
+        assert_eq!(cache.pockets[0].path, pocket_dir);
+        assert_eq!(cache.pockets[0].core_paths, vec![PathBuf::from("/p")]);
         assert_eq!(
-            cache.left_pockets[0].worktrees,
+            cache.pockets[0].worktrees,
             vec![PathBuf::from("/p-worktree")]
         );
 
@@ -1153,35 +1154,35 @@ mod tests {
     }
 
     #[test]
-    fn test_rebuild_cache_writes_prompt_paths_for_left_pockets_projects_and_worktrees() {
+    fn test_rebuild_cache_writes_prompt_paths_for_pockets_projects_and_worktrees() {
         let root = std::env::temp_dir().join("spocket_registry_prompt_paths_test");
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(&root).unwrap();
 
-        let left_pocket_dir = root.join("abc123");
-        fs::create_dir_all(&left_pocket_dir).unwrap();
+        let pocket_dir = root.join("abc123");
+        fs::create_dir_all(&pocket_dir).unwrap();
         let mut manifest = Manifest::new("manifest_hash".to_string(), vec![PathBuf::from("/p")]);
         manifest.worktrees.push(PathBuf::from("/p-worktree"));
-        manifest.save(&left_pocket_dir).unwrap();
+        manifest.save(&pocket_dir).unwrap();
 
         rebuild_cache_from(&root).unwrap();
 
         assert_eq!(
             fs::read_to_string(prompt_paths_path_for(&root)).unwrap(),
-            format!("C\t{}\nP\t/p\nP\t/p-worktree\n", left_pocket_dir.display())
+            format!("C\t{}\nP\t/p\nP\t/p-worktree\n", pocket_dir.display())
         );
 
         let _ = fs::remove_dir_all(&root);
     }
 
     #[test]
-    fn test_cache_load_prunes_deleted_left_pockets() {
+    fn test_cache_load_prunes_deleted_pockets() {
         let root = std::env::temp_dir().join("spocket_registry_prune_test");
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(&root).unwrap();
 
         let cache = RegistryCache {
-            left_pockets: vec![RegistryEntry {
+            pockets: vec![RegistryEntry {
                 hash: "missing".to_string(),
                 manifest_hash: "missing".to_string(),
                 path: root.join("missing"),
@@ -1200,30 +1201,30 @@ mod tests {
         write_cache_to(&root, &cache).unwrap();
 
         let loaded = load_cache_or_rebuild_from(&root).unwrap();
-        assert!(loaded.left_pockets.is_empty());
+        assert!(loaded.pockets.is_empty());
 
         let _ = fs::remove_dir_all(&root);
     }
 
     #[test]
-    fn test_rebuild_cache_includes_temporary_left_pockets() {
+    fn test_rebuild_cache_includes_temporary_pockets() {
         let root = std::env::temp_dir().join("spocket_registry_temporary_test");
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(root.join("temporary")).unwrap();
 
-        let left_pocket_dir = root.join("temporary").join("temp123");
-        fs::create_dir_all(&left_pocket_dir).unwrap();
+        let pocket_dir = root.join("temporary").join("temp123");
+        fs::create_dir_all(&pocket_dir).unwrap();
         let manifest = Manifest::new_with_options(
             "manifest_hash".to_string(),
             vec![PathBuf::from("/tmp/project")],
             true,
         );
-        manifest.save(&left_pocket_dir).unwrap();
+        manifest.save(&pocket_dir).unwrap();
 
         let cache = rebuild_cache_from(&root).unwrap();
-        assert_eq!(cache.left_pockets.len(), 1);
-        assert!(cache.left_pockets[0].temporary);
-        assert_eq!(cache.left_pockets[0].path, left_pocket_dir);
+        assert_eq!(cache.pockets.len(), 1);
+        assert!(cache.pockets[0].temporary);
+        assert_eq!(cache.pockets[0].path, pocket_dir);
 
         let _ = fs::remove_dir_all(&root);
     }
@@ -1240,7 +1241,7 @@ mod tests {
             .unwrap();
 
         let cache = rebuild_cache_from(&root).unwrap();
-        assert!(cache.left_pockets.is_empty());
+        assert!(cache.pockets.is_empty());
 
         let _ = fs::remove_dir_all(&root);
     }
@@ -1251,14 +1252,14 @@ mod tests {
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(&root).unwrap();
 
-        let left_pocket_dir = root.join("abc123");
-        fs::create_dir_all(left_pocket_dir.join(".git")).unwrap();
-        fs::write(left_pocket_dir.join("file.txt"), "hello").unwrap();
+        let pocket_dir = root.join("abc123");
+        fs::create_dir_all(pocket_dir.join(".git")).unwrap();
+        fs::write(pocket_dir.join("file.txt"), "hello").unwrap();
 
         let count = sync_registry_snapshot_from(&root).unwrap();
         assert_eq!(count, 1);
 
-        let snapshot = root.join("snapshots").join("left_pockets").join("abc123");
+        let snapshot = root.join("snapshots").join("pockets").join("abc123");
         assert!(snapshot.join("file.txt").is_file());
         assert!(!snapshot.join(".git").exists());
 
@@ -1271,16 +1272,16 @@ mod tests {
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(&root).unwrap();
 
-        let left_pocket_dir = root.join("abc123");
-        fs::create_dir_all(&left_pocket_dir).unwrap();
-        let target = left_pocket_dir.join("large.bin");
+        let pocket_dir = root.join("abc123");
+        fs::create_dir_all(&pocket_dir).unwrap();
+        let target = pocket_dir.join("large.bin");
         let bytes = vec![7u8; SNAPSHOT_CHUNK_SIZE + 32];
         fs::write(&target, bytes).unwrap();
 
         let count = sync_registry_snapshot_from(&root).unwrap();
         assert_eq!(count, 1);
 
-        let snapshot_dir = root.join("snapshots").join("left_pockets").join("abc123");
+        let snapshot_dir = root.join("snapshots").join("pockets").join("abc123");
         assert!(!snapshot_dir.join("large.bin").exists());
         assert!(snapshot_dir.join("large.bin.part0001").is_file());
         assert!(snapshot_dir.join("large.bin.part0002").is_file());
@@ -1289,7 +1290,12 @@ mod tests {
         let _ = fs::remove_dir_all(&root);
     }
 
-    fn fresh_entry(hash: &str, path: PathBuf, manifest_hash: &str, birth_hash: Option<&str>) -> RegistryEntry {
+    fn fresh_entry(
+        hash: &str,
+        path: PathBuf,
+        manifest_hash: &str,
+        birth_hash: Option<&str>,
+    ) -> RegistryEntry {
         RegistryEntry {
             hash: hash.to_string(),
             manifest_hash: manifest_hash.to_string(),
@@ -1306,8 +1312,8 @@ mod tests {
         }
     }
 
-    fn write_manifest_at(left_pocket_dir: &Path, hash: &str, birth_hash: Option<&str>) {
-        fs::create_dir_all(left_pocket_dir).unwrap();
+    fn write_manifest_at(pocket_dir: &Path, hash: &str, birth_hash: Option<&str>) {
+        fs::create_dir_all(pocket_dir).unwrap();
         let mut json = serde_json::json!({
             "hash": hash,
             "core_paths": Vec::<String>::new(),
@@ -1319,12 +1325,15 @@ mod tests {
         if let Some(bh) = birth_hash {
             json["birth_hash"] = serde_json::json!(bh);
         }
-        fs::write(left_pocket_dir.join("manifest.json"), serde_json::to_string_pretty(&json).unwrap())
-            .unwrap();
+        fs::write(
+            pocket_dir.join("manifest.json"),
+            serde_json::to_string_pretty(&json).unwrap(),
+        )
+        .unwrap();
     }
 
     #[test]
-    fn dedupe_left_pockets_keeps_single_entries_unchanged() {
+    fn dedupe_pockets_keeps_single_entries_unchanged() {
         let root = std::env::temp_dir().join("spocket_dedupe_single_test");
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(&root).unwrap();
@@ -1338,15 +1347,15 @@ mod tests {
             fresh_entry("aaaa11111111", a.clone(), "aaaa11111111", None),
             fresh_entry("bbbb22222222", b.clone(), "bbbb22222222", None),
         ];
-        let result = dedupe_left_pockets(entries, &root);
+        let result = dedupe_pockets(entries, &root);
         assert_eq!(result.len(), 2);
 
         let _ = fs::remove_dir_all(&root);
     }
 
     #[test]
-    fn dedupe_left_pockets_prefers_more_user_content() {
-        // Two left_pockets with the same dir-name hash in different roots.
+    fn dedupe_pockets_prefers_more_user_content() {
+        // Two pockets with the same dir-name hash in different roots.
         // The one with more user content (FEATURES, observations, etc.)
         // should win, even if the other one's birth_hash matches the dir
         // name. This is the real-world split-brain: an old migrated left_pocket
@@ -1359,36 +1368,52 @@ mod tests {
         fs::create_dir_all(&legacy_root).unwrap();
 
         let hash = "sharedhash000";
-        let primary_left_pocket = primary_root.join(hash);
-        let legacy_left_pocket = legacy_root.join(hash);
+        let primary_pocket = primary_root.join(hash);
+        let legacy_pocket = legacy_root.join(hash);
 
         // Primary left_pocket: lots of user content, birth_hash does NOT match.
-        write_manifest_at(&primary_left_pocket, "primaryhm000", Some("other00000000"));
-        fs::create_dir_all(primary_left_pocket.join("FEATURES/dailies")).unwrap();
+        write_manifest_at(&primary_pocket, "primaryhm000", Some("other00000000"));
+        fs::create_dir_all(primary_pocket.join("FEATURES/dailies")).unwrap();
         for i in 0..10 {
             fs::write(
-                primary_left_pocket.join("FEATURES/dailies").join(format!("day_{i}.md")),
+                primary_pocket
+                    .join("FEATURES/dailies")
+                    .join(format!("day_{i}.md")),
                 "content",
             )
             .unwrap();
         }
-        fs::create_dir_all(primary_left_pocket.join("observations")).unwrap();
-        fs::write(primary_left_pocket.join("observations").join("note.md"), "content").unwrap();
+        fs::create_dir_all(primary_pocket.join("observations")).unwrap();
+        fs::write(
+            primary_pocket.join("observations").join("note.md"),
+            "content",
+        )
+        .unwrap();
 
         // Legacy left_pocket: near-empty, but birth_hash MATCHES the dir name.
-        write_manifest_at(&legacy_left_pocket, "legacyhash00", Some(hash));
-        fs::create_dir_all(legacy_left_pocket.join("FEATURES")).unwrap();
-        fs::write(legacy_left_pocket.join("FEATURES/00.md"), "minimal").unwrap();
+        write_manifest_at(&legacy_pocket, "legacyhash00", Some(hash));
+        fs::create_dir_all(legacy_pocket.join("FEATURES")).unwrap();
+        fs::write(legacy_pocket.join("FEATURES/00.md"), "minimal").unwrap();
 
         let entries = vec![
-            fresh_entry(hash, primary_left_pocket.clone(), "primaryhm000", Some("other00000000")),
-            fresh_entry(hash, legacy_left_pocket.clone(), "legacyhash00", Some(hash)),
+            fresh_entry(
+                hash,
+                primary_pocket.clone(),
+                "primaryhm000",
+                Some("other00000000"),
+            ),
+            fresh_entry(hash, legacy_pocket.clone(), "legacyhash00", Some(hash)),
         ];
 
-        let result = dedupe_left_pockets(entries, &primary_root);
-        assert_eq!(result.len(), 1, "expected duplicate to collapse to one entry");
+        let result = dedupe_pockets(entries, &primary_root);
         assert_eq!(
-            result[0].path, primary_left_pocket,
+            result.len(),
+            1,
+            "expected duplicate to collapse to one entry"
+        );
+        assert_eq!(
+            result[0].path,
+            primary_pocket,
             "expected left_pocket with more user content to win, got {}",
             result[0].path.display()
         );
@@ -1398,8 +1423,8 @@ mod tests {
     }
 
     #[test]
-    fn dedupe_left_pockets_excludes_opencode_and_nested_left_pockets_from_content_count() {
-        // .opencode/ has thousands of generated files in both left_pockets, so it
+    fn dedupe_pockets_excludes_opencode_and_nested_pockets_from_content_count() {
+        // .opencode/ has thousands of generated files in both pockets, so it
         // must NOT count toward the content total. A nested left_pocket directory
         // (a dir containing manifest.json) must also be excluded.
         let primary_root = std::env::temp_dir().join("spocket_dedupe_excl_primary");
@@ -1410,25 +1435,31 @@ mod tests {
         fs::create_dir_all(&legacy_root).unwrap();
 
         let hash = "sharedhash001";
-        let primary_left_pocket = primary_root.join(hash);
-        let legacy_left_pocket = legacy_root.join(hash);
+        let primary_pocket = primary_root.join(hash);
+        let legacy_pocket = legacy_root.join(hash);
 
         // Primary left_pocket: 2 real user files + 100 .opencode files.
-        write_manifest_at(&primary_left_pocket, "primaryhm001", Some(hash));
-        fs::create_dir_all(primary_left_pocket.join("FEATURES")).unwrap();
-        fs::write(primary_left_pocket.join("FEATURES/real.md"), "content").unwrap();
-        fs::write(primary_left_pocket.join("README.md"), "content").unwrap();
-        fs::create_dir_all(primary_left_pocket.join(".opencode")).unwrap();
+        write_manifest_at(&primary_pocket, "primaryhm001", Some(hash));
+        fs::create_dir_all(primary_pocket.join("FEATURES")).unwrap();
+        fs::write(primary_pocket.join("FEATURES/real.md"), "content").unwrap();
+        fs::write(primary_pocket.join("README.md"), "content").unwrap();
+        fs::create_dir_all(primary_pocket.join(".opencode")).unwrap();
         for i in 0..100 {
-            fs::write(primary_left_pocket.join(".opencode").join(format!("agent_{i}.md")), "x").unwrap();
+            fs::write(
+                primary_pocket
+                    .join(".opencode")
+                    .join(format!("agent_{i}.md")),
+                "x",
+            )
+            .unwrap();
         }
 
         // Legacy left_pocket: 1 real user file + a nested left_pocket copy with 50 files.
-        write_manifest_at(&legacy_left_pocket, "legacyhash01", Some("other00000001"));
-        fs::create_dir_all(legacy_left_pocket.join("FEATURES")).unwrap();
-        fs::write(legacy_left_pocket.join("FEATURES/real.md"), "content").unwrap();
+        write_manifest_at(&legacy_pocket, "legacyhash01", Some("other00000001"));
+        fs::create_dir_all(legacy_pocket.join("FEATURES")).unwrap();
+        fs::write(legacy_pocket.join("FEATURES/real.md"), "content").unwrap();
         // Nested left_pocket copy — must be excluded from the count.
-        let nested = legacy_left_pocket.join("nestedleft_pocket");
+        let nested = legacy_pocket.join("nestedleft_pocket");
         fs::create_dir_all(&nested).unwrap();
         fs::write(nested.join("manifest.json"), "{}").unwrap();
         for i in 0..50 {
@@ -1438,15 +1469,20 @@ mod tests {
         // Primary has 2 real files; legacy has 1 real file (the 50 nested
         // files don't count). Primary should win.
         let entries = vec![
-            fresh_entry(hash, primary_left_pocket.clone(), "primaryhm001", Some(hash)),
-            fresh_entry(hash, legacy_left_pocket.clone(), "legacyhash01", Some("other00000001")),
+            fresh_entry(hash, primary_pocket.clone(), "primaryhm001", Some(hash)),
+            fresh_entry(
+                hash,
+                legacy_pocket.clone(),
+                "legacyhash01",
+                Some("other00000001"),
+            ),
         ];
 
-        let result = dedupe_left_pockets(entries, &primary_root);
+        let result = dedupe_pockets(entries, &primary_root);
         assert_eq!(result.len(), 1);
         assert_eq!(
-            result[0].path, primary_left_pocket,
-            "expected left_pocket with more real user content (excluding .opencode and nested left_pockets) to win"
+            result[0].path, primary_pocket,
+            "expected left_pocket with more real user content (excluding .opencode and nested pockets) to win"
         );
 
         let _ = fs::remove_dir_all(&primary_root);
@@ -1454,7 +1490,7 @@ mod tests {
     }
 
     #[test]
-    fn dedupe_left_pockets_falls_back_to_preferred_root_when_content_is_equal() {
+    fn dedupe_pockets_falls_back_to_preferred_root_when_content_is_equal() {
         let primary_root = std::env::temp_dir().join("spocket_dedupe_pref_primary");
         let legacy_root = std::env::temp_dir().join("spocket_dedupe_pref_legacy");
         let _ = fs::remove_dir_all(&primary_root);
@@ -1463,25 +1499,38 @@ mod tests {
         fs::create_dir_all(&legacy_root).unwrap();
 
         let hash = "sharedhash002";
-        let primary_left_pocket = primary_root.join(hash);
-        let legacy_left_pocket = legacy_root.join(hash);
+        let primary_pocket = primary_root.join(hash);
+        let legacy_pocket = legacy_root.join(hash);
 
-        // Both left_pockets have the same amount of content.
-        write_manifest_at(&primary_left_pocket, "primaryhm002", Some("other00000002"));
-        write_manifest_at(&legacy_left_pocket, "legacyhash02", Some("other00000003"));
-        fs::create_dir_all(primary_left_pocket.join("FEATURES")).unwrap();
-        fs::write(primary_left_pocket.join("FEATURES/00.md"), "x").unwrap();
-        fs::create_dir_all(legacy_left_pocket.join("FEATURES")).unwrap();
-        fs::write(legacy_left_pocket.join("FEATURES/00.md"), "x").unwrap();
+        // Both pockets have the same amount of content.
+        write_manifest_at(&primary_pocket, "primaryhm002", Some("other00000002"));
+        write_manifest_at(&legacy_pocket, "legacyhash02", Some("other00000003"));
+        fs::create_dir_all(primary_pocket.join("FEATURES")).unwrap();
+        fs::write(primary_pocket.join("FEATURES/00.md"), "x").unwrap();
+        fs::create_dir_all(legacy_pocket.join("FEATURES")).unwrap();
+        fs::write(legacy_pocket.join("FEATURES/00.md"), "x").unwrap();
 
         let entries = vec![
-            fresh_entry(hash, primary_left_pocket.clone(), "primaryhm002", Some("other00000002")),
-            fresh_entry(hash, legacy_left_pocket.clone(), "legacyhash02", Some("other00000003")),
+            fresh_entry(
+                hash,
+                primary_pocket.clone(),
+                "primaryhm002",
+                Some("other00000002"),
+            ),
+            fresh_entry(
+                hash,
+                legacy_pocket.clone(),
+                "legacyhash02",
+                Some("other00000003"),
+            ),
         ];
 
-        let result = dedupe_left_pockets(entries, &primary_root);
+        let result = dedupe_pockets(entries, &primary_root);
         assert_eq!(result.len(), 1);
-        assert_eq!(result[0].path, primary_left_pocket, "expected preferred root to win when content is equal");
+        assert_eq!(
+            result[0].path, primary_pocket,
+            "expected preferred root to win when content is equal"
+        );
 
         let _ = fs::remove_dir_all(&primary_root);
         let _ = fs::remove_dir_all(&legacy_root);
@@ -1504,11 +1553,11 @@ mod tests {
     fn refresh_entry_from_disk_returns_fresh_fields() {
         let root = std::env::temp_dir().join("spocket_refresh_fresh_test");
         let _ = fs::remove_dir_all(&root);
-        let left_pocket_dir = root.join("abc123");
-        write_manifest_at(&left_pocket_dir, "newhash000000", Some("abc123"));
+        let pocket_dir = root.join("abc123");
+        write_manifest_at(&pocket_dir, "newhash000000", Some("abc123"));
 
         // Stale cache entry that doesn't match the on-disk manifest.
-        let stale = fresh_entry("abc123", left_pocket_dir.clone(), "oldhash000000", None);
+        let stale = fresh_entry("abc123", pocket_dir.clone(), "oldhash000000", None);
         let refreshed = refresh_entry_from_disk(&stale).expect("manifest exists");
         assert_eq!(refreshed.hash, "abc123");
         assert_eq!(refreshed.manifest_hash, "newhash000000");
@@ -1518,7 +1567,7 @@ mod tests {
     }
 
     #[test]
-    fn count_left_pocket_content_counts_user_files() {
+    fn count_pocket_content_counts_user_files() {
         let root = std::env::temp_dir().join("spocket_count_content_test");
         let _ = fs::remove_dir_all(&root);
         let left_pocket = root.join("abc123");
@@ -1534,14 +1583,17 @@ mod tests {
         // .DS_Store must NOT count.
         fs::write(left_pocket.join(".DS_Store"), "x").unwrap();
 
-        let count = count_left_pocket_content(&left_pocket);
-        assert_eq!(count, 4, "expected 4 user files (2 dailies + 1 observation + 1 README)");
+        let count = count_pocket_content(&left_pocket);
+        assert_eq!(
+            count, 4,
+            "expected 4 user files (2 dailies + 1 observation + 1 README)"
+        );
 
         let _ = fs::remove_dir_all(&root);
     }
 
     #[test]
-    fn count_left_pocket_content_excludes_nested_left_pocket_dirs() {
+    fn count_pocket_content_excludes_nested_pocket_dirs() {
         let root = std::env::temp_dir().join("spocket_count_nested_test");
         let _ = fs::remove_dir_all(&root);
         let left_pocket = root.join("abc123");
@@ -1555,8 +1607,11 @@ mod tests {
         fs::write(nested.join("file1.md"), "x").unwrap();
         fs::write(nested.join("file2.md"), "x").unwrap();
 
-        let count = count_left_pocket_content(&left_pocket);
-        assert_eq!(count, 1, "expected only 1 real file, nested left_pocket excluded");
+        let count = count_pocket_content(&left_pocket);
+        assert_eq!(
+            count, 1,
+            "expected only 1 real file, nested left_pocket excluded"
+        );
 
         let _ = fs::remove_dir_all(&root);
     }

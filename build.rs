@@ -12,7 +12,11 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 fn main() {
-    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    // Read CARGO_MANIFEST_DIR at runtime (not via env!, which is baked in when
+    // the build script binary is compiled) so a stale build-script binary from
+    // before a project directory rename does not point at a dead path.
+    let manifest_dir =
+        PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set"));
     let templates_dir = manifest_dir.join("src").join("templates");
 
     // Re-run if the templates directory itself changes (files added/removed).

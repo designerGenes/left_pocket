@@ -2,6 +2,52 @@
 
 All notable changes to left_pocket will be documented in this file.
 
+## [Unreleased]
+
+### Changed — pockets are "pockets", `left_pocket` names only the application
+- **`left_pocket` now refers exclusively to the application.** The workspaces
+  it generates and manages are called *pockets* everywhere else: CLI flags,
+  identifiers, JSON keys, docs, and user-facing strings.
+- CLI flags `--left_pocket` renamed to `--pocket` across `sync`, `heal`,
+  `mark` (value name), `runtime-merge-start`, `runtime-merge-stop`, and
+  `daily-feature`. The old `--left_pocket` spelling keeps working as a hidden
+  alias.
+- Env key `LEFT_POCKET_ROOT` renamed to `POCKET_ROOT` (emitted into `.env`
+  files); `LEFT_POCKET_ROOT`, `LOCKET_ROOT`, `CORNER_ROOT`, and `SPOCKET_ROOT`
+  are still honoured when reading.
+- Directives and markers renamed to `#POCKET_TEMPLATE_DESTINATION`,
+  `#POCKET_INSTALL_DESTINATION`, `#POCKET_QUIET_MERGE`,
+  `#POCKET_MERGE_AT_RUNTIME`, and `#POCKET_RUNTIME_CONTENT_START` /
+  `#POCKET_RUNTIME_CONTENT_END`. Legacy `#LEFT_POCKET_*`, `#CORNER_*`, and
+  `#SPOCKET_*` forms are still recognised when reading.
+- Template variables renamed to `{{POCKET_ROOT}}`, `{{POCKET_NAME}}`,
+  `{{POCKET_CONFIG_ROOT}}`, and `{{POCKET_REGISTRY_ROOT}}`; all legacy
+  spellings still expand.
+- JSON output keys renamed: `locate` now emits `pocket_dir`, `sync-registry`
+  emits `pockets`, and the memgraph bridge uses `pocket_hash` / `pocket_path`
+  and the `:pocket` node label.
+- Internal Rust identifiers renamed (`pocket_dir`, `pockets`, `pocket_root`,
+  `dedupe_pockets`, …) and the VS Code extension was updated to match.
+- Template file names deliberately keep `left_pocket` (e.g.
+  `left_pocket.env.md`, `left_pocket.gitignore.md`, agent `left_pocketer`).
+
+### Added
+- **Dynamic pocket logo.** The new pocket-shaped ASCII logo shows the current
+  pocket's ID centred inside the pocket whenever left_pocket opens a project
+  (`left_pocket -i …`); help and version output show the plain logo without an
+  ID.
+
+### Fixed
+- `build.rs` now reads `CARGO_MANIFEST_DIR` at runtime, so a stale build
+  script binary from before a project-directory rename can no longer embed an
+  empty template table.
+- Repaired the quiet-merge directive parser and the `upgrade-installation`
+  token table, both of which had been reduced to no-ops by the earlier bulk
+  rename (legacy `#LEFT_POCKET_QUIET_MERGE` / `#LEFT_POCKET_MERGE_AT_RUNTIME`
+  files now upgrade correctly).
+- README no longer documents unimplemented `#LOCKET_*` tokens; the template
+  reference now matches the implemented `#POCKET_*` scheme.
+
 ## [3.0.0] - 2026-08-22
 
 ### Changed — full rename: Corner → left_pocket ("locket")

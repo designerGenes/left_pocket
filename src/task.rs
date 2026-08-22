@@ -6,7 +6,7 @@
 //! is associated with a left_pocket via a *prefix* derived from the left_pocket directory's
 //! name (the same short id used everywhere else). Task ids look like
 //! `27472722730d-AB12CD`, so they sort and group naturally by project and never
-//! collide across left_pockets.
+//! collide across pockets.
 //!
 //! The CLI surface (`left_pocket task …`) is intentionally small and Jira-like:
 //!
@@ -1088,7 +1088,7 @@ mod tests {
     /// resolve to the right left_pocket.
     #[test]
     fn test_detect_prefix_from_legacy_only_env() {
-        let base = std::env::temp_dir().join("left_pocket_task_prefix_legacy_only");
+        let base = std::env::temp_dir().join("pocket_task_prefix_legacy_only");
         let _ = fs::remove_dir_all(&base);
         let project = base.join("legacy_project");
         fs::create_dir_all(&project).unwrap();
@@ -1108,7 +1108,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_preferred_env_value_prefers_left_pocket_root() {
+    fn test_parse_preferred_env_value_prefers_pocket_root() {
         let c = "SPOCKET_ROOT=/old/hash\nLEFT_POCKET_ROOT=/new/hash\n";
         assert_eq!(
             parse_preferred_env_value(c, &crate::branding::root_env_keys()).as_deref(),

@@ -184,9 +184,11 @@ fn atomic_updates_roll_back_after_injected_second_step_failure() {
     assert!(fs::read_to_string(root.join("Cargo.toml"))
         .unwrap()
         .contains("version = \"1.2.3\""));
-    assert!(fs::read_to_string(root.join("vscode-extension/package.json"))
-        .unwrap()
-        .contains("\"version\":\"4.5.6\""));
+    assert!(
+        fs::read_to_string(root.join("vscode-extension/package.json"))
+            .unwrap()
+            .contains("\"version\":\"4.5.6\"")
+    );
 
     let _ = fs::remove_dir_all(root);
 }

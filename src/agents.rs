@@ -432,7 +432,7 @@ pub fn agents_template_dir() -> Result<PathBuf> {
 /// Path to the OpenCode agent directory (`$HOME/.config/opencode/agent`).
 ///
 /// This is the *global* location safe_pocket used to write into. Agents are now
-/// installed per-project (see [`left_pocket_agent_dir`]); this remains only so the
+/// installed per-project (see [`pocket_agent_dir`]); this remains only so the
 /// legacy global files can be located, backed up, and removed.
 pub fn opencode_agent_dir() -> Result<PathBuf> {
     let home = dirs::home_dir().context("Failed to get home directory")?;
@@ -442,8 +442,8 @@ pub fn opencode_agent_dir() -> Result<PathBuf> {
 /// Path to a left_pocket's project-local OpenCode agent directory
 /// (`<left_pocket>/.opencode/agent`). OpenCode discovers agents here when the left_pocket
 /// is opened as a workspace, so no global installation is required.
-pub fn left_pocket_agent_dir(left_pocket_dir: &Path) -> PathBuf {
-    left_pocket_dir.join(".opencode").join("agent")
+pub fn pocket_agent_dir(pocket_dir: &Path) -> PathBuf {
+    pocket_dir.join(".opencode").join("agent")
 }
 
 /// Load all unified agent definitions from the templates directory.
@@ -514,8 +514,8 @@ impl SyncReport {
 /// Synchronize the unified agents into a left_pocket's project-local OpenCode agent
 /// directory (`<left_pocket>/.opencode/agent`). This is the per-project replacement
 /// for the old global sync.
-pub fn sync_agents_into_left_pocket(left_pocket_dir: &Path) -> Result<SyncReport> {
-    sync_agents_into(&left_pocket_agent_dir(left_pocket_dir))
+pub fn sync_agents_into_pocket(pocket_dir: &Path) -> Result<SyncReport> {
+    sync_agents_into(&pocket_agent_dir(pocket_dir))
 }
 
 /// Synchronize the unified agents into `target_dir`, rendering each into the
@@ -776,10 +776,10 @@ mod tests {
     }
 
     #[test]
-    fn test_left_pocket_agent_dir_is_project_local() {
+    fn test_pocket_agent_dir_is_project_local() {
         let left_pocket = Path::new("/home/user/.safe_pocket/abc123");
         assert_eq!(
-            left_pocket_agent_dir(left_pocket),
+            pocket_agent_dir(left_pocket),
             Path::new("/home/user/.safe_pocket/abc123/.opencode/agent")
         );
     }

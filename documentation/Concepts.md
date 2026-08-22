@@ -1,9 +1,13 @@
 ```
-╭────────╮
-│        │
-│     ╭──┤   left_pocket
-│     │▓▓│
-╰─────┴──╯
++-------------------+
+| left_pocket       |
++-------------------+
+|                   |
+|                   |
+|                   |
+|                   |
+ \                 /
+  `---------------'
 ```
 
 # What is left_pocket about
@@ -22,9 +26,9 @@ These customizations are very important for a project, because they allow you to
     - store/recall files related to multiple repos or features, without needing to get it merged/PR'd into the remote repo
     - metaprojects:  you can define a project as a border around multiple folders, and left_pocket will treat it as a single project for AI purposes
     - scratch pad directory for creating files about a project which you will need later, but don't want to commit to the shared repo.
-    - AI automatically gets the context of both the project directory and the left_pocket directory, seamlessly working in one while orchestrated by the other.
+    - AI automatically gets the context of both the project directory and the pocket directory, seamlessly working in one while orchestrated by the other.
 - templating engine
-    - "left_pocket destination" tags to place templates with interpolated parameters into any specific place or file in the resulting left_pocket
+    - "pocket destination" tags to place templates with interpolated parameters into any specific place or file in the resulting pocket
     - copilot-instructions and AGENTS.md runtime insertion.  This allows you to customize instructions for any project, but also apply your baseline instructions to any project.
     - feature-based development workflow by default 
     - template tags
@@ -39,10 +43,10 @@ a monorepo is an example of a project.  Usually within a monorepo are many subpr
 In IDE's like XCode, creating a new "project" automatically assembles a large number of files for you immediately.  When interacting with AI in VS Code, you also need some files assembled precisely for you, in order to 
 
 - use AI in the right context.
-    Our left_pocket lives outside of the project folder itself, so we need some way of deterministically pointing the AI at the project folder, so it knows where to work.
+    Our pocket lives outside of the project folder itself, so we need some way of deterministically pointing the AI at the project folder, so it knows where to work.
 - use AI in a deterministic way
-    Our left_pocket should introduce some basic rules for all new projects, which we (the user) believe should apply to just about every new project, no matter the size or contents.  left_pocket ships with default rules but these can be overridden to any degree, at the global or project level.
+    Our pocket should introduce some basic rules for all new projects, which we (the user) believe should apply to just about every new project, no matter the size or contents.  left_pocket ships with default rules but these can be overridden to any degree, at the global or project level.
 
-So in order for a "project" of any size to automatically get these AI baelines, we need to define some files and put them in certain locations.  If we do it right, we can put them outside of your project folder, inside a generated and carefully managed "left_pocket" folder, stored usually at $HOME/.left_pocket/(some hash id).  This left_pocket folder is a border around your project, and it contains the files that define the project for AI purposes.
+So in order for a "project" of any size to automatically get these AI baelines, we need to define some files and put them in certain locations.  If we do it right, we can put them outside of your project folder, inside a generated and carefully managed "pocket" folder, stored usually at $HOME/.left_pocket/(some hash id).  This pocket folder is a border around your project, and it contains the files that define the project for AI purposes.
 
-You don't want to lose your left_pocket folder, but if you do, you can use `left_pocket heal` in the cli from inside of your project folder.  All left_pocket folders are their own git repo, in case you want to back especially important ones up.
+You don't want to lose your pocket folder, but if you do, you can use `left_pocket heal` in the cli from inside of your project folder.  All pockets are their own git repo, in case you want to back especially important ones up.

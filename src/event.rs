@@ -7,8 +7,8 @@ use std::path::Path;
 
 use crate::registry;
 
-pub fn append_left_pocket_event(left_pocket_dir: &Path, action: &str, details: Value) -> Result<()> {
-    append_event(&left_pocket_dir.join("events.jsonl"), action, details)
+pub fn append_pocket_event(pocket_dir: &Path, action: &str, details: Value) -> Result<()> {
+    append_event(&pocket_dir.join("events.jsonl"), action, details)
 }
 
 pub fn append_registry_event(action: &str, details: Value) -> Result<()> {

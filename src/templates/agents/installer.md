@@ -25,7 +25,7 @@ world.
 ### Before you begin
 
 - Read the active feature file for relevance tags (e.g. `#SPOCKET_MUST_INSTALL`).
-- Search for an `Install.md` file in the project directory or the left_pocket
+- Search for an `Install.md` file in the project directory or the pocket
   `FEATURES` directory. If found, follow its instructions to install the binary
   with the latest changes.
 
