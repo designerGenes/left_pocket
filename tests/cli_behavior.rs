@@ -60,7 +60,7 @@ impl TestEnv {
         let code_path = bin_dir.join("code");
         fs::write(
             &code_path,
-            "#!/bin/sh\nif [ -n \"$CODE_LOG\" ]; then echo \"$@\" >> \"$CODE_LOG\"; fi\nexit 0\n",
+            "#!/bin/sh\nif [ -n \"$CODE_LOG\" ]; then echo \"$@\" >> \"$CODE_LOG\"; fi\nif [ -n \"$CODE_WORKSPACE_SNAPSHOT\" ]; then cp \"$1\" \"$CODE_WORKSPACE_SNAPSHOT\"; fi\nexit 0\n",
         )
         .expect("failed to write fake code command");
         fs::set_permissions(&code_path, fs::Permissions::from_mode(0o755))
@@ -97,6 +97,7 @@ impl TestEnv {
             .env("HOME", &self.home)
             .env("PATH", &self.path)
             .env("CODE_LOG", self.code_log())
+            .env("CODE_WORKSPACE_SNAPSHOT", self.workspace_snapshot())
             .env("GIT_CONFIG_GLOBAL", self.root.join("gitconfig"))
             .env("GIT_TERMINAL_PROMPT", "0")
             .output()
@@ -119,6 +120,13 @@ impl TestEnv {
     /// Path to the file where the fake `code` binary records each invocation.
     fn code_log(&self) -> PathBuf {
         self.root.join("code_invocations.log")
+    }
+
+    /// Path where the fake `code` binary stores a copy of the workspace file
+    /// exactly as it existed at launch time (before left_pocket restores any
+    /// temporary sidecar additions).
+    fn workspace_snapshot(&self) -> PathBuf {
+        self.root.join("workspace_snapshot.json")
     }
 
     /// Number of times the fake `code` (VS Code) binary was launched.
@@ -687,6 +695,114 @@ fn normal_run_launches_vscode() {
          assertions made by the --silent / --simulate-runtime tests"
             .to_string(),
     );
+    summary.print();
+}
+
+#[test]
+fn reopening_from_pocket_dir_adds_no_sidecar_and_creates_no_new_pocket() {
+    let env = TestEnv::new("reopen-from-pocket-dir");
+    let project = env.project("project");
+    let mut summary = TestSummary::new(
+        "reopening_from_pocket_dir_adds_no_sidecar_and_creates_no_new_pocket",
+        "running `left_pocket -i .` from inside the pocket directory (e.g. a VS Code \
+         terminal whose cwd is the pocket folder) must reopen the existing pocket \
+         without turning the pocket into a [Sidecar] folder or creating a new pocket",
+        "the isolated HOME and temp root are deleted on drop",
+    );
+
+    assert_success(&env.run_spocket(&project, &["-i", "."]));
+    let pocket = env.only_pocket();
+    summary.step("Created a pocket for the project".to_string());
+
+    let reopen = env.run_spocket(&pocket, &["-i", "."]);
+    assert_success(&reopen);
+    summary.step("Ran `left_pocket -i .` with the pocket directory as cwd".to_string());
+
+    assert_eq!(
+        env.safe_pockets().len(),
+        1,
+        "reopening from inside the pocket must not create a second pocket"
+    );
+    summary.step("Verified no second pocket was created".to_string());
+
+    let snapshot = fs::read_to_string(env.workspace_snapshot())
+        .expect("fake code should have snapshotted the workspace file at launch");
+    assert!(
+        !snapshot.contains("[Sidecar]"),
+        "the pocket must never appear as a [Sidecar] folder in its own workspace:\n{snapshot}"
+    );
+    summary.step("Verified the launched workspace file contained no [Sidecar] entry".to_string());
+    summary.print();
+}
+
+#[test]
+fn new_pocket_is_refused_inside_registry_root() {
+    let env = TestEnv::new("refuse-pocket-of-pocket");
+    let project = env.project("project");
+    let mut summary = TestSummary::new(
+        "new_pocket_is_refused_inside_registry_root",
+        "`left_pocket -i . --new` from inside a pocket directory must be refused: \
+         creating a pocket whose core path lives inside a registry root is never \
+         intended and historically led to destructive follow-up operations",
+        "the isolated HOME and temp root are deleted on drop",
+    );
+
+    assert_success(&env.run_spocket(&project, &["-i", "."]));
+    let pocket = env.only_pocket();
+    summary.step("Created a pocket for the project".to_string());
+
+    let forced = env.run_spocket(&pocket, &["-i", ".", "--new"]);
+    assert_failure(&forced);
+    assert_contains(
+        &forced,
+        "Refusing to create a new pocket",
+    );
+    summary.step("Verified `--new` inside the registry root is refused".to_string());
+
+    assert_eq!(
+        env.safe_pockets().len(),
+        1,
+        "the refused creation must not leave a pocket-of-a-pocket behind"
+    );
+    summary.step("Verified no pocket-of-a-pocket was created".to_string());
+    summary.print();
+}
+
+#[test]
+fn reopening_from_project_subdirectory_reuses_existing_pocket() {
+    let env = TestEnv::new("reopen-from-subdir");
+    let project = env.project("project");
+    let nested = project.join("nested");
+    fs::create_dir_all(&nested).expect("failed to create nested project dir");
+    let mut summary = TestSummary::new(
+        "reopening_from_project_subdirectory_reuses_existing_pocket",
+        "running `left_pocket -i .` from a subdirectory of an already-pocketed \
+         project must reopen the existing pocket instead of creating a duplicate",
+        "the isolated HOME and temp root are deleted on drop",
+    );
+
+    assert_success(&env.run_spocket(&project, &["-i", "."]));
+    summary.step("Created a pocket for the project root".to_string());
+
+    let reopen = env.run_spocket(&nested, &["-i", "."]);
+    assert_success(&reopen);
+    summary.step("Ran `left_pocket -i .` from a project subdirectory".to_string());
+
+    assert_eq!(
+        env.safe_pockets().len(),
+        1,
+        "reopening from a project subdirectory must not create a second pocket"
+    );
+    summary.step("Verified the existing pocket was reused".to_string());
+
+    let snapshot = fs::read_to_string(env.workspace_snapshot())
+        .expect("fake code should have snapshotted the workspace file at launch");
+    assert!(
+        !snapshot.contains("[Sidecar]"),
+        "a project subdirectory is already visible in the workspace and must not \
+         be added as a [Sidecar] folder:\n{snapshot}"
+    );
+    summary.step("Verified no redundant [Sidecar] entry was added".to_string());
     summary.print();
 }
 

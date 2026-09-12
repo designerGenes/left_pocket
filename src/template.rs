@@ -2863,6 +2863,26 @@ mod tests {
             "conversation feature tag should be installed under feature_tags/"
         );
 
+        // logo.md is installed directly to the config root and is editable at
+        // runtime; it is not mirrored into templates/.
+        assert!(
+            config_dir.join("logo.md").is_file(),
+            "logo.md should be installed to the config root"
+        );
+        let logo = fs::read_to_string(config_dir.join("logo.md")).unwrap();
+        assert!(
+            !logo.contains("#POCKET_INSTALL_DESTINATION"),
+            "INSTALL directive must be stripped from the placed logo"
+        );
+        assert!(
+            logo.contains("{pocket_id}"),
+            "placed logo must retain the pocket-id placeholder"
+        );
+        assert!(
+            !config_dir.join("templates/values/logo.md").exists(),
+            "a file with INSTALL_DESTINATION must not be mirrored into templates/"
+        );
+
         // Default mirror: AGENTS.md has no INSTALL_DESTINATION, so it is mirrored
         // verbatim (TEMPLATE_DESTINATION preserved) for the runtime loader.
         let staged_agents = config_dir.join("templates/AGENTS.md");

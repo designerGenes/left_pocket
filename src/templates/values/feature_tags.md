@@ -28,3 +28,6 @@ SPOCKET_MUST_BACKUP_AFTER:
   andPush: true/false
   description: "after making changes to the project, the agent must commit to the left_pocket's local repository and the larger $HOME/.left_pocket folder repository.  If andPush is true, then the agent must also commit the backup to the left_pocket's local repository and push it to the larger $HOME/.left_pocket folder repository."
   type: "done hook"
+SPOCKET_USE_LOCAL_SLOP:
+  description: "This tag activates the use of the Slopify CLI application in tandem with the left_pocket agent.  When this is active, the agent should utilize 'context paging' through the Slopify app (`slopify --help`) while working on the feature."
+  type: "during hook"

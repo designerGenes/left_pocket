@@ -38,6 +38,17 @@ All notable changes to left_pocket will be documented in this file.
   ID.
 
 ### Fixed
+- **Double-loading an open pocket is now impossible.** Running `left_pocket -i .`
+  from inside an already-open pocket (e.g. in a VS Code integrated terminal
+  whose cwd is the pocket folder) previously injected the pocket into its own
+  workspace as a `[Sidecar]` folder, and — when the registry-root prefix lookup
+  missed (symlinked `$HOME`, macOS `/var` → `/private/var`) — created a
+  pocket-of-a-pocket, treating the original pocket as a *project* and exposing
+  it to destructive follow-up operations. Registry-root matching is now
+  symlink-aware, registry-internal paths are never added as sidecars, creating
+  a new pocket with a core path inside a registry root is refused outright, and
+  reopening from a project subdirectory reuses the existing pocket instead of
+  creating a duplicate.
 - `build.rs` now reads `CARGO_MANIFEST_DIR` at runtime, so a stale build
   script binary from before a project-directory rename can no longer embed an
   empty template table.

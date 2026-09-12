@@ -741,7 +741,11 @@ impl Workspace {
     }
 
     pub fn find_workspace_containing(path: &Path) -> Result<Option<Self>> {
-        find_best_cached_workspace(|entry| entry.all_paths().any(|cp| cp == path))
+        find_best_cached_workspace(|entry| {
+            entry
+                .all_paths()
+                .any(|cp| path == cp || path.starts_with(cp))
+        })
     }
 
     /// Find the workspace that "owns" the current directory.

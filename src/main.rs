@@ -54,7 +54,7 @@ fn main() {
     }
 }
 
-/// Parse CLI arguments, printing `branding::LOGO` (surrounded by blank lines)
+/// Parse CLI arguments, printing `branding::logo("")` (surrounded by blank lines)
 /// above all `--help` output.
 ///
 /// This mirrors what `Cli::parse()` does internally (build command, get
@@ -800,47 +800,42 @@ fn find_existing_workspace_for_paths(paths: &[PathBuf]) -> Result<Option<Workspa
     }
 
     for path in paths {
-        for spocket_dir in crate::branding::known_registry_roots()? {
-            let temporary_spocket_dir = spocket_dir.join("temporary");
+        // A path inside a registry root (e.g. the pocket directory itself, when
+        // `left_pocket -i .` is run from inside an open pocket) maps back to the
+        // pocket that owns it. Matching is symlink-aware: a registry root reached
+        // through a symlinked HOME still resolves.
+        if let Some((root, relative)) = crate::branding::registry_root_containing(path)? {
+            let mut components = relative.components();
+            if let Some(first) = components.next() {
+                let first = first.as_os_str().to_string_lossy().to_string();
+                let (temporary, hash) = if first == "temporary" {
+                    match components.next() {
+                        Some(second) => (true, second.as_os_str().to_string_lossy().to_string()),
+                        None => (true, String::new()),
+                    }
+                } else {
+                    (false, first)
+                };
 
-            if path.starts_with(&temporary_spocket_dir) {
-                let relative = path.strip_prefix(&temporary_spocket_dir).unwrap();
-                if let Some(hash_component) = relative.components().next() {
-                    let hash = hash_component.as_os_str().to_string_lossy().to_string();
-                    let pocket_dir = temporary_spocket_dir.join(&hash);
+                if !hash.is_empty() {
+                    let pocket_dir = if temporary {
+                        root.join("temporary").join(&hash)
+                    } else {
+                        root.join(&hash)
+                    };
                     if let Some((_, core_paths)) =
                         Workspace::load_manifest_or_backfill(&pocket_dir)?
                     {
+                        let temporary = Manifest::load(&pocket_dir)?
+                            .map(|manifest| manifest.temporary)
+                            .unwrap_or(temporary);
                         return Ok(Some(Workspace {
                             hash,
                             core_paths,
                             sidecar_paths: vec![],
                             pocket_dir,
                             create_readmes: false,
-                            temporary: true,
-                        }));
-                    }
-                }
-            }
-
-            if path.starts_with(&spocket_dir) {
-                let relative = path.strip_prefix(&spocket_dir).unwrap();
-                if let Some(hash_component) = relative.components().next() {
-                    let hash = hash_component.as_os_str().to_string_lossy().to_string();
-                    if hash == "temporary" {
-                        continue;
-                    }
-                    let pocket_dir = spocket_dir.join(&hash);
-                    if let Some((_, core_paths)) =
-                        Workspace::load_manifest_or_backfill(&pocket_dir)?
-                    {
-                        return Ok(Some(Workspace {
-                            hash,
-                            core_paths,
-                            sidecar_paths: vec![],
-                            pocket_dir,
-                            create_readmes: false,
-                            temporary: false,
+                            temporary,
                         }));
                     }
                 }
@@ -855,11 +850,35 @@ fn find_existing_workspace_for_paths(paths: &[PathBuf]) -> Result<Option<Workspa
     Ok(None)
 }
 
+/// Refuse to create a brand-new pocket whose core paths live inside a known
+/// left_pocket registry root (`~/.left_pocket`, legacy `~/.safe_pocket`, …).
+///
+/// A pocket-of-a-pocket is never intended: it can only arise from running
+/// `left_pocket -i .` inside a pocket directory whose owning pocket could not
+/// be resolved (missing/corrupt manifest), or from an explicit `--new` in the
+/// same situation. Historically this led to the original pocket being treated
+/// as a *project* — and to destructive follow-up operations (smart clone /
+/// heal moving the original pocket aside). Opening an existing pocket from
+/// inside its own directory is fine and is handled earlier; this guard only
+/// blocks *creation*.
+fn ensure_core_paths_outside_registry(core_paths: &[PathBuf]) -> Result<()> {
+    for path in core_paths {
+        if let Some((root, _)) = crate::branding::registry_root_containing(path)? {
+            return Err(anyhow!(
+                "Refusing to create a new pocket for {} because it lives inside the left_pocket registry root {}.\nRun `left_pocket -i {}` to open the existing pocket instead, or repair the pocket's manifest.",
+                path.display(),
+                root.display(),
+                path.display()
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn repair_empty_workspace_paths(
     workspace: &mut Workspace,
     fallback_paths: &[PathBuf],
-) -> Result<()> {
-    if workspace.core_paths.is_empty() && !fallback_paths.is_empty() {
+) -> Result<()> {    if workspace.core_paths.is_empty() && !fallback_paths.is_empty() {
         workspace.core_paths = fallback_paths.to_vec();
     }
 
@@ -920,6 +939,7 @@ fn handle_workspace(cli: Cli) -> Result<()> {
     if let Some(clone_from) = cli.clone_from {
         let source_path = config.resolve_path(&clone_from)?;
 
+        ensure_core_paths_outside_registry(&core_paths)?;
         let mut workspace = Workspace::clone_from(&source_path, &core_paths, cli.temporary)?;
 
         workspace.create_pocket_structure()?;
@@ -965,11 +985,22 @@ fn handle_workspace(cli: Cli) -> Result<()> {
             // If the CLI paths differ from this pocket's core_paths, the user is
             // opening via a registered worktree path. Inject those paths as sidecars
             // so VS Code shows the worktree branch's files alongside the pocket.
-            let existing_path_set: std::collections::HashSet<_> =
-                existing.core_paths.iter().collect();
+            // Two kinds of paths must never become sidecars:
+            //   • paths already contained in a core path (e.g. a subdirectory of
+            //     the project — it is already visible in the workspace), and
+            //   • paths inside a left_pocket registry root (e.g. the pocket
+            //     directory itself, when `left_pocket -i .` is run from inside an
+            //     open pocket). Re-adding the pocket as a "[Sidecar]" folder is
+            //     exactly the double-loading bug.
             let extra_paths: Vec<PathBuf> = core_paths
                 .iter()
-                .filter(|p| !existing_path_set.contains(p))
+                .filter(|p| {
+                    !existing
+                        .core_paths
+                        .iter()
+                        .any(|cp| p == &cp || p.starts_with(cp))
+                })
+                .filter(|p| !crate::branding::is_registry_internal_path(p))
                 .cloned()
                 .collect();
 
@@ -1001,6 +1032,7 @@ fn handle_workspace(cli: Cli) -> Result<()> {
 
     // Create or open workspace
     let create_readmes = !cli.no_readme;
+    ensure_core_paths_outside_registry(&core_paths)?;
     let workspace = Workspace::new_with_options(
         core_paths.clone(),
         sidecar_paths.clone(),
