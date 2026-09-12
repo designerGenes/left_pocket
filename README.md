@@ -893,3 +893,5 @@ left_pocket completions zsh > ~/.zsh/completions/_left_pocket
 - `~/.left_pocket/snapshots/` — Preferred git snapshot of all pockets
 - `~/.left_pocket/global_data/tasks.db` — Preferred global tasks database
 - `~/.config/left_pocket/` — Preferred user configuration and templates
+
+# tiny change here, pay no heed!
