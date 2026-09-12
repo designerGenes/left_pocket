@@ -45,6 +45,13 @@ All notable changes to left_pocket will be documented in this file.
   ID.
 
 ### Fixed
+- **The self-update check no longer installs twice.** After an accepted
+  master pull, the re-run `install.sh` completed and then the *original*
+  `install.sh` resumed and installed a second time (the template prompt
+  appeared twice). The helper runs as a subprocess, so `exec` inside it could
+  never stop the parent; it now reports a sentinel exit status (10 on a
+  successful re-run, otherwise the re-run's own status) and the parent exits
+  immediately instead of continuing.
 - **Double-loading an open pocket is now impossible.** Running `left_pocket -i .`
   from inside an already-open pocket (e.g. in a VS Code integrated terminal
   whose cwd is the pocket folder) previously injected the pocket into its own

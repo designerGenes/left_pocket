@@ -4,14 +4,22 @@
 #
 # Best-effort "is this checkout behind origin/master?" check for install.sh.
 # When the local checkout is behind and the user agrees, this pulls the latest
-# master (--ff-only) and re-execs the (possibly updated) install.sh with its
+# master (--ff-only) and re-runs the (possibly updated) install.sh with its
 # original arguments, so users stay up to date without shipping a compiled
 # binary. Any failure (not a git repo, no origin, offline, diverged/dirty
 # tree) is non-fatal: the script returns 0 and the current checkout installs
 # as before.
 #
-# LEFT_POCKET_INSTALL_UPDATED=1 is set for the re-exec'd run so the check
-# happens at most once per install.
+# Exit status protocol for the calling install.sh:
+#   0  — nothing was re-run; continue installing the current checkout.
+#   10 — the updated install.sh already ran to success; the caller must exit
+#        0 immediately instead of installing a second time. (The helper runs
+#        as a subprocess, so `exec` inside it could never stop the parent —
+#        without this protocol the whole install ran twice.)
+#   *  — the re-run install.sh failed; the exit status is propagated.
+#
+# LEFT_POCKET_INSTALL_UPDATED=1 is set for the re-run so the check happens at
+# most once per install.
 
 set -e
 
@@ -52,7 +60,14 @@ case "$PULL_CHOICE" in
     y|Y)
         if git -C "$REPO_DIR" pull --ff-only origin master; then
             printf '%s\n' 'Re-running the updated install.sh...'
-            LEFT_POCKET_INSTALL_UPDATED=1 exec bash "$TARGET" "$@"
+            UPDATE_STATUS=0
+            LEFT_POCKET_INSTALL_UPDATED=1 bash "$TARGET" "$@" || UPDATE_STATUS=$?
+            if [ "$UPDATE_STATUS" -eq 0 ]; then
+                # The updated install completed; the caller must not install
+                # a second time.
+                exit 10
+            fi
+            exit "$UPDATE_STATUS"
         else
             printf '%s\n' 'Pull failed (diverged or dirty tree); continuing with the current checkout.' >&2
         fi

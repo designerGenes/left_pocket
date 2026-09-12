@@ -149,7 +149,16 @@ done
 # checkout can re-run the updated install.sh instead of building stale code.
 # Placed after argument parsing so --help and argument errors never touch the
 # network; the helper is a no-op outside a git clone or when up to date.
-bash "$SCRIPT_DIR/scripts/offer_master_update.sh" "$SCRIPT_DIR/install.sh" "${ORIGINAL_ARGS[@]}"
+# Exit-status protocol: 0 = nothing was re-run, keep installing; 10 = the
+# updated install.sh already ran to success, so stop here (otherwise the
+# whole install would run twice); anything else = the re-run failed, propagate.
+UPDATE_CHECK=0
+bash "$SCRIPT_DIR/scripts/offer_master_update.sh" "$SCRIPT_DIR/install.sh" "${ORIGINAL_ARGS[@]}" || UPDATE_CHECK=$?
+case "$UPDATE_CHECK" in
+    0) ;;
+    10) exit 0 ;;
+    *) exit "$UPDATE_CHECK" ;;
+esac
 
 if [ -n "$APP_REQUEST" ] || [ -n "$EXTENSION_REQUEST" ]; then
     BUMP_ARGS=(--root "$SCRIPT_DIR")

@@ -1,5 +1,6 @@
 use std::fs;
 use std::io::Write;
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -239,6 +240,14 @@ fn write_stub_install(repo: &Path, marker: &str) {
     .unwrap();
 }
 
+fn write_stub_install_failing(repo: &Path, marker: &str, code: u32) {
+    fs::write(
+        repo.join("install.sh"),
+        format!("#!/bin/bash\nprintf 'stub-install-{marker} args:%s\\n' \"$*\"\nexit {code}\n"),
+    )
+    .unwrap();
+}
+
 /// Build a local "GitHub" stand-in: a bare origin plus a clone whose
 /// scripts/offer_master_update.sh is the real helper. The clone ends up one
 /// commit behind origin/master because a second clone ("pusher") advances the
@@ -312,12 +321,17 @@ fn update_check_pulls_master_and_reexecs_updated_install() {
 
     let output = run_update_check(&clone, &config_global, Some("y\n"));
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(
+        output.status.code(),
+        Some(10),
+        "a successful re-run must report the sentinel 10 so the caller stops:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     assert!(stdout.contains("behind origin/master"), "{stdout}");
     assert!(stdout.contains("Re-running the updated install.sh"), "{stdout}");
     assert!(
         stdout.contains("stub-install-v2 args:--bump-version minor"),
-        "the re-exec must run the pulled install.sh with the original args:\n{stdout}"
+        "the re-run must run the pulled install.sh with the original args:\n{stdout}"
     );
 
     let head = git(&clone, &["rev-parse", "HEAD"], &config_global);
@@ -326,6 +340,32 @@ fn update_check_pulls_master_and_reexecs_updated_install() {
         String::from_utf8_lossy(&head.stdout).trim(),
         String::from_utf8_lossy(&remote.stdout).trim(),
         "accepting the prompt must fast-forward the clone to origin/master"
+    );
+
+    let _ = fs::remove_dir_all(clone.parent().unwrap());
+}
+
+#[test]
+fn update_check_propagates_rerun_failure() {
+    let (_origin, clone, config_global) = update_check_repos("rerun-failure");
+    let pusher = clone.parent().unwrap().join("pusher");
+    // Make the pulled install.sh fail; the helper must propagate its status
+    // instead of reporting the success sentinel.
+    write_stub_install_failing(&pusher, "v2", 3);
+    git_ok(&pusher, &["add", "-A"], &config_global);
+    git_ok(
+        &pusher,
+        &["-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "v2 fails"],
+        &config_global,
+    );
+    git_ok(&pusher, &["push", "origin", "master"], &config_global);
+
+    let output = run_update_check(&clone, &config_global, Some("y\n"));
+    assert_eq!(
+        output.status.code(),
+        Some(3),
+        "a failing re-run must propagate its exit status:\n{}",
+        String::from_utf8_lossy(&output.stderr)
     );
 
     let _ = fs::remove_dir_all(clone.parent().unwrap());
@@ -365,8 +405,101 @@ fn update_check_non_interactive_stdin_defaults_to_decline() {
 }
 
 #[test]
-fn update_check_is_noop_when_up_to_date_or_not_a_repo() {
-    let root = temp_root("noop");
+fn install_runs_exactly_once_after_accepted_master_pull() {
+    // End-to-end regression for the reported bug: after the update check pulls
+    // origin/master and re-runs install.sh, the original install.sh must stop
+    // instead of installing a second time (the template prompt appeared twice).
+    let root = temp_root("e2e");
+    let config_global = root.join("gitconfig");
+    let home = root.join("home");
+    let install_dir = root.join("install");
+    let fake_bin = root.join("bin");
+    let origin = root.join("origin.git");
+    let pusher = root.join("pusher");
+    let clone = root.join("clone");
+    fs::create_dir_all(&home).unwrap();
+    fs::create_dir_all(&fake_bin).unwrap();
+
+    // Fake cargo: "build" a stub left_pocket binary that accepts any args.
+    fs::write(
+        fake_bin.join("cargo"),
+        "#!/bin/bash\nmkdir -p \"$PWD/target/release\"\nprintf '#!/bin/bash\\nexit 0\\n' > \"$PWD/target/release/left_pocket\"\nchmod +x \"$PWD/target/release/left_pocket\"\n",
+    )
+    .unwrap();
+    fs::set_permissions(fake_bin.join("cargo"), fs::Permissions::from_mode(0o755)).unwrap();
+
+    git_ok(&root, &["init", "--bare", origin.to_string_lossy().as_ref()], &config_global);
+    git_ok(&root, &["clone", origin.to_string_lossy().as_ref(), pusher.to_string_lossy().as_ref()], &config_global);
+
+    // The clone carries the REAL install.sh and helper.
+    fs::create_dir_all(pusher.join("scripts")).unwrap();
+    fs::copy(project_root().join("install.sh"), pusher.join("install.sh")).unwrap();
+    fs::copy(
+        project_root().join("scripts/offer_master_update.sh"),
+        pusher.join("scripts/offer_master_update.sh"),
+    )
+    .unwrap();
+    git_ok(&pusher, &["add", "-A"], &config_global);
+    git_ok(
+        &pusher,
+        &["-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "v1"],
+        &config_global,
+    );
+    git_ok(&pusher, &["push", "origin", "master"], &config_global);
+
+    git_ok(&root, &["clone", origin.to_string_lossy().as_ref(), clone.to_string_lossy().as_ref()], &config_global);
+
+    // Advance origin by one innocuous commit so the clone falls behind.
+    fs::write(pusher.join("MARKER"), "v2\n").unwrap();
+    git_ok(&pusher, &["add", "-A"], &config_global);
+    git_ok(
+        &pusher,
+        &["-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "v2"],
+        &config_global,
+    );
+    git_ok(&pusher, &["push", "origin", "master"], &config_global);
+
+    let existing_path = std::env::var("PATH").unwrap_or_default();
+    let mut child = Command::new("bash")
+        .arg(clone.join("install.sh"))
+        .current_dir(&clone)
+        .env("HOME", &home)
+        .env("INSTALL_DIR", &install_dir)
+        .env("PATH", format!("{}:{existing_path}", fake_bin.display()))
+        .env("GIT_CONFIG_GLOBAL", &config_global)
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child.stdin.as_mut().unwrap().write_all(b"y\n").unwrap();
+    let output = child.wait_with_output().unwrap();
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "install.sh failed\nstdout:\n{}\nstderr:\n{}",
+        stdout,
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(stdout.contains("Re-running the updated install.sh"), "{stdout}");
+    assert_eq!(
+        stdout.matches("Building left_pocket").count(),
+        1,
+        "the build must run exactly once, not once per install.sh generation:\n{stdout}"
+    );
+    assert_eq!(
+        stdout.matches("Installation complete.").count(),
+        1,
+        "the install must complete exactly once (the double-install bug printed this twice):\n{stdout}"
+    );
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn update_check_is_noop_when_up_to_date_or_not_a_repo() {    let root = temp_root("noop");
     let config_global = root.join("gitconfig");
     fs::create_dir_all(root.join("scripts")).unwrap();
     fs::copy(
