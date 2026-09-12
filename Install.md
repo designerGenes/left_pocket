@@ -36,7 +36,10 @@ You can also use `cargo install --path .` to install the left_pocket CLI tool, b
 when no value follows. The explicit `--set-*` forms require an exact version.
 Legacy `bump`, `--app(...)`, and `--extension(...)` syntax remains supported.
 
-The installer asks before replacing existing config templates. After installing,
+The installer asks before replacing existing config templates. It also checks
+`origin/master` on every run: if the local checkout is behind, it offers to
+pull the latest master changes and re-run the updated `install.sh` before
+building, so staying current does not require a shipped binary. After installing,
 run the installed-binary operational suite:
 
 ```bash

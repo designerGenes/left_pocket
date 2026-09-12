@@ -23,6 +23,9 @@ usage() {
     printf '\n%s\n' 'Legacy compatibility:'
     printf '%s\n' '  bump, --app, --app(X..|.X.|..X), and'
     printf '%s\n' '  --extension(X..|.X.|..X) remain accepted.'
+    printf '\n%s\n' 'Update check:'
+    printf '%s\n' '  Each run fetches origin/master; if the local checkout is behind, the'
+    printf '%s\n' '  script offers to pull and re-run the updated install.sh before building.'
     printf '\n%s\n' 'Environment:'
     printf '%s\n' '  INSTALL_DIR   Binary destination (default: $HOME/.local/bin).'
 }
@@ -50,6 +53,7 @@ EXTENSION_REQUEST=""
 APP_EXACT=false
 EXTENSION_EXACT=false
 PACKAGE_EXTENSION=false
+ORIGINAL_ARGS=("$@")
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -140,6 +144,12 @@ while [ "$#" -gt 0 ]; do
             ;;
     esac
 done
+
+# Offer to pull the latest origin/master before building, so an outdated
+# checkout can re-run the updated install.sh instead of building stale code.
+# Placed after argument parsing so --help and argument errors never touch the
+# network; the helper is a no-op outside a git clone or when up to date.
+bash "$SCRIPT_DIR/scripts/offer_master_update.sh" "$SCRIPT_DIR/install.sh" "${ORIGINAL_ARGS[@]}"
 
 if [ -n "$APP_REQUEST" ] || [ -n "$EXTENSION_REQUEST" ]; then
     BUMP_ARGS=(--root "$SCRIPT_DIR")

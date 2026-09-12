@@ -32,6 +32,13 @@ All notable changes to left_pocket will be documented in this file.
   `left_pocket.env.md`, `left_pocket.gitignore.md`, agent `left_pocketer`).
 
 ### Added
+- **Self-updating installer.** `install.sh` now fetches `origin/master` on
+  every run; when the local checkout is behind, it offers to pull the latest
+  master changes (`--ff-only`) and re-run the updated `install.sh` with the
+  original arguments before building. The check lives in
+  `scripts/offer_master_update.sh`, is a no-op outside a git clone, when
+  offline, or when up to date, and never touches the network for `--help` or
+  argument errors.
 - **Dynamic pocket logo.** The new pocket-shaped ASCII logo shows the current
   pocket's ID centred inside the pocket whenever left_pocket opens a project
   (`left_pocket -i …`); help and version output show the plain logo without an
